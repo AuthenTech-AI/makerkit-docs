@@ -1,0 +1,398 @@
+---
+status: "published"
+title: "Extending Admin"
+label: "Extending Admin"
+order: 5
+description: "Add custom pages, actions, and features to the admin panel."
+---
+
+Extend MakerKit's admin panel by adding custom pages, server actions, and components. The five-step process: create a page component in `packages/admin`, add a protected data loader with `requireAdmin()`, export from package.json, create a Next.js route, and add to the sidebar. All admin extensions inherit the security model automatically when using `adminActionClient` and `withAdminPermission()`.
+
+> Always add `requireAdmin()` to loaders and use `adminActionClient` for actions. Client-side checks are for UI only, not security.
+
+## Adding Admin Pages
+
+### Step 1: Create Page Component
+
+Create your page component in the admin package:
+
+```typescript {% title="packages/admin/src/reports/page.tsx" %}
+import { AppBreadcrumbs } from '@kit/ui/app-breadcrumbs';
+import { PageBody, PageHeader } from '@kit/ui/page';
+
+import { ReportsTable } from './components/reports-table';
+import { loadReportsData } from './lib/loaders/reports.loader';
+
+export async function AdminReportsPage() {
+  const data = await loadReportsData();
+
+  return (
+    <PageBody>
+      <PageHeader>
+        <AppBreadcrumbs />
+      </PageHeader>
+
+      <ReportsTable data={data} />
+    </PageBody>
+  );
+}
+```
+
+### Step 2: Create Data Loader
+
+Protect your data loader with `requireAdmin`:
+
+```typescript {% title="packages/admin/src/reports/lib/loaders/reports.loader.ts" %}
+import 'server-only';
+import { cache } from 'react';
+import { requireAdmin } from '@kit/auth/require-admin';
+
+export interface ReportsPageData {
+  reports: Array<{
+    id: string;
+    title: string;
+    createdAt: Date;
+    status: 'pending' | 'resolved';
+  }>;
+  total: number;
+}
+
+export const loadReportsData = cache(async (): Promise<ReportsPageData> => {
+  await requireAdmin();
+
+  // Fetch your data
+  const reports = await prisma.report.findMany({
+    orderBy: { createdAt: 'desc' },
+    take: 25,
+  });
+
+  return {
+    reports,
+    total: reports.length,
+  };
+});
+```
+
+### Step 3: Add Package Export
+
+Add the export path to the package configuration:
+
+```json {% title="packages/admin/package.json" %}
+{
+  "exports": {
+    "./dashboard": "./src/dashboard/page.tsx",
+    "./users": "./src/users/page.tsx",
+    "./organizations": "./src/organizations/page.tsx",
+    "./reports": "./src/reports/page.tsx"
+  }
+}
+```
+
+### Step 4: Create Route
+
+Create the Next.js route in the app:
+
+```typescript {% title="apps/web/app/[locale]/admin/reports/page.tsx" %}
+import { AdminReportsPage } from '@kit/admin/reports';
+
+export default function Page() {
+  return <AdminReportsPage />;
+}
+```
+
+### Step 5: Add to Sidebar
+
+Update the sidebar configuration:
+
+```typescript {% title="packages/admin/src/admin-sidebar.tsx" %}
+import { FileText, Home, Users, Building2 } from 'lucide-react';
+
+const config = {
+  routes: [
+    {
+      label: 'Overview',
+      children: [
+        {
+          label: 'Dashboard',
+          path: '/admin',
+          Icon: <Home className="h-4 w-4" />,
+          highlightMatch: '^/admin$',
+        },
+      ],
+    },
+    {
+      label: 'Management',
+      children: [
+        {
+          label: 'Users',
+          path: '/admin/users',
+          Icon: <Users className="h-4 w-4" />,
+          highlightMatch: '^/admin/users$',
+        },
+        {
+          label: 'Organizations',
+          path: '/admin/organizations',
+          Icon: <Building2 className="h-4 w-4" />,
+          highlightMatch: '^/admin/organizations$',
+        },
+        // Add your new item
+        {
+          label: 'Reports',
+          path: '/admin/reports',
+          Icon: <FileText className="h-4 w-4" />,
+          highlightMatch: '^/admin/reports',
+        },
+      ],
+    },
+  ],
+};
+```
+
+## Creating Server Actions
+
+### Basic Admin Action
+
+Use `adminActionClient` for automatic admin verification:
+
+```typescript {% title="packages/admin/src/reports/lib/actions/reports-server-actions.ts" %}
+'use server';
+
+import { z } from 'zod';
+import { revalidatePath } from 'next/cache';
+import { adminActionClient } from '@kit/action-middleware';
+import { getLogger } from '@kit/shared/logger';
+
+const resolveReportSchema = z.object({
+  reportId: z.string().min(1),
+  resolution: z.string().min(10),
+});
+
+export const resolveReportAction = adminActionClient
+  .inputSchema(resolveReportSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    const logger = await getLogger();
+    const { reportId, resolution } = parsedInput;
+    const { user } = ctx;  // Guaranteed to be admin
+
+    try {
+      await prisma.report.update({
+        where: { id: reportId },
+        data: {
+          status: 'resolved',
+          resolution,
+          resolvedBy: user.id,
+          resolvedAt: new Date(),
+        },
+      });
+
+      logger.info({ reportId, adminId: user.id }, 'Report resolved');
+
+      revalidatePath('/admin/reports');
+
+      return { success: true };
+    } catch (error) {
+      logger.error({ error, reportId }, 'Failed to resolve report');
+      throw new Error('Failed to resolve report');
+    }
+  });
+```
+
+### Action with Permission Check
+
+Add granular permission requirements:
+
+```typescript
+'use server';
+
+import { adminActionClient, withAdminPermission } from '@kit/action-middleware';
+
+export const deleteReportAction = adminActionClient
+  .use(withAdminPermission({ reports: ['delete'] }))
+  .inputSchema(deleteReportSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    // Only admins with 'reports:delete' permission reach here
+    await prisma.report.delete({
+      where: { id: parsedInput.reportId },
+    });
+    revalidatePath('/admin/reports');
+    return { success: true };
+  });
+```
+
+Don't forget to register the permission in your RBAC config:
+
+```typescript {% title="packages/rbac/src/admin-rbac.config.ts" %}
+export default defineAdminRBACConfig({
+  resources: {
+    REPORTS: 'reports',
+  },
+  accessController: {
+    reports: ['list', 'view', 'resolve', 'delete'],
+  },
+});
+```
+
+## Using Actions in Components
+
+### With next-safe-action Hook
+
+```typescript
+'use client';
+
+import { useAction } from 'next-safe-action/hooks';
+import { toast } from 'sonner';
+import { Button } from '@kit/ui/button';
+
+import { resolveReportAction } from '../lib/actions/reports-server-actions';
+
+interface ResolveReportButtonProps {
+  reportId: string;
+  onSuccess?: () => void;
+}
+
+export function ResolveReportButton({
+  reportId,
+  onSuccess,
+}: ResolveReportButtonProps) {
+  const { execute, status } = useAction(resolveReportAction, {
+    onSuccess: () => {
+      toast.success('Report resolved');
+      onSuccess?.();
+    },
+    onError: ({ error }) => {
+      toast.error(error.serverError ?? 'Failed to resolve report');
+    },
+  });
+
+  const isPending = status === 'executing';
+
+  return (
+    <Button
+      disabled={isPending}
+      onClick={() => execute({ reportId, resolution: 'Resolved by admin' })}
+    >
+      {isPending ? 'Resolving...' : 'Resolve'}
+    </Button>
+  );
+}
+```
+
+### With Permission-Based UI
+
+```typescript
+'use client';
+
+import { useAdminPermissions } from '@kit/admin/hooks/use-admin-permissions';
+
+export function ReportActions({ reportId }: { reportId: string }) {
+  const { hasPermission, isLoading } = useAdminPermissions();
+
+  if (isLoading) return <Spinner />;
+
+  return (
+    <div className="flex gap-2">
+      {hasPermission({ reports: ['resolve'] }) && (
+        <ResolveReportButton reportId={reportId} />
+      )}
+
+      {hasPermission({ reports: ['delete'] }) && (
+        <DeleteReportButton reportId={reportId} />
+      )}
+    </div>
+  );
+}
+```
+
+## Admin Protection Layers
+
+### 1. Route Middleware
+
+The middleware in `apps/web/middleware.ts` blocks non-admin access to `/admin/*` routes automatically.
+
+### 2. Server Components
+
+Use `requireAdmin` in server components and loaders:
+
+```typescript
+import { requireAdmin } from '@kit/auth/require-admin';
+
+export async function AdminOnlyComponent() {
+  await requireAdmin();  // Redirects if not admin
+  return <div>Admin content</div>;
+}
+```
+
+### 3. Server Actions
+
+Use `adminActionClient` for all admin actions:
+
+```typescript
+import { adminActionClient } from '@kit/action-middleware';
+
+export const adminOnlyAction = adminActionClient
+  .inputSchema(schema)
+  .action(async ({ ctx }) => {
+    // ctx.user is guaranteed to be admin
+  });
+```
+
+### 4. Permission Middleware
+
+Add granular checks with `withAdminPermission`:
+
+```typescript
+import { adminActionClient, withAdminPermission } from '@kit/action-middleware';
+
+export const restrictedAction = adminActionClient
+  .use(withAdminPermission({ resource: ['action'] }))
+  .inputSchema(schema)
+  .action(async ({ ctx }) => {
+    // Only admins with specific permission reach here
+  });
+```
+
+### 5. Client-Side Checks
+
+Use for UI rendering only (not security):
+
+```typescript
+import { isAdminRole } from '@kit/auth/is-admin-role';
+import { useAdminPermissions } from '@kit/admin/hooks/use-admin-permissions';
+
+// Role check
+if (isAdminRole(user.role)) {
+  // Show admin UI
+}
+
+// Permission check
+const { hasPermission } = useAdminPermissions();
+if (hasPermission({ reports: ['delete'] })) {
+  // Show delete button
+}
+```
+
+## Key Imports Reference
+
+| Import | Package | Purpose |
+|--------|---------|---------|
+| `requireAdmin` | `@kit/auth/require-admin` | Server-side admin check with redirect |
+| `isUserAdmin` | `@kit/auth/require-admin` | Server-side admin check without redirect |
+| `adminActionClient` | `@kit/action-middleware` | Protected action client |
+| `withAdminPermission` | `@kit/action-middleware` | Permission middleware |
+| `isAdminRole` | `@kit/auth/is-admin-role` | Client-safe role check |
+| `useAdminPermissions` | `@kit/admin/hooks/use-admin-permissions` | Client permission hook |
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Do I need to add middleware protection for new admin routes?", "answer": "No. The middleware in apps/web/middleware.ts automatically blocks non-admin access to all /admin/* routes. Just add requireAdmin() to your loaders as a second layer."},
+     {"question": "How do I add a new permission for my custom admin feature?", "answer": "Add the resource and actions to defineAdminRBACConfig() in packages/rbac/src/admin-rbac.config.ts, then use withAdminPermission() in your server actions."},
+     {"question": "Can I use regular actionClient instead of adminActionClient?", "answer": "Technically yes, but don't. adminActionClient automatically verifies admin role before executing. Using regular actionClient bypasses this check."},
+     {"question": "Why use isAdminRole client-side if it's not for security?", "answer": "For UX. Hide admin UI elements from non-admins to avoid confusion. Server-side checks via adminActionClient still enforce actual security."},
+     {"question": "How do I test my admin extension locally?", "answer": "Run pnpm seed to create admin1@makerkit.dev with password testingpassword. Sign in and navigate to your new admin route."}
+   ]
+/%}
+
+---
+
+**Previous:** [RBAC Permissions](./rbac-permissions)

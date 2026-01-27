@@ -1,0 +1,626 @@
+---
+status: "published"
+title: "Next.js 16 SaaS Architecture: Technologies & Patterns"
+label: "Architecture & Technologies"
+order: 0
+description: "Understand the technologies, architecture, and patterns used in Makerkit: Next.js 16 App Router, React 19 Server Components, Better Auth, Drizzle ORM, and Stripe billing."
+---
+
+Before building TeamPulse, let's understand what Makerkit provides and how it's structured. This foundation will help you navigate the codebase and understand the patterns you'll use throughout the course.
+---
+
+## What is Makerkit?
+
+Makerkit is a **SaaS starter kit** that provides the foundational features every SaaS application needs:
+
+- **Authentication** - Sign up, sign in, password reset, OAuth, MFA
+- **Multi-tenancy** - Organizations, team members, invitations
+- **Billing** - Subscriptions, checkout, customer portal
+- **Admin Dashboard** - User management, metrics, impersonation
+- **Email** - Transactional emails with templates
+- **Settings** - User profile, organization settings, preferences
+
+Instead of building these from scratch, you start with a working foundation and customize for your specific product.
+
+### B2B vs B2C Modes
+
+Makerkit supports two account modes:
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| **B2B (organizations-only)** | Users belong to organizations | Team collaboration tools, business software |
+| **B2C (personal-accounts-only)** | Users have individual accounts | Consumer apps, personal tools |
+| **Hybrid** | Users can have both | Platforms with personal and team features |
+
+In this course, we use **B2B mode** for TeamPulse - a team feedback tool.
+
+---
+
+## Core Technologies
+
+Makerkit combines modern technologies that work together to provide a solid foundation for building production-ready SaaS applications. Each choice prioritizes developer experience, type safety, and long-term maintainability.
+
+### The Stack
+
+- **Frontend** - Next.js 16 with App Router, React 19, TypeScript, Tailwind CSS 4, shadcn/ui + Base UI + Lucide Icons
+- **UI Components** - shadcn/ui + Base UI + Lucide Icons
+- **Authentication** - Better Auth
+- **Database** - Drizzle ORM (by default) + PostgreSQL (by default)
+- **Payments** - Stripe (by default)
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Frontend                              │
+│  Next.js 16 + React 19 + TypeScript + Tailwind CSS 4    │
+├─────────────────────────────────────────────────────────┤
+│                    UI Components                         │
+│           shadcn/ui + Base UI + Lucide Icons           │
+├─────────────────────────────────────────────────────────┤
+│       Authentication + Subscriptions + Multi-tenancy     │
+│                    Better Auth                           │
+├─────────────────────────────────────────────────────────┤
+│                    Database                              │
+│              Drizzle ORM + PostgreSQL                    │
+├─────────────────────────────────────────────────────────┤
+│                    Payments                              │
+│                      Stripe                              │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Next.js 16 with App Router
+
+Next.js handles routing, rendering, and the full-stack capabilities of the application. The App Router architecture uses file-based routing where folder structure maps directly to URL paths, making navigation intuitive to reason about.
+
+Server Components run on the server by default, which means you can fetch data directly without building separate API endpoints. Server Actions extend this by letting you call server functions from forms and event handlers. Streaming with Suspense progressively renders content as data becomes available, keeping the interface responsive.
+
+### React 19
+
+React 19 brings native support for Server Components and Server Actions into the core framework. Components are server-rendered by default, which reduces the JavaScript shipped to browsers and simplifies data fetching. When you need interactivity, you mark components with `'use client'` to opt into client-side rendering.
+
+Form handling becomes straightforward with built-in pending states - React automatically tracks when an action is in progress, so you can show loading indicators without managing that state yourself.
+
+### TypeScript
+
+TypeScript provides end-to-end type safety throughout the stack. Drizzle generates types from your database schema, so queries and results are fully typed. Zod schemas validate data at runtime while providing compile-time types for your API boundaries. Form libraries like react-hook-form integrate with these schemas, catching errors before they reach users.
+
+This tight integration means most bugs surface during development rather than production.
+
+### Tailwind CSS 4 + shadcn/ui + Base UI + Lucide Icons
+
+The styling layer combines Tailwind CSS for utility-first styling with shadcn/ui for pre-built, accessible components. shadcn/ui components live in your codebase - you own them and can customize freely. Base UI provides headless primitives when you need full control over styling without sacrificing accessibility. Lucide Icons rounds out the visual layer with a consistent icon set.
+
+### Better Auth
+
+Better Auth handles the entire authentication and authorization layer. It supports email/password authentication alongside OAuth providers like Google and GitHub. Security features include multi-factor authentication with TOTP and secure session management.
+
+Beyond basic auth, Better Auth manages organizations and teams with role-based access control built in. It even handles subscription management, syncing billing status with your payment provider through webhooks. This means authentication, authorization, and billing all flow through a single, cohesive system.
+
+### Drizzle ORM
+
+Drizzle takes a different approach from traditional ORMs. You define your schema in TypeScript, and Drizzle generates migrations automatically. The query builder feels like writing SQL but with full type safety - if you know SQL, you already know Drizzle.
+
+Unlike heavier ORMs that abstract away the database, Drizzle gives you direct access to PostgreSQL's capabilities when you need them. Queries are predictable because they map closely to the SQL being generated.
+
+### PostgreSQL
+
+PostgreSQL serves as the relational database. It handles complex queries, transactions, and data integrity with strong reliability. While Makerkit defaults to PostgreSQL, Drizzle supports other databases if your use case requires something different.
+
+### Stripe
+
+Stripe powers the billing infrastructure, handling subscriptions, payment methods, and checkout flows. The integration syncs automatically with Better Auth through webhooks, so subscription status stays current without manual intervention.
+
+---
+
+## Turborepo & Monorepo Structure
+
+Makerkit uses a **monorepo** - multiple packages in one repository, managed by **Turborepo**.
+
+### Why a Monorepo?
+
+- **Code Sharing** - Reuse packages across apps
+- **Consistent Tooling** - Same linting, formatting, TypeScript config
+- **Atomic Changes** - Update related code together
+- **Simplified Dependencies** - One `pnpm install` for everything
+
+### How Turborepo Works
+
+Turborepo orchestrates tasks across packages:
+
+```bash
+pnpm dev       # Starts all apps in development
+pnpm typecheck # Type-checks all packages
+pnpm lint:fix      # Lints all packages
+pnpm format:fix    # Formats all code
+```
+
+**Key features:**
+- **Task Caching** - Skips unchanged packages
+- **Parallel Execution** - Runs independent tasks concurrently
+- **Dependency Graph** - Builds packages in correct order
+
+### Package Structure
+
+```
+makerkit/
+├── apps/
+│   ├── web/                    # Main Next.js application
+│   └── e2e/                    # Playwright end-to-end tests
+│
+├── packages/
+│   ├── ui/                     # shadcn/ui components
+│   ├── database/               # Drizzle schema & migrations
+│   ├── better-auth/            # Auth configuration & plugins
+│   ├── auth/                   # Auth utilities & context
+│   ├── action-middleware/      # Server action middleware
+│   ├── billing/                # Payment provider abstraction
+│   │   ├── api/               # Billing API client
+│   │   ├── config/            # Billing configuration
+│   │   ├── core/              # Core billing types
+│   │   ├── stripe/            # Stripe integration (includes hooks)
+│   │   ├── polar/             # Polar integration
+│   │   └── ui/                # Billing UI components
+│   ├── email-templates/        # React Email templates
+│   ├── mailers/                # Email sending (Resend, Nodemailer)
+│   ├── rbac/                   # Role-based access control
+│   ├── account/                # Account management
+│   │   ├── core/              # Account core logic
+│   │   ├── hooks/             # Account lifecycle hooks
+│   │   └── ui/                # Account UI components
+│   ├── organization/           # Organization management
+│   │   ├── core/              # Organization core logic
+│   │   ├── hooks/             # Organization lifecycle hooks
+│   │   ├── policies/          # Organization policies
+│   │   └── ui/                # Organization UI components
+│   ├── admin/                  # Admin dashboard
+│   ├── i18n/                   # Internationalization
+│   ├── monitoring/             # Error tracking (Sentry)
+│   ├── analytics/              # Analytics integration
+│   ├── storage/                # File storage
+│   ├── otp/                    # One-time passwords
+│   ├── policies/               # Access policies
+│   ├── cms/                    # Content management
+│   └── shared/                 # Shared utilities
+│
+├── turbo.json                  # Turborepo configuration
+├── pnpm-workspace.yaml         # Workspace definition
+└── package.json                # Root dependencies
+```
+
+### Package Dependencies
+
+This simplified view shows how the main packages relate. The full dependency graph includes over 24 packages, but these core relationships illustrate how the layers connect.
+
+```
+                    ┌─────────────┐
+                    │   apps/web  │
+                    └──────┬──────┘
+                           │
+         ┌─────────────────┼─────────────────┐
+         │                 │                 │
+         ▼                 ▼                 ▼
+    ┌─────────┐      ┌──────────┐     ┌──────────┐
+    │   ui    │      │  admin   │     │ billing  │
+    └─────────┘      └────┬─────┘     └────┬─────┘
+                          │                 │
+                          ▼                 ▼
+                    ┌──────────┐      ┌──────────┐
+                    │  auth    │      │ database │
+                    └────┬─────┘      └──────────┘
+                         │
+                         ▼
+                   ┌────────────┐
+                   │better-auth │
+                   └────────────┘
+```
+
+---
+
+## Application Architecture
+
+### Request Flow
+
+```
+┌──────────┐     ┌──────────────┐     ┌─────────────┐     ┌──────────┐
+│ Browser  │────▶│   Next.js    │────▶│ Better Auth │────▶│ Database │
+│          │◀────│ App Router   │◀────│   Session   │◀────│PostgreSQL│
+└──────────┘     └──────────────┘     └─────────────┘     └──────────┘
+```
+
+1. **Browser** makes request to Next.js route
+2. **Next.js** handles routing, renders Server Components
+3. **Better Auth** validates session, provides user context
+4. **Database** stores and retrieves data via Drizzle
+
+### Multi-Tenancy Model
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                        User                              │
+│                   (authentication)                       │
+└─────────────────────────┬───────────────────────────────┘
+                          │
+                          │ belongs to (via membership)
+                          ▼
+┌─────────────────────────────────────────────────────────┐
+│                    Organization                          │
+│                  (tenant boundary)                       │
+├─────────────────────────────────────────────────────────┤
+│  Members    │   Invitations   │   Subscription          │
+├─────────────────────────────────────────────────────────┤
+│                    Application Data                      │
+│              (scoped to organization)                    │
+└─────────────────────────────────────────────────────────┘
+```
+
+- **Users** can belong to multiple organizations
+- **Organizations** are the tenant boundary
+- **All data** is scoped to organizations
+- **Members** have roles (owner, admin, member)
+
+### Billing Flow
+
+```
+┌──────────────┐     ┌─────────────┐     ┌──────────┐
+│ Organization │────▶│   Stripe    │────▶│ Checkout │
+│   Billing    │     │   Checkout  │     │  Page    │
+└──────────────┘     └─────────────┘     └────┬─────┘
+                                              │
+                                              │ payment
+                                              ▼
+┌──────────────┐     ┌─────────────┐     ┌──────────┐
+│   Database   │◀────│   Webhook   │◀────│  Stripe  │
+│ Subscription │     │   Handler   │     │  Events  │
+└──────────────┘     └─────────────┘     └──────────┘
+```
+
+1. User initiates checkout from billing page
+2. Stripe Checkout handles payment
+3. Stripe sends webhook events
+4. Webhook handler updates subscription in database
+
+Better Auth manages the webhook handlers automatically, keeping subscription data in sync without extra configuration.
+
+---
+
+## Key Patterns
+
+### Server Components vs Client Components
+
+```typescript
+// Server Component (default) - fetches data on server
+// renders only on the server side
+export default async function DashboardPage() {
+  const data = await fetchDashboardData(); // Direct DB access
+  return <Dashboard data={data} />;
+}
+
+// Client Component - interactive UI
+// renders both on the server and the client side (hydrated)
+'use client';
+export function Counter() {
+  const [count, setCount] = useState(0);
+  return <button onClick={() => setCount(c => c + 1)}>{count}</button>;
+}
+```
+
+**Use Server Components for:**
+- Data fetching
+- Accessing backend resources
+- Keeping sensitive logic server-side
+
+**Use Client Components for:**
+- Interactivity (onClick, onChange)
+- Browser APIs
+- React hooks (useState, useEffect)
+
+### Server Actions with next-safe-action
+
+```typescript
+// Define action with validation
+export const updateProfileAction = authenticatedActionClient
+  .inputSchema(UpdateProfileSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    const { user } = ctx;
+
+    await db.update(users)
+      .set({ name: parsedInput.name })
+      .where(eq(users.id, user.id));
+
+    revalidatePath('/settings');
+    return { success: true };
+  });
+
+// Use in component
+const { execute, status } = useAction(updateProfileAction);
+const isPending = status === 'executing';
+```
+
+### Data Loading Pattern
+
+React's `cache` function deduplicates data fetching on the server. When multiple components call the same loader function during a single request, the data fetches only once and gets reused. This lets you call loaders wherever you need the data without worrying about redundant database queries.
+
+```typescript
+// Loader function (cached, server-side)
+export const loadDashboardData = cache(async () => {
+  const orgId = await requireActiveOrganizationId();
+  
+  return db.query.board.findMany({
+    where: eq(board.organizationId, orgId),
+  });
+});
+
+// Page component
+export default async function DashboardPage() {
+  const data = await loadDashboardData();
+  return <DashboardView data={data} />;
+}
+```
+
+---
+
+## Feature Overview
+
+### Authentication
+
+| Feature | Implementation |
+|---------|---------------|
+| Email/Password | Better Auth credential provider |
+| OAuth | Google, GitHub, etc. via Better Auth |
+| Magic Links | Passwordless sign-in |
+| MFA/2FA | TOTP with authenticator apps |
+| Password Reset | Email-based recovery |
+| Email Verification | Required before access |
+
+### Organizations & Teams
+
+| Feature | Implementation |
+|---------|---------------|
+| Create Organization | Auto on signup or manual |
+| Invite Members | Email invitations with role |
+| Role Hierarchy | Owner > Admin > Member |
+| Remove Members | With permission checks |
+| Transfer Ownership | Owner can transfer |
+
+### Billing & Subscriptions
+
+| Feature | Implementation |
+|---------|---------------|
+| Checkout | Stripe Checkout sessions |
+| Subscriptions | Monthly/yearly plans |
+| Plan Limits | Seat-based or feature-based |
+| Customer Portal | Manage payment methods |
+| Webhooks | Automatic status updates |
+
+### Admin Dashboard
+
+| Feature | Implementation |
+|---------|---------------|
+| User Management | List, search, filter users |
+| Ban/Unban | Block user access |
+| Impersonation | Act as user temporarily |
+| Metrics | User counts, session stats |
+| Organization View | Browse all organizations |
+
+---
+
+## Project Files Overview
+
+### Key Directories
+
+| Path | Purpose |
+|------|---------|
+| `apps/web/app/` | Next.js routes and pages |
+| `apps/web/config/` | Application configuration |
+| `apps/web/lib/` | App-specific utilities |
+| `packages/ui/src/` | Shared UI components |
+| `packages/database/src/` | Database schema |
+
+### Important Files
+
+| File | Purpose |
+|------|---------|
+| `apps/web/.env.local` | Environment variables (secrets) |
+| `apps/web/config/app.config.ts` | App settings validation |
+| `apps/web/config/auth.config.ts` | OAuth providers config |
+| `apps/web/config/account-mode.config.ts` | Account mode (B2B/B2C) settings |
+| `apps/web/config/feature-flags.config.ts` | Feature toggles |
+| `apps/web/app/[locale]/(internal)/_config/navigation.config.tsx` | Sidebar navigation |
+| `packages/database/src/schema/` | Database tables |
+| `packages/billing/config/src/config.ts` | Pricing plans |
+
+### Route Structure
+
+> **Note:** This shows the key route groups. Each group contains additional sub-routes.
+
+```
+apps/web/app/[locale]/
+├── (public)/              # Public pages
+│   ├── page.tsx           # Home page
+│   ├── blog/              # Blog pages
+│   ├── faq/               # FAQ page
+│   ├── changelog/         # Changelog pages
+│   ├── password-reset/    # Password reset flow
+│   └── (legal)/           # Legal pages (privacy, terms)
+├── auth/                  # Auth pages (sign-in, sign-up, verify, password-reset)
+├── (internal)/            # Protected app pages
+│   ├── dashboard/         # User dashboard
+│   ├── settings/          # Account settings
+│   │   ├── billing/       # Subscription management
+│   │   ├── members/       # Team members
+│   │   ├── organization/  # Organization settings
+│   │   ├── preferences/   # User preferences
+│   │   └── security/      # Security settings (MFA, sessions)
+│   └── password-reset/    # Password reset flow (authenticated)
+├── admin/                 # Admin pages (NOT under (internal))
+│   ├── users/             # User management
+│   └── organizations/     # Organization management
+└── (invitation)/          # Invitation acceptance
+
+apps/web/app/api/          # API routes (NOT under [locale])
+├── auth/[...all]/         # Better Auth endpoints
+└── version/               # Version endpoint
+```
+
+---
+
+## Environment Variables
+
+Environment variables control application behavior. See `.env.local.example` for the complete list.
+
+### Public Variables (exposed to browser)
+
+Variables prefixed with `NEXT_PUBLIC_` are bundled into the client-side JavaScript. Use these for non-sensitive configuration like site URLs and publishable API keys.
+
+```bash
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+NEXT_PUBLIC_ACCOUNT_MODE=organizations-only  # or: personal-only, hybrid
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_...
+```
+
+The `NEXT_PUBLIC_ACCOUNT_MODE` values control the app mode:
+- `organizations-only` - B2B mode, users must belong to an organization
+- `personal-only` - B2C mode, personal accounts only
+- `hybrid` - Mixed mode, supports both
+
+### Private Variables (server-only)
+
+Variables without the `NEXT_PUBLIC_` prefix remain server-side only. Store secrets and credentials here.
+
+```bash
+DATABASE_URL=postgresql://...
+BETTER_AUTH_SECRET=random-32-char-secret
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+```
+
+---
+
+## Common Commands
+
+### Development
+
+```bash
+# Start all services (database, mail, app)
+pnpm dev
+
+# Start only the web app (if services already running)
+pnpm --filter web dev
+```
+
+### Code Quality
+
+```bash
+# Type-check all packages
+pnpm typecheck
+
+# Type-check specific package
+pnpm --filter web typecheck
+pnpm --filter @kit/database typecheck
+
+# Lint and auto-fix issues
+pnpm lint:fix
+
+# Format code with Prettier
+pnpm format:fix
+```
+
+### Database
+
+```bash
+# Generate migration files
+pnpm --filter @kit/database drizzle:generate
+
+# Run migrations
+pnpm --filter @kit/database drizzle:migrate
+
+# Open Drizzle Studio (database UI)
+pnpm --filter @kit/database drizzle:studio
+
+# Seed the database with mock data
+pnpm seed
+```
+
+### Testing
+
+```bash
+# Run E2E tests
+pnpm --filter web-e2e test
+
+# Run E2E tests with UI
+pnpm --filter web-e2e test:ui
+```
+
+### Installing Dependencies
+
+```bash
+# Install all dependencies
+pnpm install
+
+# Add dependency to specific package
+pnpm --filter web add package-name
+pnpm --filter @kit/ui add package-name
+```
+
+### Useful Shortcuts
+
+| Command | What it does |
+|---------|--------------|
+| `pnpm dev` | Start everything for development |
+| `pnpm typecheck` | Verify TypeScript is happy |
+| `pnpm lint:fix` | Fix linting issues automatically |
+| `pnpm format:fix` | Format all code consistently |
+| `pnpm build` | Build for production |
+
+### Development Workflow
+
+A typical workflow after making changes:
+
+```bash
+# 1. Make your code changes
+
+# 2. Check for TypeScript errors
+pnpm typecheck
+
+# 3. Fix linting issues
+pnpm lint:fix
+
+# 4. Format code
+pnpm format:fix
+
+# 5. Test locally
+pnpm dev
+```
+
+---
+
+## Ready to Build
+
+You now understand:
+
+- What Makerkit provides out of the box
+- The technology stack and why each piece was chosen
+- How the monorepo is structured with Turborepo
+- The application architecture and data flow
+- Key patterns for building features
+- Where to find things in the codebase
+
+**Next:** In Module 1, you'll set up your development environment and configure TeamPulse as a B2B application.
+
+---
+
+## Frequently Asked Questions
+
+{% faq
+   title="Architecture FAQ"
+   items=[
+     {"question": "Why does Makerkit use Better Auth instead of NextAuth or Clerk?", "answer": "Better Auth provides a unified solution for authentication, organizations, and billing that keeps all data in your database. Unlike Clerk (external service) or NextAuth (auth-only), Better Auth handles multi-tenancy and subscription management out of the box with full TypeScript support."},
+     {"question": "Can I use MySQL or SQLite instead of PostgreSQL?", "answer": "Drizzle ORM supports multiple databases, but Makerkit is optimized for PostgreSQL. You can switch to MySQL or SQLite by following the migration guides in the documentation."},
+     {"question": "Why Server Components by default instead of Client Components?", "answer": "Server Components reduce JavaScript bundle size, enable direct database access without APIs, and improve initial page load. You only opt into Client Components when you need interactivity (useState, event handlers). This is React 19's recommended architecture."},
+     {"question": "How does the monorepo structure benefit my project?", "answer": "Packages are reusable across apps, types are shared automatically, and you can modify any part of Makerkit directly. Unlike npm packages you can't edit, monorepo packages give you full control while maintaining clean separation of concerns."},
+     {"question": "What's the learning curve if I'm coming from a traditional React SPA?", "answer": "The biggest shift is thinking in Server vs Client Components. Data fetching moves from useEffect to async components. Forms use Server Actions instead of API routes. Budget 2-3 days to internalize these patterns, then it becomes natural."}
+   ]
+/%}
+
+---
+
+Next: [Setup & Configuration](./setup-and-configuration)

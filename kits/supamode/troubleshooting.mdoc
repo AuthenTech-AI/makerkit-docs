@@ -1,10 +1,30 @@
 ---
 status: "published"
-title: "Troubleshooting"
+title: "Troubleshooting Supamode"
 label: "Troubleshooting"
 order: 5
-description: "Understanding how to troubleshoot Supamode"
+description: "Solutions to common Supamode issues including sign-in problems, missing tables, API errors, and deployment issues."
 collapsed: true
 collapsible: true
 ---
+
+This section covers solutions to common issues you might encounter when setting up or using Supamode. For each problem, we provide the likely causes and step-by-step fixes.
+
+## Common Issues
+
+| Issue | Likely Cause | Quick Fix |
+|-------|--------------|-----------|
+| [Cannot sign in](./troubleshooting/cannot-sign-in) | Missing admin access, wrong credentials | Check user has Supamode account |
+| [Tables not showing](./troubleshooting/cannot-see-tables) | Tables not synced, missing permissions | Run `sync_managed_tables()` |
+| API connection errors | Wrong environment variables | Verify SUPABASE_URL and keys |
+| "Unauthorized" errors | JWT expired or invalid | Re-authenticate, check tokens |
+| Slow performance | Large datasets, missing indexes | Add filters, check DB indexes |
+
+## Getting Help
+
+If these guides don't resolve your issue:
+
+1. **Check the console**: Browser DevTools (F12) and server logs often reveal the root cause
+2. **Search existing issues**: The [GitHub issues](https://github.com/makerkit/supamode/issues) may have solutions
+3. **Contact support**: Reach out through your MakerKit account for direct assistance
 

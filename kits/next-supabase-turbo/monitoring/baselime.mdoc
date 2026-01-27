@@ -1,30 +1,60 @@
 ---
 status: "published"
-title: 'Configuring Baselime in your Next.js Supabase SaaS kit'
-label: 'Baselime'
-order: 1
-description: 'Learn how to configure Baselime in your Next.js Supabase SaaS kit'
+title: "Baselime (Deprecated)"
+label: "Baselime"
+order: 4
+description: "Baselime monitoring integration is deprecated following Cloudflare acquisition. Use Sentry, PostHog, or SigNoz instead."
 ---
 
-{% alert type="warning" title="Deprecated" %}
-Following the purchase of Baselime from Cloudflare, we have deprecated this
-integration. Please use the Sentry or Posthog integrations instead.
+{% alert type="warning" title="Deprecated Integration" %}
+Baselime was acquired by Cloudflare in 2024 and is no longer available as a standalone service. This integration is deprecated and will be removed in a future release.
+
+**Migrate to one of these alternatives:**
+
+- [Sentry](/docs/next-supabase-turbo/monitoring/sentry) (recommended)
+- [PostHog](/docs/next-supabase-turbo/monitoring/posthog)
+- [SigNoz](/docs/next-supabase-turbo/monitoring/signoz)
 {% /alert %}
 
-[Baselime](https://baselime.io) (now part of Cloudflare) is an observability platform that helps you monitor your application's performance and errors. In this guide, you'll learn how to configure Baselime in your Next.js Supabase SaaS kit.
+## Migration Guide
 
-To use [Baselime](https://baselime.io) to capture exceptions and performance metrics of your app, please define the below variables:
+If you were using Baselime, follow these steps to migrate:
+
+### 1. Choose a replacement provider
+
+| If you need... | Choose |
+|----------------|--------|
+| Error tracking + performance monitoring | [Sentry](/docs/next-supabase-turbo/monitoring/sentry) |
+| Error tracking + session replay + analytics | [PostHog](/docs/next-supabase-turbo/monitoring/posthog) |
+| Self-hosted OpenTelemetry observability | [SigNoz](/docs/next-supabase-turbo/monitoring/signoz) |
+
+### 2. Remove Baselime configuration
+
+Delete these environment variables from your `.env` files:
 
 ```bash
-NEXT_PUBLIC_BASELIME_KEY=your_key
+# Remove these
+NEXT_PUBLIC_BASELIME_KEY=
 NEXT_PUBLIC_MONITORING_PROVIDER=baselime
+ENABLE_MONITORING_INSTRUMENTATION=
+INSTRUMENTATION_SERVICE_NAME=
 ```
 
-You can find your Baselime key in the Baselime dashboard.
+### 3. Set up your new provider
 
-If you also want to enable OpenTelemetry, you can set the following variables:
+Follow the setup guide for your chosen provider:
 
-```bash
-ENABLE_MONITORING_INSTRUMENTATION=true
-INSTRUMENTATION_SERVICE_NAME=your_service_name
-```
+- [Configure Sentry](/docs/next-supabase-turbo/monitoring/sentry)
+- [Configure PostHog](/docs/next-supabase-turbo/monitoring/posthog)
+- [Configure SigNoz](/docs/next-supabase-turbo/monitoring/signoz)
+
+## Historical Reference
+
+Baselime was an observability platform built on OpenTelemetry that provided:
+
+- Error tracking
+- Performance monitoring via OpenTelemetry instrumentation
+- Log aggregation
+- Serverless-optimized telemetry
+
+The service was acquired by Cloudflare and integrated into Cloudflare's observability offerings. Cloudflare's observability features are tied to their platform and not compatible with Makerkit's provider-agnostic monitoring system.

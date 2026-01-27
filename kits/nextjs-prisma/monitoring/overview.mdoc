@@ -1,0 +1,243 @@
+---
+status: "published"
+title: 'Monitoring in Makerkit'
+label: 'Monitoring Overview'
+description: 'Learn how Makerkit handles error monitoring and exception tracking with built-in Sentry support and automatic error capturing.'
+order: 0
+---
+
+Makerkit includes a monitoring system for capturing errors and exceptions in your application. The system integrates with Next.js instrumentation hooks for automatic server-side error capturing and provides React hooks for client-side error handling.
+
+{% sequence title="Monitoring Documentation" description="Complete guide to monitoring in the Next.js Prisma SaaS kit" %}
+
+[How Monitoring Works](#how-monitoring-works)
+
+[Available Providers](#available-providers)
+
+[Automatic Error Capturing](#automatic-error-capturing)
+
+[The MonitoringService Abstract Class](#the-monitoringservice-abstract-class)
+
+{% /sequence %}
+
+## How Monitoring Works
+
+The monitoring system has three layers:
+
+1. **MonitoringService Abstract Class** - The contract all monitoring providers extend
+2. **Provider Registry** - Loads the appropriate provider based on configuration
+3. **Next.js Instrumentation** - Automatically captures server-side errors
+
+When an error occurs:
+
+- **Server-side errors** are captured automatically by the Next.js `onRequestError` hook
+- **Client-side errors** are captured using React error boundaries and the `useCaptureException` hook
+- **Manual errors** can be captured anywhere using the monitoring service directly
+
+### When to Add Monitoring
+
+- **Use monitoring when** you're deploying to production and need visibility into errors users encounter
+- **Avoid when** you're in local development (console logging is sufficient)
+- **If unsure** start with Sentry's free tier to get error tracking without upfront cost
+
+## Available Providers
+
+Makerkit includes built-in support for:
+
+| Provider | Package | Description |
+|----------|---------|-------------|
+| Sentry | `@kit/sentry` | Full-featured error tracking with performance monitoring |
+| Console | `@kit/monitoring-core` | Logs errors to console (default fallback) |
+
+To enable Sentry, set both environment variables:
+
+```bash {% title=".env.local" %}
+NEXT_PUBLIC_MONITORING_PROVIDER=sentry
+NEXT_PUBLIC_SENTRY_DSN=https://your-dsn@sentry.io/project-id
+```
+
+When no provider is set, errors are logged to the console using the `ConsoleMonitoringService`.
+
+## Automatic Error Capturing
+
+### Server-Side Errors
+
+Server errors are captured automatically through Next.js instrumentation. The `instrumentation.ts` file in your app handles this:
+
+```typescript {% title="apps/web/instrumentation.ts" %}
+import { type Instrumentation } from 'next';
+
+export async function register() {
+  const { registerMonitoringInstrumentation } =
+    await import('@kit/monitoring/instrumentation');
+
+  await registerMonitoringInstrumentation();
+}
+
+export const onRequestError: Instrumentation.onRequestError = async (
+  err,
+  request,
+  context,
+) => {
+  const { getServerMonitoringService } = await import('@kit/monitoring/server');
+
+  const service = await getServerMonitoringService();
+  await service.ready();
+
+  await service.captureException(
+    err as Error,
+    {},
+    {
+      path: request.path,
+      headers: request.headers,
+      method: request.method,
+      routePath: context.routePath,
+    },
+  );
+};
+```
+
+This captures:
+
+- Unhandled exceptions in API routes
+- Errors in server components
+- Errors in server actions
+- Request-level errors with full context (path, headers, method)
+
+### Client-Side Errors
+
+Client errors are captured using the `useCaptureException` hook in error boundary pages:
+
+```typescript {% title="app/error.tsx" %}
+'use client';
+
+import { useCaptureException } from '@kit/monitoring/hooks';
+
+export default function ErrorPage({
+  error,
+  reset,
+}: {
+  error: Error & { digest?: string };
+  reset: () => void;
+}) {
+  // Automatically captures the error
+  useCaptureException(error);
+
+  return (
+    <div>
+      <h2>Something went wrong</h2>
+      <button onClick={reset}>Try again</button>
+    </div>
+  );
+}
+```
+
+## The MonitoringService Abstract Class
+
+Every monitoring provider extends this abstract class:
+
+```typescript {% title="packages/monitoring/core/src/monitoring.service.ts" %}
+export abstract class MonitoringService {
+  // Capture an exception with optional context
+  abstract captureException<
+    Extra extends Record<string, unknown>,
+    Config extends Record<string, unknown>,
+  >(
+    error: Error & { digest?: string },
+    extra?: Extra,
+    config?: Config,
+  ): unknown;
+
+  // Track a custom event
+  abstract captureEvent<Extra extends object>(
+    event: string,
+    extra?: Extra,
+  ): unknown;
+
+  // Associate errors with a user
+  abstract identifyUser<Info extends { id: string }>(info: Info): unknown;
+
+  // Wait for the service to be ready
+  abstract ready(): Promise<unknown>;
+}
+```
+
+The abstract class provides:
+
+- **captureException** - Capture errors with additional context and configuration
+- **captureEvent** - Track custom monitoring events
+- **identifyUser** - Associate subsequent errors with a user
+- **ready** - Wait for the monitoring service to initialize
+
+## Console Fallback
+
+When no provider is configured, the `ConsoleMonitoringService` logs errors to the console:
+
+```typescript {% title="packages/monitoring/core/src/console-monitoring.service.ts" %}
+export class ConsoleMonitoringService implements MonitoringService {
+  identifyUser(data: { id: string }) {
+    console.log(`[Console Monitoring] Identified user`, data);
+  }
+
+  captureException(error: Error) {
+    console.error(
+      `[Console Monitoring] Caught exception: ${JSON.stringify(error)}`,
+    );
+  }
+
+  captureEvent(event: string) {
+    console.log(`[Console Monitoring] Captured event: ${event}`);
+  }
+
+  ready() {
+    return Promise.resolve();
+  }
+}
+```
+
+This is useful during development and ensures your application works even without a monitoring service configured.
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────┐
+│                   Your Application                   │
+│                                                      │
+│  Server Side                    Client Side          │
+│  ┌──────────────┐              ┌──────────────┐     │
+│  │instrumentation│              │ useCaptureEx │     │
+│  │  onRequestErr │              │   ception    │     │
+│  └──────┬───────┘              └──────┬───────┘     │
+│         │                             │             │
+│         ▼                             ▼             │
+│  ┌──────────────┐              ┌──────────────┐     │
+│  │getServerMon- │              │ useMonitoring│     │
+│  │itoringService│              │    hook      │     │
+│  └──────┬───────┘              └──────┬───────┘     │
+│         │                             │             │
+│         └──────────────┬──────────────┘             │
+│                        ▼                            │
+│                 ┌──────────────┐                    │
+│                 │   Provider   │                    │
+│                 │   Registry   │                    │
+│                 └──────┬───────┘                    │
+│                        │                            │
+│           ┌────────────┼────────────┐               │
+│           ▼            ▼            ▼               │
+│       Sentry       Console      Custom              │
+└─────────────────────────────────────────────────────┘
+```
+
+## Next Steps
+
+1. **[Set up Sentry](sentry)** - Configure Sentry for production error tracking
+2. **[Manual error capturing](capturing-errors)** - Capture errors programmatically
+3. **[Create a custom provider](custom-provider)** - Integrate other monitoring services
+
+### Related Documentation
+
+- [Environment Variables](/docs/nextjs-prisma/configuration/environment-variables) - Configure monitoring credentials
+- [Deployment](/docs/nextjs-prisma/going-to-production/deployment) - Enable monitoring in production
+- [Analytics](/docs/nextjs-prisma/analytics) - Track user behavior alongside errors
+
+**Next:** [Setting up Sentry →](sentry)

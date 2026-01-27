@@ -1,0 +1,46 @@
+---
+status: "published"
+title: "Marketing Pages"
+label: "Overview"
+order: 0
+description: "Build marketing pages for your SaaS application with blog, docs, and legal content."
+---
+
+The kit provides all the building blocks required to ship a stunning looking SaaS website.
+
+## Features
+
+- ✅ Landing page with hero and features
+- ✅ Blog system for content marketing
+- ✅ Documentation integration
+- ✅ Changelog for product updates
+- ✅ FAQ page
+- ✅ Legal pages (Terms, Privacy, etc.)
+
+## Topics
+
+1. **[Landing Page](./landing-page)** - Homepage and hero
+2. **[Blog System](./blog-system)** - Blog posts and content
+3. **[Documentation](./documentation)** - Integrate documentation
+4. **[Changelog](./changelog)** - Product updates
+5. **[FAQ](./faq)** - Frequently asked questions
+6. **[Legal Pages](./legal-pages)** - Terms and privacy
+
+## Marketing Site Structure
+
+All marketing pages are located outside authenticated routes:
+
+```
+apps/web/app/[locale]/
+├── (public)/
+│   ├── page.tsx           # Landing page
+│   ├── blog/
+│   ├── docs/
+│   ├── changelog/
+│   ├── faq/
+│   └── (legal)/
+```
+
+---
+
+**Next:** [Landing Page →](./landing-page)

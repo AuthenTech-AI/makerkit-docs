@@ -1,0 +1,109 @@
+---
+status: "published"
+title: "Personal Dashboard"
+label: "Dashboard"
+order: 1
+description: "Personal account dashboard implementation and customization."
+---
+
+The personal dashboard is the landing page users see after signing in. By default, MakerKit provides a mock dashboard at `/dashboard` with placeholder widgets and sample data. Replace the mock components with your application's key metrics, recent activity, and quick actions to create a personalized home screen.
+
+The personal dashboard is the authenticated user's home page, displaying user-specific data and quick access to common actions.
+
+- **Location:** `apps/web/app/[locale]/(internal)/dashboard/page.tsx`
+- **Route:** `/dashboard`
+
+This page gives you a starting point from which you can build the home page of your application.
+
+{% img src="/images/docs/dashboard.webp" width="2388" height="1798" /%}
+
+## Customizing the Dashboard
+
+The default dashboard uses mock data to demonstrate the layout. Replace the mock components with real data fetching to build your application's home screen.
+
+### Replace Mock Data
+
+The dashboard page is a React Server Component. Fetch real data using a loader pattern:
+
+```typescript
+// apps/web/app/[locale]/(internal)/dashboard/page.tsx
+import { getSupabaseServerClient } from '@kit/supabase/server-client';
+
+async function DashboardPage() {
+  const client = getSupabaseServerClient();
+
+  // Fetch user-specific data
+  const { data: recentActivity } = await client
+    .from('activity_log')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(10);
+
+  return <DashboardContent activity={recentActivity} />;
+}
+```
+
+### Add Dashboard Widgets
+
+Create widget components that accept data as props. Keep data fetching in the page, rendering in components:
+
+```typescript
+// _components/stats-widget.tsx
+interface StatsWidgetProps {
+  title: string;
+  value: number;
+  change: number;
+}
+
+export function StatsWidget({ title, value, change }: StatsWidgetProps) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="text-2xl font-bold">{value}</div>
+        <p className="text-muted-foreground">
+          {change > 0 ? '+' : ''}{change}% from last month
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+### Parallel Data Fetching
+
+When loading multiple widgets, fetch data in parallel to avoid waterfall requests:
+
+```typescript
+async function DashboardPage() {
+  const client = getSupabaseServerClient();
+
+  // Parallel fetching - all requests start simultaneously
+  const [stats, activity, notifications] = await Promise.all([
+    loadDashboardStats(client),
+    loadRecentActivity(client),
+    loadNotifications(client),
+  ]);
+
+  return (
+    <DashboardLayout>
+      <StatsWidget data={stats} />
+      <ActivityFeed activity={activity} />
+      <NotificationList notifications={notifications} />
+    </DashboardLayout>
+  );
+}
+```
+
+## Common Pitfalls
+
+- **Fetching data client-side when server-side works**: Dashboard data should load in the server component via a loader function. Client-side fetching adds loading spinners and hurts perceived performance.
+- **N+1 queries in dashboard widgets**: If you have multiple widgets, use `Promise.all()` to fetch data in parallel rather than sequentially.
+- **Showing stale data after mutations**: After user actions (like creating a resource), use `revalidatePath('/dashboard')` in your server action to refresh dashboard data.
+- **Hardcoding user context**: Use `getSession()` or `getAccountContext()` to get the current user - don't pass user IDs through URL params on the dashboard.
+
+---
+
+**Next:** [Profile Settings →](./profile-settings)

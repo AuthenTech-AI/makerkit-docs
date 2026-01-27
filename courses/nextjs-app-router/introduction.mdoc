@@ -1,0 +1,354 @@
+---
+title: "Next.js Course: Introducing the App Router in Next.js 14"
+label: "Introduction to Next.js and the App Router"
+description: "In this course, you'll learn how to use Next.js 14 App Router
+to create a dynamic AI SaaS application"
+order: 0
+---
+
+{% alert type="info" title="This course is being updated" %}
+This course is being updated to Next.js 15 and new Supabase features. The course will be updated soon.
+{% /alert %}
+
+Welcome to the Next.js App Router course! In this course, you'll learn how to use Next.js App Router to create dynamic SaaS applications, and reuse the SaaS we will build together for your own projects.
+
+At the end of this course, you'll be able to:
+
+1. Understand the new **Next.js App Router architecture** and main concepts
+2. Be able to **build a small-sized SaaS application** using Next.js App Router
+3. Be able to use the ChatGPT API and the Vercel AI SDK for **streaming content** and **generating blog posts**
+4. **Learn the basics of Supabase** and how to use it with Next.js App Router to authenticate users and store data in a Postgres database
+5. **Deploy to Vercel and Supabase** and use the Next.js App Router in production
+
+## Table of Contents
+
+This course is divided into 10 lessons, each one covering a specific topic.
+
+Here's the outline of the course:
+
+1. **Introduction**: A quick introduction to Next.js 14
+2. **Next.js App Router**: Understanding the new Next.js App Router
+3. **Project Setup**: Creating and setting up a Next.js App Router project and Supabase
+4. **Authentication**: Building a complete authentication flow with Next.js Supabase
+5. **Database**: Setting up a database schema with Supabase
+6. **ChatGPT API**: Generating posts with OpenAI's ChatGPT and writing them to the DB
+8. **CRUD Operations**: Displaying, updating and deleting data using Next.js Server Actions and Supabase
+9. **Payments**: Accept payments using Stripe Checkout and Stripe Billing Portal
+10. **Permissions and Thresholds**: Limiting access based on the user's subscription plan and recording usage
+11. **Going to Production**: Deploying to Vercel and Supabase and using Next.js App Router in production
+
+---
+
+The course will keep growing as we add more lessons to it, with more functionalities and use cases that have not been covered yet. If you have any suggestions for future lessons, do feel free to contact me.
+
+### What will we build?
+
+The application we will create together is **a smart blogging assistant that helps writers with building their blog posts** using the **OpenAI API**.
+
+By building this application from scratch, **you will learn how to use Next.js App Router to create dynamic SaaS applications**, and you can **reuse the template** to build your own SaaS applications.
+
+Consider the repository **a mini Makerkit that you can use to build your own SaaS applications**. It's not a full-blown SaaS application Starter, but still **a great starting point** for building your own SaaS applications.
+
+{% video src="/assets/courses/course-preview.mp4" /%}
+
+### Who is this course for?
+
+This course is for React programmers who want to learn how to **use Next.js App Router to create dynamic SaaS applications**.
+
+If you are planning to build an AI SaaS application and want to learn how to use Next.js App Router and Supabase to build it, this course is for you.
+
+## Prerequisites
+
+While existing knowledge of Next.js is not required, it is recommended that you have some experience with Next.js before taking this course. 
+
+More importantly, you should be **at least familiar with React** and, to a lesser extent, with Typescript. Knowing the basics of Supabase and PostgreSQL is also recommended, but not required. We will cover the basics of Supabase in this course.
+
+While we use Typescript in this course, you can still follow along if you don't know it since we don't use any advanced Typescript.
+
+## Why Next.js?
+
+Next.js is, by far, the most popular React framework for building applications and websites. Without a doubt, it is **the best framework for building React applications** today.
+
+Next.js has a lot of features that make it a great choice for building SaaS applications, such as:
+
+1. Powerful routing
+2. Hybrid Server-side rendering and/or static site generation
+3. Full-Stack React with Next.js API routes and Server Actions
+4. Automatic code-splitting
+5. Automatic image optimization
+6. Built-in compilation and bundling
+7. Built-in Tailwind CSS support
+8. Fast refresh for a better developer experience
+
+Next.js is an incredible framework for building apps that are optimized by default, and it's a great choice especially if you are either planning on working with others or if you are planning on making an application that is easy to sell (given its incredible popularity).
+
+## Why Supabase?
+
+Supabase is an open-source Firebase alternative that provides a Postgres database, authentication, and storage out of the box. Supabase is also one of the fastest-growing PaaS today, it is self-hostable and open-source (unlike Firebase), and it is a great choice for building SaaS applications.
+
+It's an incredible choice for building SaaS applications, especially if you are building an AI SaaS application thanks to pgVector, a Postgres extension that allows you to run vector operations directly in the database. While we don't yet have an example that uses pgVector, we will be adding one in the future.
+
+To learn more about Supabase, check out their website at [supabase.com](https://supabase.com).
+
+## What is the Next.js App Router?
+
+Next.js App Router is **a new routing architecture that was introduced in Next.js 13**. It is a huge shift in how we build Next.js applications, built on top of React Server Components (RSC) and Server Actions. In some ways, it's a whole new framework.
+
+The new router is designed to be **more flexible, more powerful and more performant** than the previous router.
+
+Let's take a look at some of the features that the new router provides.
+
+### Enhanced, powerful Router
+
+Using conventional filenames, we can add various types of components in the `app` directory. This is a big improvement over the current routing system, which requires us to use a specific directory structure to define pages, API handlers, and so on.
+
+What does this mean? From now on, we can create various types of components in the `app` directory using a specific filename convention specific to Next.js:
+
+- pages are defined as `page.tsx`
+- layouts are defined as `layout.tsx`
+- templates are defined as `template.tsx`
+- errors are defined as `error.tsx`
+- loading states are defined as `loading.tsx`
+- API handlers are defined as `route.ts`
+- 404 pages are defined as `not-found.ts`
+
+An example of a folder structure using the new router:
+
+```bash
+- app
+  - layout.tsx
+  - page.tsx
+  - not-found.tsx
+  - error.tsx
+  - loading.tsx
+
+  - posts
+    - template.tsx
+    - page.tsx
+    - loading.tsx
+
+    - [id]
+      - page.tsx
+
+  - stripe
+    - webhook
+      - route.ts
+```
+
+As you can see above, we can define various types of components in the `app` directory, and the router will automatically pick them up and use them.
+
+- `page.tsx` is a page component
+- `layout.tsx` is a layout component
+- `template.tsx` is a template component
+- `error.tsx` is an error component
+- `not-found.tsx` is a 404 component
+- `route.ts` is an API handler
+ 
+### React Server Components (RSC)
+
+React Server Components is a new React feature that allows us to **render React components on the server and stream serialized React components to the client**. 
+
+In case it's not immediately obvious, this is a huge improvement over the current system, since the Javascript code required to build the components rendered on the server will never be sent to the client; **only the serialized React components will be sent to the client**.
+
+This will result in a great **performance boost**, especially for components with a lot of Javascript code. Additionally, streaming the serialized React components to the client will also result in a faster Time-to-First-Byte (TTFB).
+
+React Server Components do introduce new concepts and techniques to learn, but don't worry, we'll cover them in this course.
+
+#### Every component is a Server Component
+
+Yes, that's right. By default, **all components are Server Components**. Hang tight, we'll explain what this means in a moment.
+
+### Client Components vs Server Components
+
+With the introduction of React Server Components, we now have two types of components:
+
+1. **Server Components** are components that are rendered on the server **only once** and streamed already compiled to the client
+2. **Client Components** are components that are rendered both on the server and on the client, just like it currently works in Next.js ("pages" router)
+
+Despite the unfortunate naming, which seems to suggest they are only rendered on the client, **Client Components are actually rendered on the server as well**. It is important to understand the difference between Server Components and Client Components, as they have different use cases.
+
+Let's take a look at the differences between Server Components and Client Components.
+
+#### Server components
+
+Server components (such as layouts, pages and templates) **have the responsibility of rendering the main skeleton of the page, and also loading the data required to render the page**. Contrary to client components, they **cannot use hooks or any other client-side code**, such as event handlers, browser APIs, and so on.
+
+If you think of it more carefully, it makes a lot of sense: **These components run only and exclusively on the server, so they cannot use client-side code**.
+
+Server components are **rendered only once** on the server, and then streamed to the client. This means that **they cannot be interactive** - such as having a button that reacts to an `onClick` event.
+
+#### Why use Server components?
+
+In some cases - you simply do not have a choice, such as when using a layout or a page component. In others, you can choose to opt out and use a client component instead.
+
+The questions we want to answer are - when should you use server components, and what are the responsibilities of a server component?
+
+1. **Loading Data**: loading data that needs to be rendered at page load can be done from a Server Component.
+2. **Business Logic**: in server components, we can add some business logic directly from a component. For example, redirecting users away from a page when they are not authorized, or simply rendering a different section of the page based on the user's data.
+
+#### Client components
+
+Client components (also called "interactive components", a much better name) have the responsibility of **rendering the interactive parts of the page, such as buttons, forms, and so on**. They can use hooks and everything else that we're used to using in React.
+
+If every component is a Server Component, **how do we create Client Components**?
+
+Very simple, we do it by adding `use client` at the top of the component:
+
+```tsx
+'use client';
+
+export default function Button() {
+  return <button>Click me!</button>;
+}
+```
+
+Remember: **Using client components is not a de-optimization**, and **it is necessary to create interactive components**, so do not feel bad about it, it is okay!
+
+Here are some use cases which **require the use of client components**:
+1. Using browser APIs, such as `window.location` or `navigator.geolocation`
+2. Using hooks, such as `useState` or `useEffect` or any other custom hook
+3. Using event handlers, such as `onClick` or `onSubmit`
+4. Using the `Context` API
+5. Using `useRouter` or any other Next.js client-side hook
+6. Using `useSWR` or any other client-side data fetching library
+
+### Can I add a Client Component inside a Server Component?
+
+Yes - you can - but the client component needs to specify it is a client component using the `use client` directive at the top of the file. This means that, very often, you need to extract the client component in a separate file, add the `use client` directive, and export the client component.
+
+Let's see an example: imagine we have a page (that is a server component), and a button within this page that reacts to an `onClick` event.
+
+```tsx title='app/page.tsx'
+function Page() {
+  const onClick = () => {
+    console.log(`Button clicked`);
+  };
+
+  return (
+    <div>
+      <button onClick={onClick}>
+        Click me
+      </button>
+    </div>
+  );
+}
+```
+
+{% alert type="error" %}
+
+  Since we use an event when clicking the `button` HTML element, this component cannot be used within a server component.
+{% /alert %}
+
+So, how do we fix this? Simple! We use the `button` element in a separate file and export it as a `client` component.
+
+```tsx title='app/Button.tsx'
+'use client';
+
+export default function Button() {
+  const onClick = () => {
+    console.log(`Button clicked`);
+  };
+
+  return (
+    <button onClick={onClick}>
+      Click me
+    </button>
+  );
+}
+```
+
+Now we can import the component in the page component:
+
+```tsx title='app/page.tsx'
+import Button from './Button';
+
+function Page() {
+  return (
+    <div>
+      <Button />
+    </div>
+  );
+}
+
+export default Page;
+```
+
+{% alert type="success" %}
+
+  The example above will work  because we export the component using the Browser API (such as event handlers) as a `client` component using the `use client` directive
+{% /alert %}
+
+## Moving on from "getServerSideProps"
+
+If you are used to the old Pages Router - you may be wondering what happened to `getServerSideProps` and `getStaticProps` in the new router.
+
+The new router is smart enough to detect when a component needs to be server-side rendered or statically generated. We no longer need or have access to `getServerSideProps` or `getStaticProps` in the new router, which are basically replaced by Server Components.
+
+#### How do we replace "getServerSideProps" in the new router?
+
+Server components can do pretty much everything that `getServerSideProps` can do, with some limitations.
+
+Before, we were used to being able to get the `NextApiRequest` object in `getServerSideProps` - but now, we can't: Server components do not have access to the `NextApiRequest` object.
+
+Instead, Next.js provides us with Server Functions - functions we can only use within Server Components that allow us to access some of the data from the `NextApiRequest` object.
+
+1. **cookies()**: we can access and set cookies using the `cookies()` function from `next/headers`. NB: we cannot set cookies in Server Components, but only in the middleware, API routes or Server Actions
+2. **headers()**: we can access and set headers using the `headers()` function from `next/headers`
+3. **redirect()**: we can redirect users using the `redirect()` function from `next/navigation`
+4. **notFound()**: we can redirect users to a 404 page using the `notFound()` function from `next/navigation`
+
+#### Learn more about migrating from Pages Router to App Router
+
+If you want to learn more about migrating from the old Pages router to the new App Router, check out our article [Migrating to Next.js Server Components Layouts](/blog/tutorials/migrating-nextjs-layouts).
+
+### Server Actions
+
+One of the most exciting features is the introduction of Server Actions or Server Functions. 
+
+Just like the word says, Server Actions are **functions that run on the server**, but that we can call from the client, just like a normal function. This is a huge step forward for Next.js, as it allows us to **run code on the server without having to create an API endpoint**. While server actions are a React.js feature, Next.js is the first framework to implement it.
+
+We can define server actions inline just like normal functions, or we can define them in a separate file if they are used in Client Components. 
+
+The important bit that makes a function a Server Action is the `use server` directive at the top of the function or at the top of the file.
+
+Here's an example of a server action defined inline:
+
+```tsx
+function handleFormSubmission(formData: FormData) {
+  'use server';
+
+  // Do something with the form data
+}
+
+<form onSubmit={handleFormSubmission}>
+```
+
+Here's an example of a server action defined in a separate file:
+
+```tsx
+'use server';
+
+export function handleFormSubmission(formData: FormData) {
+  // Do something with the form data
+}
+```
+
+By adding 'use server' at the top of a file, all the exported functions will automatically be server actions.
+
+We will be using server actions for **submitting forms**, as well as for **reading and writing data to the database**. Server Actions make it easy to **revalidate our data** fetched from server components automatically, **without the need of managing the cache manually**.
+
+#### What are some use cases for Server Actions?
+
+Server Actions are a very powerful feature, and they can be used for a lot of different use cases. Here are a few examples:
+
+- **writing to a database**: you can write to a database directly from the client, without having to create an API endpoint - just by defining your logic in a server action.
+- **server logic**: executing any server-related business logic, such as sending emails, creating files, etc.
+- **calling external APIs**: you can call external APIs directly from server actions, without having to create an API endpoint
+
+**We will be looking at all of this in-depth in the next tutorials** - but you get the idea. Server Actions are a very powerful feature, and they can be used for a lot of different use cases.
+
+If you want to learn more about Server Actions, check out our article [Introduction to Next.js Server Actions](/blog/tutorials/nextjs-server-actions).
+
+## What's Next?
+
+In the next tutorial, we will take a more in-depth look at the new router, and the functionality unlocked by each type of component. See you there!

@@ -34,10 +34,9 @@ index('index-component')
 
 Let's create a new "Features" page in the marketing section:
 
-1. **Create a new component file**:
+### Create a new component file
 
-```tsx
-// apps/web/app/routes/marketing/features.tsx
+```tsx {% title="apps/web/app/routes/marketing/features.tsx" %}
 import { createI18nServerInstance } from '~/lib/i18n/i18n.server';
 import { SitePageHeader } from '~/routes/marketing/_components/site-page-header';
 import type { Route } from '~/types/app/routes/marketing/+types/features';
@@ -97,7 +96,9 @@ function FeatureCard({ title, description }: { title: string; description: strin
 }
 ```
 
-2. **Update the routes configuration** in `apps/web/app/routes.ts`:
+### Update the routes configuration
+
+Update the routes configuration in `apps/web/app/routes.ts`:
 
 ```typescript
 const marketingLayout = layout('routes/marketing/layout.tsx', [
@@ -112,7 +113,9 @@ const marketingLayout = layout('routes/marketing/layout.tsx', [
 ]);
 ```
 
-3. **Update navigation** in `apps/web/app/routes/marketing/_components/site-navigation.tsx`:
+### Update navigation
+
+Update navigation in `apps/web/app/routes/marketing/_components/site-navigation.tsx`:
 
 ```typescript
 const links = {
@@ -132,15 +135,17 @@ const links = {
 };
 ```
 
-4. **Add translations** (optional) by updating your i18n files with the new labels.
+### Add translations (optional)
+
+Update your i18n files with the new labels.
 
 ## Adding a Page to the Authenticated App Area
 
 Let's add a "Reports" page for authenticated users:
 
-1. **Create the component file**:
+### Create the component file
 
-```tsx
+```tsx {% title="apps/web/app/routes/home/user/reports.tsx" %}
 // apps/web/app/routes/home/user/reports.tsx
 import { AppBreadcrumbs } from '@kit/ui/app-breadcrumbs';
 import { PageBody } from '@kit/ui/page';
@@ -210,7 +215,9 @@ function ReportCard({ title }: { title: string }) {
 }
 ```
 
-2. **Update the routes configuration** in `apps/web/app/routes.ts`:
+### Update the routes configuration
+
+Update the routes configuration in `apps/web/app/routes.ts`:
 
 ```typescript
 const userAccountLayout = layout('routes/home/user/layout.tsx', [
@@ -222,7 +229,9 @@ const userAccountLayout = layout('routes/home/user/layout.tsx', [
 ]);
 ```
 
-3. **Update navigation configuration** in `~/config/personal-account-navigation.config.ts`:
+### Update navigation configuration
+
+Update navigation configuration in `~/config/personal-account-navigation.config.ts`:
 
 ```typescript
 // Add this to the routes array
@@ -238,10 +247,9 @@ const userAccountLayout = layout('routes/home/user/layout.tsx', [
 
 For more complex scenarios, you might need nested routes with their own layout:
 
-1. **Create a layout component**:
+### Create a layout component
 
-```tsx
-// apps/web/app/routes/home/user/reports/layout.tsx
+```tsx {% title="apps/web/app/routes/home/user/reports/layout.tsx" %}
 import { Outlet } from 'react-router';
 import { PageHeader } from '@kit/ui/page';
 import { Tabs, TabsList, TabsTrigger } from '@kit/ui/tabs';
@@ -265,18 +273,19 @@ export default function ReportsLayout() {
 }
 ```
 
-2. **Create child route components**:
+### Create child route components
 
-```tsx
-// apps/web/app/routes/home/user/reports/activity.tsx
+```tsx {% title="apps/web/app/routes/home/user/reports/activity.tsx" %}
 export default function ActivityReport() {
   return <div>Activity report content here</div>;
 }
 ```
 
-3. **Update the routes configuration** with a nested structure:
+### Update the routes configuration with a nested structure
 
-```typescript
+Update the routes configuration in `apps/web/app/routes.ts`:
+
+```typescript {% title="apps/web/app/routes.ts" %}
 const reportsLayout = layout('routes/home/user/reports/layout.tsx', [
   index('routes/home/user/reports/index.tsx'),
   route('activity', 'routes/home/user/reports/activity.tsx'),
@@ -292,19 +301,19 @@ const userAccountLayout = layout('routes/home/user/layout.tsx', [
 ## Best Practices
 
 1. **Route Organization**:
-- Group related routes under shared layouts
-- Use descriptive naming for route paths and components
+    - Group related routes under shared layouts
+    - Use descriptive naming for route paths and components
 2. **UI Consistency**:
-- Reuse existing components like `PageHeader`, `PageBody`, etc.
-- Follow the established UI patterns for each section
+    - Reuse existing components like `PageHeader`, `PageBody`, etc.
+    - Follow the established UI patterns for each section
 3. **Authentication**:
-- Use `requireUserLoader` for authenticated routes
-- Consider permissions for team/admin routes
+    - Use `requireUserLoader` for authenticated routes
+    - Consider permissions for team/admin routes
 4. **i18n Support**:
-- Always use translation keys for user-visible text
-- Structure translation keys logically (e.g., `marketing:features`)
+    - Always use translation keys for user-visible text
+    - Structure translation keys logically (e.g., `marketing:features`)
 5. **Type Safety**:
-- Create proper type definitions for loaders and components
-- Use the existing Route types pattern
+    - Create proper type definitions for loaders and components
+    - Use the existing Route types pattern
 
 By following these conventions, you can seamlessly add new pages to the starter kit while maintaining consistent structure and behavior.

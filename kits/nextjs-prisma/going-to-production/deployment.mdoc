@@ -1,0 +1,203 @@
+---
+status: "published"
+title: "Deployment"
+label: "Deployment"
+order: 1
+description: "Deploy your SaaS application to any hosting platform."
+---
+
+Deploying a MakerKit application involves five steps: provision infrastructure (PostgreSQL database, S3-compatible storage, hosting), configure environment variables in your hosting platform, deploy your code, run Prisma migrations against the production database, and configure billing webhooks. 
+
+This process works on any platform that supports Next.js—Railway, Vercel, AWS, Cloudflare, or self-hosted Docker.
+
+This guide covers the general deployment process. For platform-specific instructions, see the [Railway](./railway) or [Docker](./docker) guides.
+
+{% alert type="default" title="Platform Selection" %}
+**Choose Railway when**: you want database + storage in one platform with minimal ops.
+
+**Choose Vercel when**: you want rapid iteration and zero infrastructure management.
+
+**Choose Docker when**: you need self-hosting, full control, or have compliance requirements.
+{% /alert %}
+
+## Deployment Overview
+
+Deploying your application involves these key steps:
+
+1. **Provision infrastructure** - Database, storage, and hosting
+2. **Configure environment variables** - Set production credentials
+3. **Deploy the application** - Push code to your hosting platform
+4. **Run database migrations** - Set up your database schema
+5. **Configure webhooks** - Connect your billing provider
+
+## Infrastructure Requirements
+
+Your production environment needs:
+
+| Component | Purpose | Options |
+|-----------|---------|---------|
+| **Hosting** | Run your Next.js app | Vercel, Railway, AWS, Cloudflare |
+| **Database** | PostgreSQL database | Neon, PlanetScale, Supabase, Railway |
+| **Storage** | File uploads | AWS S3, Cloudflare R2, Railway Storage |
+| **Email** | Transactional emails | Resend, Postmark, SendGrid |
+
+## Environment Variables
+
+Every hosting platform requires you to set environment variables. Copy these from your [Environment Setup](./environment-setup):
+
+### Core Variables
+
+```bash
+DATABASE_URL=postgresql://...
+NEXT_PUBLIC_SITE_URL=https://your-domain.com
+BETTER_AUTH_SECRET=your-random-secret-string
+NEXT_PUBLIC_BILLING_PROVIDER=stripe
+```
+
+{% alert type="warning" title="BETTER_AUTH_SECRET" %}
+Generate a secure random string (at least 32 characters) for production. Never reuse your development secret. You can generate one with: `openssl rand -base64 32`
+{% /alert %}
+
+### Storage Variables
+
+```bash
+STORAGE_BASE_URL=https://...
+STORAGE_S3_ACCESS_KEY_ID=...
+STORAGE_S3_SECRET_ACCESS_KEY=...
+STORAGE_S3_BUCKET=...
+STORAGE_S3_REGION=...
+```
+
+### Billing Variables
+
+**For Stripe:**
+```bash
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+```
+
+**For Polar:**
+```bash
+POLAR_ACCESS_TOKEN=...
+```
+
+{% alert type="default" title="Additional Environment Variables" %}
+If you configured additional settings using the Dev Tools during development (OAuth providers, email, feature flags, etc.), make sure to add those environment variables to your production environment as well. Refer to the [Environment Setup](./environment-setup) guide for the complete list.
+{% /alert %}
+
+## Build Configuration
+
+For the monorepo structure, configure your hosting platform:
+
+- **Root Directory**: `apps/web`
+- **Build Command**: `pnpm build`
+- **Output Directory**: `.next`
+- **Install Command**: `pnpm install`
+
+## Database Migrations
+
+After your first deployment, run Prisma migrations to create the database schema:
+
+```bash
+read -s DATABASE_URL && export DATABASE_URL && npx prisma migrate deploy --schema packages/database/src/prisma/schema.prisma
+```
+
+This command:
+1. Prompts for your `DATABASE_URL` (hidden input)
+2. Exports it as an environment variable
+3. Runs `prisma migrate deploy` to apply existing migrations
+
+{% alert type="warning" title="migrate deploy vs migrate dev" %}
+Use `prisma migrate deploy` for production. It applies existing migrations without creating new ones. The `prisma migrate dev` command is for development only - it may prompt for interactive input and create new migration files.
+{% /alert %}
+
+## Webhook Configuration
+
+Set up webhooks so your billing provider can notify your app of subscription events:
+
+| Provider | Webhook URL |
+|----------|-------------|
+| Stripe | `https://your-domain.com/api/billing/webhook` |
+| Polar | `https://your-domain.com/api/billing/webhook` |
+
+### Stripe Webhook Setup
+
+1. Go to [Stripe Dashboard → Developers → Webhooks](https://dashboard.stripe.com/webhooks)
+2. Click **Add endpoint**
+3. Enter your webhook URL: `https://your-domain.com/api/billing/webhook`
+4. Select events to listen to (at minimum: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid`)
+5. Click **Add endpoint**
+6. Copy the **Signing secret** (starts with `whsec_`)
+7. Set `STRIPE_WEBHOOK_SECRET=whsec_...` in your environment variables
+
+{% alert type="warning" title="Test vs Live Mode" %}
+Stripe has separate webhook endpoints for test and live mode. Make sure you're creating the webhook in **Live mode** for production.
+{% /alert %}
+
+### Polar Webhook Setup
+
+1. Go to your Polar Dashboard → Settings → Webhooks
+2. Add your webhook URL: `https://your-domain.com/api/billing/webhook`
+3. Select the events you want to receive
+4. Save and copy the webhook secret to your environment variables
+
+## Post-Deployment Checklist
+
+After deploying:
+
+- [ ] Application loads without errors
+- [ ] Database connection works
+- [ ] Authentication flows work (sign up, sign in)
+- [ ] Billing webhooks receive events
+- [ ] File uploads work
+- [ ] Emails send successfully
+
+## Platform Guides
+
+For step-by-step instructions on specific platforms:
+
+- **[Railway](./railway)** - All-in-one platform with built-in database and storage
+- **[Docker](./docker)** - Self-host on any Docker-compatible platform
+
+## Troubleshooting
+
+### Build Failures
+
+1. Check that all environment variables are set
+2. Verify the root directory is `apps/web`
+3. Review build logs for specific errors
+
+### Database Connection Issues
+
+1. Confirm `DATABASE_URL` is correct
+2. Check if your database allows external connections
+3. Verify SSL requirements for your database provider
+
+### Missing Environment Variables
+
+1. `NEXT_PUBLIC_*` variables are embedded at build time - redeploy after changes
+2. Server-only variables are read at runtime
+3. Ensure no typos in variable names
+
+## Common Pitfalls
+
+These issues cause most deployment failures:
+
+1. **Forgot to run migrations** — The application deploys but crashes when accessing the database because tables don't exist. Always run `prisma migrate deploy` after your first deployment and after adding new migrations.
+2. **Webhook signature validation fails** — Billing events aren't processed because the webhook secret is missing or wrong. Check that `STRIPE_WEBHOOK_SECRET` matches the signing secret from your Stripe Dashboard (not the API key).
+3. **Cold starts cause webhook timeouts** — On serverless platforms, the first request after idle time can be slow. If webhooks timeout, consider keeping your function warm or increasing the timeout limit.
+4. **CORS errors on API routes** — If your frontend and API are on different domains, you may need to configure CORS headers. MakerKit handles same-domain requests, but custom setups may need adjustment.
+5. **Node.js version mismatch** — The build works locally but fails on your hosting platform. Specify the Node.js version in your platform settings (Node.js 20+ recommended).
+
+6. **Monorepo root directory misconfigured** — Build fails immediately because the platform can't find `package.json`. Set the root directory to `apps/web` in your hosting platform settings.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Can I deploy MakerKit to Vercel?", "answer": "Yes. Vercel fully supports Next.js App Router applications. Set the root directory to apps/web, configure your environment variables in the Vercel dashboard, and connect your GitHub repository. Vercel handles builds and deployments automatically."},
+     {"question": "Do I need to run migrations every time I deploy?", "answer": "No. Run prisma migrate deploy only after your first deployment and whenever you add new migrations. Prisma tracks which migrations have been applied, so running it when there are no new migrations is safe but unnecessary."},
+     {"question": "Why are my NEXT_PUBLIC variables undefined in production?", "answer": "Variables prefixed with NEXT_PUBLIC_ are embedded at build time, not runtime. If you add or change them after building, you must trigger a new build and deployment. Set them in your hosting platform's environment settings before deploying."},
+     {"question": "How do I test webhooks before going live?", "answer": "Use Stripe CLI for local testing: stripe listen --forward-to localhost:3000/api/billing/webhook. For staging environments, create a separate webhook endpoint in Stripe pointing to your staging domain."},
+     {"question": "What Node.js version should I use?", "answer": "MakerKit requires Node.js 20 or later. Specify this in your hosting platform settings (e.g., engines.node in package.json or platform-specific configuration)."}
+   ]
+/%}

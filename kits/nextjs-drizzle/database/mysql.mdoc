@@ -1,0 +1,267 @@
+---
+status: "published"
+title: "Migrating from PostgreSQL to MySQL"
+label: "Migrating to MySQL"
+order: 7
+description: "Learn how to migrate from PostgreSQL to MySQL in your Next.js Drizzle SaaS application."
+---
+
+> **Important**: This kit uses PostgreSQL by default. This guide describes a **one-way migration** for users who want to switch to MySQL. Tests continue using PGlite (PostgreSQL in-memory) regardless of your production database.
+
+## Why MySQL?
+
+- **Widespread hosting**: Supported by most hosting providers, from shared hosting to cloud platforms
+- **PlanetScale**: Serverless MySQL with branching, zero-downtime schema changes
+- **AWS Aurora MySQL**: High availability MySQL-compatible database
+- **Existing infrastructure**: Many organizations already run MySQL
+
+---
+
+## Architecture
+
+This guide is part of the [Next.js Drizzle SaaS Kit](/drizzle).
+
+The database package uses an **adapters pattern**:
+
+```
+packages/database/src/
+  client.ts              # Re-exports from active adapter
+  adapters/
+    postgres.ts          # PostgreSQL adapter (default)
+    mysql.ts             # MySQL adapter (you'll create this)
+  test-utils/
+    pglite-db.ts         # Tests always use PGlite (unchanged)
+```
+
+You'll create a MySQL adapter and switch the client to use it.
+
+---
+
+## Quick Start
+
+### 1. Install mysql2 driver
+
+```bash
+pnpm --filter @kit/database add mysql2
+```
+
+### 2. Create MySQL adapter
+
+Create `packages/database/src/adapters/mysql.ts`:
+
+```typescript
+import { MySql2Database, drizzle } from 'drizzle-orm/mysql2';
+import mysql from 'mysql2/promise';
+
+import { databaseUrl } from '../database-url';
+import * as schema from '../schema/schema';
+
+declare global {
+  var mysqlDb: MySql2Database<DatabaseSchema> | undefined;
+}
+
+export type DatabaseSchema = typeof schema;
+export type Database = MySql2Database<DatabaseSchema>;
+
+let db: Database;
+
+if (process.env.NODE_ENV === 'production') {
+  db = createDrizzle();
+} else {
+  if (!global.mysqlDb) {
+    global.mysqlDb = createDrizzle();
+  }
+  db = global.mysqlDb;
+}
+
+export { db };
+
+function createDrizzle() {
+  const pool = mysql.createPool({
+    uri: databaseUrl,
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0,
+  });
+
+  return drizzle(pool, { schema, mode: 'default' });
+}
+```
+
+### 3. Update Better Auth provider
+
+Edit `packages/better-auth/src/auth.ts`:
+
+```typescript
+const database = drizzleAdapter(db, {
+  provider: 'mysql',  // Change from 'pg'
+  usePlural: true,
+});
+```
+
+### 4. Generate MySQL schema
+
+This regenerates `packages/database/src/schema/core.ts` with MySQL types:
+
+```bash
+pnpm --filter @kit/better-auth schema:generate
+```
+
+### 5. Switch to MySQL adapter
+
+Edit `packages/database/src/client.ts`:
+
+```typescript
+// Before
+export { db, type DatabaseSchema } from './adapters/postgres';
+
+// After
+export { db, type DatabaseSchema } from './adapters/mysql';
+```
+
+### 6. Update Drizzle config
+
+Edit `packages/database/drizzle.config.mjs`:
+
+```javascript
+import { defineConfig } from 'drizzle-kit';
+
+const dialect = 'mysql';  // Change from 'postgresql'
+
+export default defineConfig({
+  schema: '../../packages/database/src/schema/schema.ts',
+  out: '../../packages/database/src/schema',
+  dialect,
+  dbCredentials: {
+    url: process.env.DATABASE_URL ?? 'mysql://root:password@127.0.0.1:3306/saas_kit',
+  },
+  verbose: true,
+  strict: true,
+});
+```
+
+### 7. Update database URL validation
+
+Edit `packages/database/src/database-url.ts`:
+
+```typescript
+import * as z from 'zod';
+
+export const databaseUrl = z
+  .url({
+    error:
+      'Please provide the variable DATABASE_URL as a valid URL pointing to a MySQL database',
+  })
+  .default(
+    process.env.NODE_ENV === 'production'
+      ? process.env.DATABASE_URL!
+      : 'mysql://root:password@127.0.0.1:3306/saas_kit',
+  )
+  .parse(process.env.DATABASE_URL);
+```
+
+### 8. Update docker-compose.dev.yml
+
+Replace the PostgreSQL service with MySQL:
+
+```yaml
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: next-drizzle-saas-kit-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: saas_kit
+    ports:
+      - '3306:3306'
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mysql_data:
+```
+
+### 9. Regenerate migrations
+
+```bash
+rm -rf packages/database/src/schema/meta
+rm packages/database/src/schema/*.sql
+pnpm --filter "@kit/database" drizzle:generate
+```
+
+### 10. Start MySQL and push migrations
+
+Start the MySQL container:
+
+```bash
+pnpm compose:dev:up
+```
+
+Push the migrations to the database:
+
+```bash
+pnpm --filter "@kit/database" drizzle:migrate
+```
+
+### 11. Seed the database (optional)
+
+If you have seed scripts configured:
+
+```bash
+pnpm seed
+```
+
+---
+
+## Environment Variables
+
+### Local MySQL
+
+```bash
+DATABASE_URL=mysql://root:password@127.0.0.1:3306/saas_kit
+```
+
+### AWS RDS MySQL
+
+```bash
+DATABASE_URL=mysql://admin:password@your-instance.region.rds.amazonaws.com:3306/saas_kit
+```
+
+## Common Mistakes to Avoid
+
+**Forgetting to update Better Auth provider**: If you only change the adapter but not the provider in `auth.ts`, the auth schema generation will produce PostgreSQL types, causing runtime errors.
+
+**Using PostgreSQL-specific functions**: Functions like `gen_random_uuid()` don't exist in MySQL. Use `UUID()` instead, or generate IDs in your application code.
+
+**Not updating all configuration files**: The migration requires changes to the adapter, Better Auth config, Drizzle config, database URL validation, and docker-compose. Missing any step will cause errors.
+
+---
+
+## Cleanup
+
+Remove unused PostgreSQL packages:
+
+```bash
+pnpm --filter @kit/database remove postgres
+```
+
+Keep `@electric-sql/pglite` since it's used by tests.
+
+---
+
+**Previous:** [Migrating to SQLite](./sqlite) | **Next:** [Rate Limit Service](./rate-limit-service)
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Will my tests still work after migrating to MySQL?", "answer": "Yes, tests continue using PGlite (in-memory PostgreSQL) regardless of your production database. This provides fast, isolated tests without needing a MySQL server locally."},
+     {"question": "Can I migrate back to PostgreSQL after switching to MySQL?", "answer": "This is possible but requires effort. You would need to reverse the adapter changes, regenerate the schema with PostgreSQL types, and migrate your production data. Test thoroughly in staging."},
+     {"question": "Does MySQL support all PostgreSQL features used in the kit?", "answer": "Most features work, but some PostgreSQL-specific features like gen_random_uuid() need MySQL equivalents (UUID() function). The schema:generate step handles type conversions, but review the generated schema for edge cases."},
+     {"question": "Which MySQL version should I use?", "answer": "MySQL 8.0 or later is recommended. It includes better JSON support, CTEs, and window functions that match PostgreSQL capabilities more closely than older versions."}
+   ]
+/%}

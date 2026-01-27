@@ -1,43 +1,61 @@
 ---
 status: "published"
-description: 'Learn how to configure Posthog Monitoring in your Next.js Supabase SaaS kit'
-title: 'Configuring PostHog monitoring in your Next.js Supabase SaaS kit'
-label: 'Posthog'
+title: "Configuring PostHog Monitoring in Your Next.js Supabase SaaS Kit"
+label: "PostHog"
 order: 3
+description: "Set up PostHog as your error monitoring provider in Makerkit, combining analytics and error tracking in one platform."
 ---
 
-PostHog is released as a plugin, so it's not in the core of the SaaS kit by default.
+{% sequence title="Steps to configure PostHog monitoring" description="Learn how to configure PostHog for error monitoring in your Next.js Supabase SaaS kit." %}
 
-To install Posthog's plugin, you have 2 options:
-1. Use the Makerkit CLI
-2. Clone the plugin repository and add it manually by coping the files in the `plugins` folder
+[Installing the PostHog plugin](#installing-the-posthog-plugin)
 
-## Using the Makerkit CLI
+[Registering the monitoring service](#registering-the-monitoring-service)
 
-Run the following command:
+[Environment variables](#environment-variables)
+
+[How PostHog monitoring works](#how-posthog-monitoring-works)
+
+{% /sequence %}
+
+[PostHog](https://posthog.com) combines product analytics, session replay, feature flags, and error tracking in one platform. If you're already using PostHog for analytics, adding it as your monitoring provider lets you correlate errors with user behavior without switching between tools.
+
+{% alert type="default" title="Already using PostHog for analytics?" %}
+If you've set up PostHog using the [PostHog Analytics guide](/docs/next-supabase-turbo/analytics/posthog-analytics-provider), you already have the plugin installed. Skip to [Registering the monitoring service](#registering-the-monitoring-service).
+{% /alert %}
+
+## Installing the PostHog Plugin
+
+PostHog is distributed as a Makerkit plugin. Install it using the CLI:
 
 ```bash
 npx @makerkit/cli@latest plugins install
 ```
 
-And choose the `posthog` option.
-
-NB: skip this step if you already have the plugin installed (for example, the Posthog plugin for Analytics, they're the same).
+Select **PostHog** from the list. This creates the plugin at `packages/plugins/posthog`.
 
 ## Registering the Monitoring Service
 
-At `packages/monitoring/api/src/get-monitoring-provider.ts`, add `posthog` to the list of providers:
+Register PostHog in the monitoring package by updating three files:
 
-```tsx {% title="packages/monitoring/api/src/get-monitoring-provider.ts" %}
+### 1. Add PostHog to the provider enum
+
+```typescript title="packages/monitoring/api/src/get-monitoring-provider.ts"
+const MONITORING_PROVIDERS = [
+  'sentry',
+  'posthog', // Add posthog here
+  '',
+] as const;
+
 export const MONITORING_PROVIDER = z
-  .enum(['sentry', 'posthog', '']) // <-- Add posthog here
+  .enum(MONITORING_PROVIDERS)
   .optional()
   .transform((value) => value || undefined);
 ```
 
-At `packages/monitoring/api/src/services/get-server-monitoring-service.ts`, register the Posthog service:
+### 2. Register the server monitoring service
 
-```tsx {% title="packages/monitoring/api/src/services/get-server-monitoring-service.ts" %}
+```typescript title="packages/monitoring/api/src/services/get-server-monitoring-service.ts"
 // Register the 'posthog' monitoring service
 serverMonitoringRegistry.register('posthog', async () => {
   const { PostHogServerMonitoringService } = await import(
@@ -48,9 +66,9 @@ serverMonitoringRegistry.register('posthog', async () => {
 });
 ```
 
-At `packages/monitoring/api/src/components/provider.tsx`, register the Posthog Provider:
+### 3. Register the client provider
 
-```tsx {% title="packages/monitoring/api/src/components/provider.tsx" %}
+```typescript title="packages/monitoring/api/src/components/provider.tsx"
 // Register the PostHog provider
 monitoringProviderRegistry.register('posthog', async () => {
   const { PostHogProvider } = await import('@kit/posthog/provider');
@@ -65,11 +83,120 @@ monitoringProviderRegistry.register('posthog', async () => {
 });
 ```
 
-## API Keys
+## Environment Variables
 
-You can skip this step if you already have the Posthog API key. Otherwise, please copy the API key from Posthog and add it to the environment variables:
+Set the monitoring provider and PostHog configuration:
 
-Please follow the [Posthog Analytics plugin configuration](/docs/next-supabase-turbo/posthog-analytics-provider#configuration) to add the
-Posthog API Keys to your Makerkit app.
+```bash title=".env.local"
+# Enable PostHog as the monitoring provider
+NEXT_PUBLIC_MONITORING_PROVIDER=posthog
 
-That's it!
+# PostHog configuration (same as analytics setup)
+NEXT_PUBLIC_POSTHOG_KEY=phc_your_key_here
+NEXT_PUBLIC_POSTHOG_HOST=https://eu.posthog.com
+```
+
+If you haven't configured PostHog yet, see the [PostHog Analytics guide](/docs/next-supabase-turbo/analytics/posthog-analytics-provider) for details on:
+
+- Finding your API key
+- Choosing your region (EU vs US)
+- Setting up ingestion rewrites to bypass ad blockers
+
+## How PostHog Monitoring Works
+
+When PostHog is your monitoring provider, errors are captured and sent to PostHog's error tracking system:
+
+### Exception capture
+
+PostHog captures:
+
+- Client-side React errors
+- Unhandled promise rejections
+- Server-side exceptions via the Next.js instrumentation hook
+
+Errors appear in PostHog under **Error Tracking** in the sidebar.
+
+### Session correlation
+
+The main benefit of using PostHog for monitoring is that errors are automatically linked to session replays. When you view an error in PostHog, you can:
+
+1. See the exact session where the error occurred
+2. Watch the user's actions leading up to the error
+3. Correlate errors with feature flag states
+4. See the user's full journey through your app
+
+This is particularly useful for debugging errors that only happen in specific user flows or under certain conditions.
+
+### User identification
+
+When a user signs in, Makerkit identifies them in PostHog. This links errors to specific users, so you can:
+
+- See all errors for a specific user
+- Contact users affected by critical bugs
+- Filter errors by user properties (plan, account type, etc.)
+
+## Limitations
+
+PostHog's error tracking is newer than dedicated tools like Sentry. Consider these limitations:
+
+| Feature | PostHog | Sentry |
+|---------|---------|--------|
+| Error tracking | Yes | Yes |
+| Stack trace deobfuscation | Limited | Full source map support |
+| Performance monitoring | Via analytics | Full APM |
+| Release tracking | No | Yes |
+| Issue assignment | No | Yes |
+| Slack/PagerDuty integration | Limited | Full |
+
+**When to choose PostHog for monitoring:**
+
+- You're already using PostHog for analytics
+- You want errors correlated with session replays
+- Your error volume is moderate
+- You prefer fewer tools to manage
+
+**When to choose Sentry instead:**
+
+- You need detailed stack traces with source maps
+- You have high error volume
+- You need advanced alerting and issue management
+- You want dedicated performance monitoring
+
+## Using Both PostHog and Sentry
+
+You can use PostHog for analytics and Sentry for monitoring. Set `NEXT_PUBLIC_MONITORING_PROVIDER=sentry` while keeping PostHog configured for analytics. This gives you:
+
+- PostHog: Analytics, session replay, feature flags
+- Sentry: Error tracking, performance monitoring, source maps
+
+## Verification
+
+After setup:
+
+1. Trigger a test error in your application
+2. Open PostHog and navigate to **Error Tracking**
+3. Verify the error appears with:
+   - Error message and stack trace
+   - User information (if logged in)
+   - Link to session replay
+
+## Troubleshooting
+
+### Errors not appearing in PostHog
+
+1. **Check the provider setting**: Verify `NEXT_PUBLIC_MONITORING_PROVIDER=posthog`
+2. **Check PostHog initialization**: Open browser DevTools and look for PostHog network requests
+3. **Verify the registrations**: Ensure all three files are updated with PostHog registrations
+4. **Check ad blockers**: If using PostHog directly (no ingestion rewrites), ad blockers may block requests
+
+### Session replay not showing for errors
+
+1. **Enable session replay**: Check PostHog Project Settings > Session Replay
+2. **Check sample rate**: Session replay may be sampling out some sessions
+3. **Wait for processing**: Session replays can take a few minutes to appear
+
+## Next Steps
+
+- [Learn about PostHog's error tracking features](https://posthog.com/docs/error-tracking)
+- [Configure session replay settings](https://posthog.com/docs/session-replay)
+- [Return to monitoring overview](/docs/next-supabase-turbo/monitoring/overview)

@@ -1,96 +1,221 @@
 ---
 status: "published"
-title: "Configuring your Database tables"
+title: "Configuring Database Tables in Supamode"
 label: "Tables"
 order: 3
-description: "Understanding how to configure resources for the best user experience"
+description: "Configure table display names, formats, visibility, and search settings. Learn how to sync your PostgreSQL schema and optimize the Data Explorer experience."
 ---
 
-To get the best out of Supamode, you need to configure your database tables and its data types. Supamode makes many assumptions when syncing your database schema, but it's recommended to configure the tables to get the best user experience.
+Table configuration controls how your database appears in Supamode's Data Explorer. Good configuration transforms cryptic table names like `usr_prf` into a clear "User Profiles" interface that anyone on your team can use.
 
-## Managed Tables
+**What you can configure:**
+- **Display names**: Human-readable labels (`usr_prf` to "User Profiles")
+- **Display format**: How records show in dropdowns (`{first_name} {last_name}`)
+- **Visibility**: Which tables appear in the sidebar
+- **Searchability**: Which tables are included in global search
 
-Supamode will index your database tables and their data types into an internal database table called `supamode.table_metadata`. This table is used to store the metadata of the tables and their data types.
+## Syncing Tables
 
-To sync your database schema into Supamode, you can use the `supamode.sync_managed_tables` function.
+Before configuring tables, sync your database schema into Supamode's metadata system. This populates `supamode.table_metadata` with your table and column information.
 
-### Sync your DB schema into Supamode
+### Sync Commands
 
-To sync your database schema into Supamode, we provide a quick Postgres function that will sync your database schema into Supamode. 
-
-After pushing the Supamode migrations, you can run the following function to sync your database schema into Supamode:
+Run these SQL commands in Supabase Studio's SQL Editor or include them in a migration:
 
 ```sql
--- Sync the whole "public" schema
+-- Sync all tables in the public schema
 select supamode.sync_managed_tables('public');
-```
 
-The above function will sync all tables in the `public` schema. You can also sync a specific table by passing the table name as an argument:
-
-```sql
--- Sync the "users" table
+-- Sync specific tables (useful for selective syncing)
 select supamode.sync_managed_tables('public', 'users');
-```
+select supamode.sync_managed_tables('public', 'orders');
+select supamode.sync_managed_tables('public', 'products');
 
-In addition, you can also sync tables in custom schemas and Supabase's internal schemas. For example, to sync the `users` table in the `auth` schema, you can run the following function:
+-- Sync tables from custom schemas
+select supamode.sync_managed_tables('billing', 'invoices');
+select supamode.sync_managed_tables('analytics', 'events');
 
-```sql
--- Sync the "users" table in the "auth" schema
+-- Sync Supabase auth.users table (recommended)
 select supamode.sync_managed_tables('auth', 'users');
 ```
 
-We do recommend syncing the `auth.users` table, as it's the table that contains the user data and it's often referenced in the other tables.
+{% alert type="default" title="Sync auth.users" %}
+We recommend syncing `auth.users` since it's frequently referenced by foreign keys. This enables Supamode to display user names instead of raw UUIDs in reference fields and dropdowns.
+{% /alert %}
 
-## Naming Resources
+### When to Re-sync
 
-Supamode will infer the display name of the table, based on the table name. For example, the table `users` will be displayed as `Users`. However, **we recommend** to configure the display name of the table to make it more readable and obvious to the non-technical users in your team.
+Re-run the sync function when you:
+- Add new tables to your schema
+- Add, rename, or remove columns
+- Change column types or constraints
+- Run database migrations
 
-## Display Format
+Syncing is idempotent. Running it multiple times is safe and updates existing metadata.
 
-The display format is essential to make the data more readable and obvious to the non-technical users in your team. 
+## Configuring Tables in the UI
 
-By default, Supamode will display references to other tables using the foreign key provided - but this is not always the best way to display the data. Instead, you can configure the display format to make it more readable.
+After syncing, configure tables at **Settings > Tables** (`/settings/tables`).
 
-The display format accepts variables that will be replaced with the actual data. For example, if you have a table called `users` and you want to display the user's name, you can use the following display format:
+### Display Name
+
+The display name appears in the sidebar, page headers, and throughout the UI. Supamode infers names from table names (`user_accounts` becomes "User Accounts"), but you should customize them for clarity.
+
+**Examples:**
+| Table Name | Default | Recommended |
+|------------|---------|-------------|
+| `usr_profiles` | Usr Profiles | User Profiles |
+| `tx_history` | Tx History | Transaction History |
+| `prod_cat` | Prod Cat | Product Categories |
+
+### Display Format
+
+The display format controls how records appear when referenced from other tables. Instead of showing a UUID like `550e8400-e29b-41d4-a716-446655440000`, display something meaningful.
+
+**Syntax:** Use `{column_name}` placeholders:
 
 ```
-{name}
+{first_name} {last_name}
 ```
 
-You can also add some text to the display format:
+**With static text:**
+```
+{title} (#{id})
+```
 
+**Multiple columns:**
 ```
 {name} - {email}
 ```
 
-As long as the variable is a valid column name in the table, it will be replaced with the actual data.
+**Handling null values:**
 
-### Handling null values
-
-You can also provide ways to handle null values in the display format. For example, if you want to display `N/A` when the value is null, you can use the following display format:
-
-```
-{name || 'N/A'}
-```
-
-or, you can use different variables to handle the null value:
+Use `||` for fallbacks when a column might be null:
 
 ```
 {name || email}
 ```
 
-When you define the display format of a table, users will always see the chosen format when viewing the data in Supamode. Neat, right?
+This shows `name` if present, otherwise falls back to `email`.
 
-## Visibility
+**With default text:**
+```
+{name || 'Unknown User'}
+```
 
-Not all tables need to be visible to all users. For example, you might have a private table that contains sensitive data, or a table that is only used for internal purposes and will never be edited by the users.
+**Real-world examples:**
 
-Pro Tip: hide the table if you don't need to customize it, to make the UI cleaner.
+| Table | Display Format | Result |
+|-------|----------------|--------|
+| `users` | `{name}` | "John Smith" |
+| `orders` | `Order #{id} - {status}` | "Order #1234 - pending" |
+| `products` | `{name} (${price})` | "Widget ($29.99)" |
+| `posts` | `{title \|\| 'Untitled'}` | "My Blog Post" or "Untitled" |
 
-## Searchability
+### Visibility
 
-By default, Supamode will attempt to search all tables in the Global Search functionality. However, if a table has data that you don't need, **it's recommended to disable the search for that table**, to improve the search performance.
+Control which tables appear in the Data Explorer sidebar. Tables can be:
 
-## Ordering
+- **Visible**: Appears in sidebar and is accessible
+- **Hidden**: Not shown in sidebar but accessible via direct URL (if user has permissions)
 
-Ordering will be used to order the tables in the Supamode UI's left-hand sidebar. To update the ordering of the tables, use the drag and drop feature to reorder the tables.
+**When to hide tables:**
+- Tables not relevant to the users (ex. `storage.objects`)
+- Internal system tables (`audit_logs`, `migrations`)
+- Join tables for many-to-many relationships (`post_tags`, `user_roles`)
+- Tables with no user-facing data
+
+Hiding tables keeps the UI clean for non-technical users.
+
+### Searchability
+
+Global search (`Cmd+K`) queries all searchable tables. For performance with large databases, disable search on:
+
+- Tables with millions of rows
+- Tables with mostly non-text data (numbers, booleans)
+- Audit or logging tables
+- Tables users rarely need to search
+
+Supamode excludes certain column types from search automatically (binary, JSON, etc.).
+
+### Ordering
+
+Drag and drop tables in the Settings UI to reorder them in the sidebar. Put frequently-accessed tables at the top.
+
+## Column Configuration
+
+Each table's columns can also be configured for optimal display:
+
+- **Display name**: Override column names (`created_at` → "Created")
+- **Visibility**: Hide columns users don't need to see
+- **Data type hints**: Override inferred types for better form fields
+
+Access column settings by clicking on a table in the Tables settings page.
+
+## Best Practices
+
+### Start with Core Tables
+
+Focus configuration on tables your team uses daily:
+
+1. Identify the 5-10 most-accessed tables
+2. Configure meaningful display formats
+3. Hide internal/system tables
+4. Test with non-technical users
+
+### Use Consistent Naming
+
+Establish conventions across your schema:
+
+- Singular vs. plural: Pick one ("Order" or "Orders")
+- Abbreviation policy: Expand or keep consistent
+- Status values: Use human-readable labels
+
+### Optimize for Search
+
+- Enable search only on tables users query frequently
+- Ensure searchable columns have appropriate indexes in PostgreSQL
+- Consider creating views for complex search scenarios
+
+## Troubleshooting
+
+### Table Not Appearing
+
+If a synced table doesn't appear in the Data Explorer:
+
+1. Verify the sync ran successfully
+   - Run the following query:
+      ```sql
+      select * from supamode.table_metadata
+      where table_name = 'your_table';
+      ```
+2. Check the user has [data permissions](./permissions) for the table
+3. Verify the table isn't hidden in visibility settings
+
+### Display Format Not Working
+
+If placeholders show literally (e.g., `{name}` instead of "John"):
+
+- Verify the column name exists exactly as typed
+- Check for typos (column names are case-sensitive)
+- Ensure the column isn't null (use fallback syntax)
+
+### Sync Not Updating
+
+If schema changes don't appear after syncing:
+
+- Run the sync again for the specific table
+- Clear Supamode's cache by restarting the API server
+- Check for database connection issues
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Do I need to sync tables every time I deploy?", "answer": "No. Table metadata is stored in the database and persists across deployments. Only re-sync when your schema changes (new tables, new columns, type changes)."},
+     {"question": "Will syncing affect my production data?", "answer": "No. The sync function only reads your schema metadata and writes to supamode.table_metadata. It never modifies your application tables or data."},
+     {"question": "How do I handle tables with the same name in different schemas?", "answer": "Supamode tracks tables by schema and name combination. Configure each separately in Settings. In the sidebar, tables are grouped by schema if you have multiple schemas synced."},
+     {"question": "What happens if I rename a column after syncing?", "answer": "The old column metadata remains until you re-sync. Re-run sync_managed_tables for the affected table to update column information. Display formats referencing the old column name will show the placeholder literally until updated."},
+     {"question": "Can I configure column-level visibility per role?", "answer": "Column visibility in table settings is global. For role-based column access, use data permissions to control which roles can read specific columns."},
+     {"question": "How do I exclude system columns from the UI?", "answer": "In column configuration, set visibility to hidden for columns like created_at, updated_at, or internal IDs. Users won't see these in the Data Explorer but they're still accessible via the API if permissions allow."}
+   ]
+/%}

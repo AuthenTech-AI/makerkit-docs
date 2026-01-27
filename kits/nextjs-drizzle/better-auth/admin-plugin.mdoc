@@ -1,0 +1,302 @@
+---
+status: "published"
+title: "Admin Plugin"
+label: "Admin Plugin"
+order: 11
+description: "User management, role-based access control, banning, and impersonation for administrators."
+---
+
+This guide is part of the [Drizzle](/drizzle) stack docs.
+
+Manage users from an admin dashboard. The admin plugin provides role-based access control, user banning, session management, and impersonation for support and debugging.
+
+This page is part of the [Authentication documentation](./overview).
+
+## Overview
+
+The admin plugin extends Better Auth with administrative capabilities:
+
+- **Role-based access control (RBAC)** - Define admin roles with specific permissions
+- **User management** - View, search, and manage all users
+- **Banning** - Temporarily or permanently ban users
+- **Impersonation** - Sign in as another user for support
+- **Session control** - Revoke user sessions
+
+## Configuration
+
+The admin plugin is configured in `packages/better-auth/src/plugins/admin.ts`:
+
+```typescript
+import { admin } from 'better-auth/plugins/admin';
+import { userAc } from 'better-auth/plugins/admin/access';
+import {
+  adminAc,
+  adminRoles,
+  getAdminRoleNames,
+} from '@kit/rbac/admin';
+import { DEFAULT_ROLE } from './admin-config';
+
+const IMPERSONATION_SESSION_DURATION = 60 * 60; // 1 hour
+const DEFAULT_BAN_EXPIRES_IN = undefined; // Permanent
+
+function buildRolesConfig() {
+  const roles = { user: userAc };
+
+  for (const [roleName, role] of Object.entries(adminRoles)) {
+    roles[roleName] = role;
+  }
+
+  return roles;
+}
+
+export const adminPlugin = admin({
+  defaultRole: DEFAULT_ROLE,
+  adminRoles: getAdminRoleNames(),
+  impersonationSessionDuration: IMPERSONATION_SESSION_DURATION,
+  defaultBanExpiresIn: DEFAULT_BAN_EXPIRES_IN,
+  ac: adminAc,
+  roles: buildRolesConfig(),
+});
+```
+
+## RBAC Configuration
+
+Admin roles are defined in `packages/rbac/src/admin-rbac.config.ts`. The kit includes:
+
+| Role | Description |
+|------|-------------|
+| `user` | Regular user (non-admin) |
+| `admin` | Full administrative access |
+| `super-admin` | Elevated admin with all permissions |
+
+### Customizing Admin Roles
+
+Edit `packages/rbac/src/admin-rbac.config.ts` to add or modify roles:
+
+```typescript
+export const adminRoles = {
+  admin: adminAc.newRole({
+    user: ['read', 'update', 'ban'],
+    session: ['read', 'revoke'],
+  }),
+  'super-admin': adminAc.newRole({
+    user: ['read', 'update', 'delete', 'ban', 'impersonate'],
+    session: ['read', 'revoke', 'revokeAll'],
+  }),
+  // Add custom roles
+  support: adminAc.newRole({
+    user: ['read', 'impersonate'],
+    session: ['read'],
+  }),
+};
+```
+
+## Admin Dashboard
+
+The admin panel is available at `/admin` for users with admin roles. Features include:
+
+- **User list** - Paginated view of all users
+- **User search** - Find users by email or name
+- **User details** - View account information, sessions, organizations
+- **User actions** - Ban, unban, impersonate, revoke sessions
+
+See the [Admin Overview](../admin/overview) documentation for detailed admin panel usage.
+
+## User Management
+
+### Listing Users
+
+```typescript
+import { authClient } from '@kit/better-auth/client';
+
+const { data: users } = await authClient.admin.listUsers({
+  limit: 20,
+  offset: 0,
+  sortBy: 'createdAt',
+  sortOrder: 'desc',
+});
+```
+
+### Searching Users
+
+```typescript
+const { data: results } = await authClient.admin.listUsers({
+  searchField: 'email',
+  searchValue: 'user@example.com',
+});
+```
+
+## Banning Users
+
+### Ban a User
+
+```typescript
+import { authClient } from '@kit/better-auth/client';
+
+// Permanent ban
+await authClient.admin.banUser({
+  userId: 'user-id',
+  reason: 'Violation of terms of service',
+});
+
+// Temporary ban (7 days)
+await authClient.admin.banUser({
+  userId: 'user-id',
+  reason: 'Suspicious activity',
+  expiresIn: 7 * 24 * 60 * 60, // seconds
+});
+```
+
+### Unban a User
+
+```typescript
+await authClient.admin.unbanUser({
+  userId: 'user-id',
+});
+```
+
+### Ban Behavior
+
+When banned:
+- User's active sessions are revoked
+- User cannot sign in
+- User sees a "banned" message on sign-in attempt
+- Temporary bans auto-expire
+
+## Impersonation
+
+Impersonation allows admins to sign in as another user for support and debugging without knowing their password.
+
+### Start Impersonation
+
+```typescript
+import { authClient } from '@kit/better-auth/client';
+
+await authClient.admin.impersonateUser({
+  userId: 'user-id',
+});
+
+// Now signed in as that user
+// Session duration: 1 hour (configurable)
+```
+
+### Stop Impersonation
+
+```typescript
+await authClient.admin.stopImpersonation();
+
+// Returns to admin account
+```
+
+### Impersonation Safety
+
+- Impersonation sessions expire after 1 hour
+- Actions during impersonation are logged
+- The impersonated session is clearly marked
+- Cannot impersonate other admins (configurable)
+
+## Session Management
+
+### View User Sessions
+
+```typescript
+const { data: sessions } = await authClient.admin.listUserSessions({
+  userId: 'user-id',
+});
+
+// Returns: session ID, device info, IP, created at, last active
+```
+
+### Revoke a Session
+
+```typescript
+await authClient.admin.revokeSession({
+  sessionId: 'session-id',
+});
+```
+
+### Revoke All Sessions
+
+```typescript
+await authClient.admin.revokeUserSessions({
+  userId: 'user-id',
+});
+```
+
+## Role Assignment
+
+### Set User Role
+
+```typescript
+await authClient.admin.setRole({
+  userId: 'user-id',
+  role: 'admin',
+});
+```
+
+### Check User Role
+
+```typescript
+import { isAdminRole } from '@kit/better-auth/admin-config';
+
+const user = await authClient.getSession();
+
+if (isAdminRole(user?.data?.user?.role)) {
+  // User has admin privileges
+}
+```
+
+## Client-Side Role Checks
+
+The `admin-config.ts` exports utilities for role checking:
+
+```typescript
+import {
+  ADMIN_ROLES,
+  isAdminRole,
+  roleHasPermission,
+  getRolePermissions,
+} from '@kit/better-auth/admin-config';
+
+// Check if role is an admin role
+if (isAdminRole('super-admin')) {
+  // true
+}
+
+// Check specific permission
+if (roleHasPermission('admin', 'user', 'ban')) {
+  // Admin can ban users
+}
+
+// Get all permissions for a role
+const permissions = getRolePermissions('admin');
+```
+
+## Security Considerations
+
+- **Principle of least privilege** - Assign minimal necessary permissions
+- **Audit logging** - Log all admin actions for accountability
+- **Two admin rule** - Consider requiring multiple admins for destructive actions
+- **Impersonation limits** - Restrict what actions can be taken while impersonating
+
+## Common Pitfalls
+
+- **Missing role checks in UI** - Always check permissions before showing admin features.
+- **Impersonation without logging** - Ensure impersonation actions are auditable.
+- **Overly permissive roles** - Start restrictive and add permissions as needed.
+- **Forgetting client plugin** - Add `adminClient()` to `auth-client.ts` for client-side admin methods.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "How do I create the first admin user?", "answer": "Use the database directly to set a user's role to 'admin' or 'super-admin'. After that, existing admins can promote other users."},
+     {"question": "Can I customize what admins can impersonate?", "answer": "Yes. Modify the RBAC configuration to control which roles can impersonate and which roles can be impersonated."},
+     {"question": "How do I audit admin actions?", "answer": "Implement logging in your admin action handlers. The kit includes logging infrastructure you can extend."},
+     {"question": "Can I have multiple admin levels?", "answer": "Yes. Define multiple roles in admin-rbac.config.ts with different permission sets. Common patterns include admin, super-admin, support."},
+     {"question": "What happens to a user's data when banned?", "answer": "Banning only prevents sign-in. User data remains intact. For data deletion, use account deletion which triggers cleanup hooks."}
+   ]
+/%}
+
+---
+
+For detailed admin panel documentation, see [Admin Overview](../admin/overview).

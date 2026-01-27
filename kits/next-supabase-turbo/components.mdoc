@@ -1,11 +1,491 @@
 ---
 status: "published"
-title: "UI Components in the Next.js Supabase Turbo SaaS Boilerplate"
+title: "UI Components for Next.js Supabase SaaS Applications"
 label: "UI Components"
 order: 9
-description: "Components in Next.js Supabase Turbo"
+description: "Explore 60+ pre-built React components for building SaaS applications. Includes forms, data tables, navigation, and Makerkit-specific components built on Shadcn UI and Radix primitives."
 collapsible: true
 collapsed: true
 ---
 
-Components in Next.js Supabase Turbo
+Makerkit includes a comprehensive UI component library built on [Shadcn UI](https://ui.shadcn.com) and [Radix Primitives](https://www.radix-ui.com). All components are fully accessible, customizable with Tailwind CSS, and designed specifically for SaaS applications.
+
+## Component architecture
+
+Components are organized in the `@kit/ui` package and fall into two categories:
+
+| Category | Description | Examples |
+|----------|-------------|----------|
+| **Shadcn UI** | Base primitives from Shadcn UI | Button, Input, Dialog, Select |
+| **Makerkit** | SaaS-specific components | DataTable, MultiStepForm, Page layouts |
+
+All components are exported from `@kit/ui` with named exports:
+
+```tsx
+import { Button, Input, Card } from '@kit/ui/button';
+import { DataTable } from '@kit/ui/enhanced-data-table';
+import { MultiStepForm } from '@kit/ui/multi-step-form';
+```
+
+## Quick start
+
+Here's a complete example showing common components working together:
+
+```tsx
+'use client';
+
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+
+import { Button } from '@kit/ui/button';
+import { Card, CardHeader, CardTitle, CardContent } from '@kit/ui/card';
+import { Form, FormField, FormItem, FormLabel, FormControl } from '@kit/ui/form';
+import { Input } from '@kit/ui/input';
+
+const schema = z.object({
+  name: z.string().min(1, 'Name is required'),
+  email: z.string().email('Invalid email'),
+});
+
+export function ContactForm() {
+  const form = useForm({
+    resolver: zodResolver(schema),
+    defaultValues: { name: '', email: '' },
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Contact Us</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(console.log)} className="space-y-4">
+            <FormField
+              name="name"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Name</FormLabel>
+                  <FormControl>
+                    <Input {...field} placeholder="Your name" />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+            <FormField
+              name="email"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Email</FormLabel>
+                  <FormControl>
+                    <Input {...field} type="email" placeholder="you@example.com" />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+            <Button type="submit">Send Message</Button>
+          </form>
+        </Form>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+## Component categories
+
+### Form components
+
+Build validated forms with React Hook Form integration.
+
+| Component | Description | Import |
+|-----------|-------------|--------|
+| **Form** | Form wrapper with validation | `@kit/ui/form` |
+| **Input** | Text input field | `@kit/ui/input` |
+| **Textarea** | Multi-line text input | `@kit/ui/textarea` |
+| **Select** | Dropdown selection | `@kit/ui/select` |
+| **Checkbox** | Toggle checkbox | `@kit/ui/checkbox` |
+| **Switch** | Toggle switch | `@kit/ui/switch` |
+| **RadioGroup** | Radio button group | `@kit/ui/radio-group` |
+| **InputOTP** | One-time password input | `@kit/ui/input-otp` |
+| **Calendar** | Date picker | `@kit/ui/calendar` |
+| **Slider** | Range slider | `@kit/ui/slider` |
+
+{% link href="/docs/next-supabase-turbo/components/multi-step-forms" title="Multi-Step Forms" description="Build complex wizards with step validation and progress tracking." /%}
+
+### Data display
+
+Present data in tables, lists, and cards.
+
+| Component | Description | Import |
+|-----------|-------------|--------|
+| **DataTable** | Paginated, sortable tables | `@kit/ui/enhanced-data-table` |
+| **Table** | Basic table structure | `@kit/ui/table` |
+| **Card** | Content container | `@kit/ui/card` |
+| **Badge** | Status indicators | `@kit/ui/badge` |
+| **Avatar** | User profile images | `@kit/ui/avatar` |
+| **Skeleton** | Loading placeholders | `@kit/ui/skeleton` |
+| **Chart** | Data visualization | `@kit/ui/chart` |
+
+{% link href="/docs/next-supabase-turbo/components/data-table" title="Data Table" description="Build sortable, filterable tables with TanStack Table." /%}
+
+### Navigation
+
+Guide users through your application.
+
+| Component | Description | Import |
+|-----------|-------------|--------|
+| **NavigationMenu** | Main navigation | `@kit/ui/navigation-menu` |
+| **Breadcrumb** | Path navigation | `@kit/ui/breadcrumb` |
+| **Tabs** | Tabbed interfaces | `@kit/ui/tabs` |
+| **DropdownMenu** | Action menus | `@kit/ui/dropdown-menu` |
+| **Command** | Command palette | `@kit/ui/command` |
+| **Sidebar** | App sidebar | `@kit/ui/sidebar` |
+
+{% link href="/docs/next-supabase-turbo/components/bordered-navigation-menu" title="Bordered Navigation" description="Navigation component with bordered styling for dashboards." /%}
+
+### Feedback
+
+Communicate status and gather user input.
+
+| Component | Description | Import |
+|-----------|-------------|--------|
+| **Alert** | Status messages | `@kit/ui/alert` |
+| **AlertDialog** | Confirmation dialogs | `@kit/ui/alert-dialog` |
+| **Dialog** | Modal windows | `@kit/ui/dialog` |
+| **Sheet** | Side panels | `@kit/ui/sheet` |
+| **Popover** | Floating content | `@kit/ui/popover` |
+| **Tooltip** | Hover hints | `@kit/ui/tooltip` |
+| **Toast** | Notifications | `@kit/ui/sonner` |
+| **Progress** | Progress indicators | `@kit/ui/progress` |
+
+### Layout
+
+Structure your pages consistently.
+
+| Component | Description | Import |
+|-----------|-------------|--------|
+| **Page** | Page layouts | `@kit/ui/page` |
+| **Separator** | Visual dividers | `@kit/ui/separator` |
+| **ScrollArea** | Custom scrollbars | `@kit/ui/scroll-area` |
+| **Collapsible** | Expandable sections | `@kit/ui/collapsible` |
+| **Accordion** | Stacked collapsibles | `@kit/ui/accordion` |
+
+{% link href="/docs/next-supabase-turbo/components/page" title="Page Component" description="Create consistent page layouts with sidebar or header navigation." /%}
+
+## Makerkit components
+
+These components are built specifically for SaaS applications:
+
+### Enhanced Data Table
+
+A powerful table component with built-in pagination, sorting, and filtering:
+
+```tsx
+import { DataTable } from '@kit/ui/enhanced-data-table';
+
+function UsersTable({ users, pageCount }) {
+  const columns = [
+    { accessorKey: 'name', header: 'Name' },
+    { accessorKey: 'email', header: 'Email' },
+    { accessorKey: 'role', header: 'Role' },
+  ];
+
+  return (
+    <DataTable
+      columns={columns}
+      data={users}
+      pageIndex={0}
+      pageSize={10}
+      pageCount={pageCount}
+    />
+  );
+}
+```
+
+### Multi-Step Form
+
+Create wizard-style forms with step validation:
+
+```tsx
+import { MultiStepForm, MultiStepFormStep, createStepSchema } from '@kit/ui/multi-step-form';
+
+const FormSchema = createStepSchema({
+  account: z.object({
+    email: z.string().email(),
+    password: z.string().min(8),
+  }),
+  profile: z.object({
+    name: z.string().min(1),
+    company: z.string().optional(),
+  }),
+});
+
+function OnboardingWizard() {
+  const form = useForm({ resolver: zodResolver(FormSchema) });
+
+  return (
+    <MultiStepForm schema={FormSchema} form={form} onSubmit={handleSubmit}>
+      <MultiStepFormStep name="account">
+        <AccountFields />
+      </MultiStepFormStep>
+      <MultiStepFormStep name="profile">
+        <ProfileFields />
+      </MultiStepFormStep>
+    </MultiStepForm>
+  );
+}
+```
+
+### Empty State
+
+Display helpful messages when there's no data:
+
+```tsx
+import { EmptyState } from '@kit/ui/empty-state';
+import { PlusIcon } from 'lucide-react';
+
+function ProjectsEmpty() {
+  return (
+    <EmptyState
+      icon={<FolderIcon className="h-12 w-12" />}
+      title="No projects yet"
+      description="Create your first project to get started."
+    >
+      <Button>
+        <PlusIcon className="mr-2 h-4 w-4" />
+        Create Project
+      </Button>
+    </EmptyState>
+  );
+}
+```
+
+### Stepper
+
+Show progress through multi-step processes:
+
+```tsx
+import { Stepper } from '@kit/ui/stepper';
+
+function CheckoutProgress({ currentStep }) {
+  return (
+    <Stepper
+      variant="numbers"
+      steps={['Cart', 'Shipping', 'Payment', 'Confirmation']}
+      currentStep={currentStep}
+    />
+  );
+}
+```
+
+### Loading Overlay
+
+Show loading state over content:
+
+```tsx
+import { LoadingOverlay } from '@kit/ui/loading-overlay';
+
+function DataPanel({ isLoading, children }) {
+  return (
+    <div className="relative">
+      {isLoading && <LoadingOverlay />}
+      {children}
+    </div>
+  );
+}
+```
+
+### Cookie Banner
+
+GDPR-compliant cookie consent:
+
+```tsx
+import { CookieBanner } from '@kit/ui/cookie-banner';
+
+function Layout({ children }) {
+  return (
+    <>
+      {children}
+      <CookieBanner />
+    </>
+  );
+}
+```
+
+## Customization
+
+### Using Tailwind CSS
+
+All components accept `className` props for customization:
+
+```tsx
+<Button className="bg-gradient-to-r from-blue-500 to-purple-600">
+  Gradient Button
+</Button>
+
+<Card className="shadow-xl border-2 border-primary">
+  <CardContent>Custom styled card</CardContent>
+</Card>
+```
+
+### Component variants
+
+Many components support variants for different styles:
+
+```tsx
+// Button variants
+<Button variant="default">Primary</Button>
+<Button variant="secondary">Secondary</Button>
+<Button variant="outline">Outline</Button>
+<Button variant="ghost">Ghost</Button>
+<Button variant="destructive">Destructive</Button>
+
+// Alert variants
+<Alert variant="default">Info</Alert>
+<Alert variant="success">Success</Alert>
+<Alert variant="warning">Warning</Alert>
+<Alert variant="destructive">Error</Alert>
+
+// Badge variants
+<Badge variant="default">Default</Badge>
+<Badge variant="secondary">Secondary</Badge>
+<Badge variant="outline">Outline</Badge>
+```
+
+### Modifying component source
+
+Components live in `packages/ui/src/`. You can modify them directly:
+
+```
+packages/ui/src/
+├── shadcn/           # Shadcn UI components
+│   ├── button.tsx
+│   ├── input.tsx
+│   └── ...
+├── makerkit/         # Makerkit components
+│   ├── enhanced-data-table.tsx
+│   ├── multi-step-form.tsx
+│   └── ...
+└── index.ts          # Exports
+```
+
+## Accessibility
+
+All components follow WAI-ARIA guidelines:
+
+- **Keyboard navigation**: Full keyboard support for all interactive elements
+- **Screen readers**: Proper ARIA labels and roles
+- **Focus management**: Visible focus indicators and logical tab order
+- **Color contrast**: WCAG 2.1 AA compliant color ratios
+
+Example with proper accessibility:
+
+```tsx
+<Dialog>
+  <DialogTrigger asChild>
+    <Button>Open Settings</Button>
+  </DialogTrigger>
+  <DialogContent>
+    <DialogHeader>
+      <DialogTitle>Account Settings</DialogTitle>
+      <DialogDescription>
+        Update your account preferences here.
+      </DialogDescription>
+    </DialogHeader>
+    {/* Form content */}
+  </DialogContent>
+</Dialog>
+```
+
+## Dark mode
+
+Components automatically adapt to dark mode. Use the `ModeToggle` component to let users switch:
+
+```tsx
+import { ModeToggle } from '@kit/ui/mode-toggle';
+
+function Header() {
+  return (
+    <header className="flex justify-between items-center p-4">
+      <Logo />
+      <ModeToggle />
+    </header>
+  );
+}
+```
+
+## Best practices
+
+### 1. Use semantic components
+
+Choose the right component for the job:
+
+```tsx
+// Good: Semantic button for actions
+<Button onClick={handleSubmit}>Save Changes</Button>
+
+// Avoid: Div with click handler
+<div onClick={handleSubmit}>Save Changes</div>
+```
+
+### 2. Provide loading states
+
+Always show feedback during async operations:
+
+```tsx
+<Button disabled={isSubmitting}>
+  {isSubmitting ? (
+    <>
+      <Spinner className="mr-2 h-4 w-4" />
+      Saving...
+    </>
+  ) : (
+    'Save Changes'
+  )}
+</Button>
+```
+
+### 3. Handle empty states
+
+Never show blank screens:
+
+```tsx
+{projects.length > 0 ? (
+  <ProjectList projects={projects} />
+) : (
+  <EmptyState
+    title="No projects"
+    description="Create your first project to get started."
+  />
+)}
+```
+
+### 4. Add data-test attributes
+
+Enable E2E testing with selectors:
+
+```tsx
+<Button data-test="submit-form">Submit</Button>
+<Input data-test="email-input" />
+```
+
+## Component documentation
+
+Explore detailed documentation for each component category:
+
+- [Shadcn UI Components](/docs/next-supabase-turbo/components/shadcn) — Full catalog of base components
+- [Data Table](/docs/next-supabase-turbo/components/data-table) — Tables with pagination and sorting
+- [Multi-Step Forms](/docs/next-supabase-turbo/components/multi-step-forms) — Wizard-style form flows
+- [Page Component](/docs/next-supabase-turbo/components/page) — Consistent page layouts
+- [Empty State](/docs/next-supabase-turbo/components/empty-state) — No-data messaging
+- [Stepper](/docs/next-supabase-turbo/components/stepper) — Progress indicators
+- [Marketing Components](/docs/next-supabase-turbo/components/marketing-components) — Landing page components
+
+## Related resources
+
+- [Shadcn UI Documentation](https://ui.shadcn.com) — Official Shadcn UI docs
+- [Radix Primitives](https://www.radix-ui.com) — Underlying primitives
+- [Tailwind CSS](https://tailwindcss.com) — Styling framework
+- [React Hook Form](https://react-hook-form.com) — Form library integration

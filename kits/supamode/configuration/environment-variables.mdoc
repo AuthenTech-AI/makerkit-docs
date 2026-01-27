@@ -1,0 +1,248 @@
+---
+status: "published"
+title: "Environment Variables Reference"
+label: "Environment Variables"
+order: 1
+description: "Complete reference for all Supamode environment variables. Configure the frontend, API, Supabase connection, authentication, and optional features."
+---
+
+{% callout type="default" title="What are Environment Variables?" %}
+Environment variables are configuration values set outside your code that control how Supamode connects to Supabase, handles authentication, and behaves in different environments. They keep secrets out of your codebase and allow the same code to run in development and production.
+{% /callout %}
+
+Supamode uses environment variables to configure both the frontend (Vite) and backend (Hono API). This reference covers all available variables, their purposes, and example values.
+
+## Quick Setup
+
+For local development, copy the template files and fill in your values:
+
+```bash
+# Frontend
+cp apps/app/.env.template apps/app/.env
+
+# Backend
+cp apps/api/.env.template apps/api/.env
+```
+
+## Frontend Variables (apps/app/.env)
+
+These variables configure the React frontend. Variables prefixed with `VITE_` are exposed to the browser.
+
+### Required
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `VITE_SUPABASE_URL` | Supabase project URL | `http://localhost:54331` (local) or `https://abc.supabase.co` |
+| `VITE_SUPABASE_ANON_KEY` | Supabase anonymous key | `eyJhbGciOiJIUzI1NiIs...` |
+| `VITE_SITE_URL` | Application URL | `http://localhost:5173` |
+
+### Optional
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VITE_OAUTH_PROVIDERS` | `""` | Comma-separated OAuth providers: `google,github,azure` |
+| `VITE_DEFAULT_THEME` | `dark` | Default UI theme: `dark` or `light` |
+| `VITE_ENABLE_VERSION_CHECK` | `false` | Show warning when client/server versions mismatch |
+| `VITE_CAPTCHA_SITE_KEY` | `""` | Cloudflare Turnstile site key for captcha |
+
+### Example .env File
+
+```bash
+# Required
+VITE_SUPABASE_URL=http://localhost:54331
+VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+VITE_SITE_URL=http://localhost:5173
+
+# Optional
+VITE_OAUTH_PROVIDERS=google,github
+VITE_DEFAULT_THEME=dark
+VITE_ENABLE_VERSION_CHECK=false
+```
+
+## Backend Variables (apps/api/.env)
+
+These variables configure the Hono API server.
+
+### Required
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `SUPABASE_URL` | Supabase project URL | `http://localhost:54331` |
+| `SUPABASE_ANON_KEY` | Supabase anonymous key | `eyJhbGciOiJIUzI1NiIs...` |
+| `SERVICE_ROLE_KEY` | Supabase service role key | `eyJhbGciOiJIUzI1NiIs...` |
+| `SUPABASE_DATABASE_URL` | Direct PostgreSQL connection | `postgresql://postgres:postgres@127.0.0.1:54332/postgres` |
+| `APP_URL` | Frontend URL (for CORS) | `http://localhost:5173` |
+
+### Optional
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PERF_LOG_LEVEL` | `off` | Performance logging: `off`, `basic`, `detailed` |
+
+### Example .env File
+
+```bash
+# Required
+SUPABASE_URL=http://localhost:54331
+SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+SUPABASE_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54332/postgres
+APP_URL=http://localhost:5173
+
+# Optional
+PERF_LOG_LEVEL=off
+```
+
+## Production Configuration
+
+For production deployments, use your hosted Supabase project credentials.
+
+### Frontend (Production)
+
+```bash
+VITE_SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
+VITE_SUPABASE_ANON_KEY=your-production-anon-key
+VITE_SITE_URL=https://admin.yourdomain.com
+VITE_OAUTH_PROVIDERS=google
+VITE_ENABLE_VERSION_CHECK=true
+```
+
+### Backend (Production)
+
+```bash
+SUPABASE_URL=https://YOUR_PROJECT_ID.supabase.co
+SUPABASE_ANON_KEY=your-production-anon-key
+SERVICE_ROLE_KEY=your-production-service-role-key
+SUPABASE_DATABASE_URL=postgresql://postgres:PASSWORD@db.YOUR_PROJECT_ID.supabase.co:5432/postgres
+APP_URL=https://admin.yourdomain.com
+```
+
+{% alert type="warning" title="Protect Service Role Key" %}
+The `SERVICE_ROLE_KEY` bypasses Row Level Security. Never expose it in frontend code or client-side JavaScript. Only use it in the backend API.
+{% /alert %}
+
+## Finding Your Supabase Credentials
+
+### Project URL and Anon Key
+
+1. Go to your Supabase dashboard
+2. Select your project
+3. Navigate to **Settings > API**
+4. Copy the **Project URL** and **anon public** key
+
+### Service Role Key
+
+1. In **Settings > API**
+2. Under **Project API keys**, reveal and copy the **service_role** key
+
+### Database URL
+
+1. Navigate to **Settings > Database**
+2. Copy the **Connection string** (URI format)
+3. Replace `[YOUR-PASSWORD]` with your database password
+
+## OAuth Configuration
+
+To enable OAuth providers:
+
+1. Configure providers in your Supabase dashboard (**Authentication > Providers**)
+2. Add provider names to `VITE_OAUTH_PROVIDERS`
+
+**Supported providers:**
+- `google` - Google OAuth
+- `github` - GitHub OAuth
+- `azure` - Microsoft Azure AD
+- `apple` - Apple Sign In
+- `discord` - Discord OAuth
+- `slack` - Slack OAuth
+
+Example:
+```bash
+VITE_OAUTH_PROVIDERS=google,github,azure
+```
+
+## Captcha Configuration
+
+To enable Cloudflare Turnstile captcha on login:
+
+1. Create a Turnstile widget at [Cloudflare Dashboard](https://dash.cloudflare.com/?to=/:account/turnstile)
+2. Add your domain to allowed hostnames
+3. Copy the Site Key to `VITE_CAPTCHA_SITE_KEY`
+
+```bash
+VITE_CAPTCHA_SITE_KEY=0x4AAAAAAAB...
+```
+
+## Platform-Specific Configuration
+
+### Vercel
+
+Set environment variables in your Vercel project settings:
+
+1. Go to **Settings > Environment Variables**
+2. Add each variable with appropriate scope (Production, Preview, Development)
+
+### Railway
+
+Add environment variables in your Railway service:
+
+1. Go to **Variables** tab
+2. Add variables using the Railway interface or `.env` file reference
+
+### Docker
+
+Pass environment variables via `docker-compose.yml`:
+
+```yaml
+services:
+  api:
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SERVICE_ROLE_KEY=${SERVICE_ROLE_KEY}
+      - SUPABASE_DATABASE_URL=${SUPABASE_DATABASE_URL}
+      - APP_URL=${APP_URL}
+```
+
+Or use `--env-file`:
+
+```bash
+docker run --env-file .env supamode-api
+```
+
+## Troubleshooting
+
+### "Invalid API Key"
+
+- Verify the anon key matches your Supabase project
+- Ensure there are no trailing spaces or newlines in the key
+- Check you're using the correct environment (local vs. production)
+
+### "Database Connection Failed"
+
+- Verify the `SUPABASE_DATABASE_URL` format
+- Ensure the password is correct and URL-encoded if it contains special characters
+- Check network connectivity to the database
+
+### CORS Errors
+
+- Verify `APP_URL` matches your frontend's actual URL
+- Include the protocol (`http://` or `https://`)
+- For local development, use `http://localhost:5173`
+
+### OAuth Not Working
+
+- Confirm providers are enabled in Supabase dashboard
+- Check `VITE_OAUTH_PROVIDERS` matches the enabled providers exactly
+- Verify redirect URLs are configured in each OAuth provider
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Do I need different .env files for development and production?", "answer": "Yes. Keep separate .env files for each environment. Never commit production credentials to version control. Use .env.local for local overrides that git ignores."},
+     {"question": "Why are there two sets of Supabase keys?", "answer": "The anon key is safe for client-side use with RLS enforcement. The service role key bypasses RLS and is only used server-side for admin operations like user management."},
+     {"question": "Can I use a connection pooler for the database URL?", "answer": "Yes. Supabase provides a connection pooler (Supavisor). Use the pooler URL for better performance in serverless environments. Find it in Settings > Database > Connection Pooling."},
+     {"question": "Why do VITE_ variables need to be set at build time?", "answer": "Vite embeds VITE_ variables into the JavaScript bundle during build. Changing them after build has no effect. For the frontend, rebuild when these values change. The API reads its variables at runtime."},
+     {"question": "How do I securely store production secrets?", "answer": "Never commit secrets to git. Use your hosting platform's secrets management: Vercel Environment Variables, Railway Variables, AWS Secrets Manager, or Docker secrets. Reference them in your deployment configuration."}
+   ]
+/%}

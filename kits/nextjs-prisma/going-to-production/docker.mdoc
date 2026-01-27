@@ -1,0 +1,152 @@
+---
+status: "published"
+title: "Creating a Docker image"
+label: "Deploy using Docker"
+order: 10
+description: "This guide will help you deploy the Next.js Prisma SaaS boilerplate to any Docker-compatible platform. Easily self-host your application with Docker."
+---
+
+Deploy MakerKit with Docker by running `pnpm run turbo gen docker` to generate a production-ready Dockerfile, then build with `docker build -t your-app .` and run with `docker run -p 3000:3000 --env-file .env.production.local your-app`. The generated multi-stage Dockerfile uses Next.js standalone output, includes health checks at `/api/healthcheck`, and supports runtime environment injection via `next-runtime-env` for true "build once, deploy anywhere" workflows.
+
+Docker deployment gives you full infrastructure control and enables self-hosting on VPS, cloud providers, or container orchestration platforms like Kubernetes.
+
+{% alert type="default" title="When to Use Docker" %}
+**Use Docker when**: you need full infrastructure control, want to self-host on VPS or bare metal, have compliance requirements, or need air-gapped deployments.
+
+**Consider managed platforms instead when**: you want zero-ops deployment, need auto-scaling out of the box, or prefer not to manage infrastructure.
+
+See the [Deployment overview](./deployment) for other options like Railway or Vercel.
+{% /alert %}
+
+The kit uses `next-runtime-env` to inject environment variables at runtime, enabling true "build once, deploy many" workflows.
+
+## 1. Generate the Dockerfile
+
+Run the following command to generate the Dockerfile:
+
+```bash
+pnpm run turbo gen docker
+```
+
+This command will generate a `Dockerfile` in the root directory of the project. In addition, it will install some dependencies that may be required to build the project, and set `output: "standalone"` in the `apps/web/next.config.ts` file.
+
+If the `output` setting wasn't added automatically, add it manually to your Next.js config:
+
+```ts title="apps/web/next.config.ts"
+const config = {
+  output: "standalone",
+  // ... rest of your config
+};
+```
+
+## 2. Build the Docker image
+
+Run the following command to build the Docker image:
+
+```bash
+docker build -t nextjs-prisma .
+```
+
+This command will build the Docker image and tag it as `nextjs-prisma`. The build process may take several minutes. You should see output ending with something like:
+
+```
+Successfully built [image-id]
+Successfully tagged nextjs-prisma:latest
+```
+
+## 3. Run the Docker container
+
+### 3.1. Make sure the .env.production.local file exists
+
+First, ensure that the `.env.production.local` file is present in the `apps/web` directory, and that it contains the environment variables for the production environment. 
+
+You can generate this file using the [Dev Tools](../dev-tools/environment-variables).
+
+### 3.2. Run the Docker container
+
+Run the following command to run the Docker container:
+
+```bash
+docker run -p 3000:3000 --env-file apps/web/.env.production.local nextjs-prisma
+```
+
+This command will run the Docker container and make the application available at `http://localhost:3000`.
+
+## Deploying the Docker image to a container registry
+
+You can deploy the Docker image to a container registry by running the following command:
+
+```bash
+docker push <your-docker-image>
+```
+
+This command will push the Docker image to the container registry.
+
+When you deploy the Docker image to a container registry, you can pull it from the registry and run it on any platform that supports Docker.
+
+If you're using the Github Container Registry, you can run the following command:
+
+```bash
+docker login ghcr.io
+```
+
+Then, tag your local image with the registry path:
+
+```bash
+docker tag nextjs-prisma ghcr.io/your-username/nextjs-prisma
+```
+
+Then, push the Docker image to the Github Container Registry:
+
+```bash
+docker push ghcr.io/your-username/nextjs-prisma
+```
+
+Then, you can pull the Docker image from the Github Container Registry and run it on any platform that supports Docker:
+
+```bash
+docker pull ghcr.io/your-username/nextjs-prisma
+```
+
+Then, you can run the Docker container:
+
+```bash
+docker run -p 3000:3000 --env-file apps/web/.env.production.local ghcr.io/your-username/nextjs-prisma
+```
+
+This command will run the Docker container and make the application available at `http://localhost:3000`.
+
+This workflow allows you to deploy the Docker image to a container registry, and then pull it from the registry and run it on any platform that supports Docker - such as a VPS, a cloud provider, or a container platform like Docker Swarm or Kubernetes.
+
+## Common Pitfalls
+
+Watch out for these common issues when deploying with Docker:
+
+- **ARM architecture mismatch**: If building on Apple Silicon (M1/M2/M3) and deploying to x86 servers, use `docker buildx build --platform linux/amd64` instead of `docker build`. The reverse also applies—x86 builds won't run on ARM servers.
+
+- **Missing native dependencies after manual Dockerfile edits**: The `turbo gen docker` command automatically adds platform-specific native dependencies (`lightningcss-linux-*-musl`, `@tailwindcss/oxide-linux-*-musl`) to `apps/web/package.json` based on your architecture. If you regenerate the Dockerfile or edit it manually, ensure these dependencies are present. Build errors mentioning these packages indicate missing native deps.
+
+- **Environment file not found**: Ensure `.env.production.local` exists in `apps/web/` before running the container. Use the [Dev Tools](../dev-tools/environment-variables) to generate it.
+
+- **Health check failures**: The Dockerfile includes a health check hitting `/api/healthcheck`. This endpoint exists by default at `apps/web/app/api/healthcheck/route.ts` and returns a 200 status. If you've removed or modified it, update the HEALTHCHECK command in the Dockerfile.
+
+- **Large image size**: The multi-stage Dockerfile is optimized for size (~150-300MB typical). If your image exceeds 500MB, check for unnecessary files in the build context. Add large directories to `.dockerignore`.
+
+- **`output: "standalone"` not set**: The Dockerfile requires Next.js standalone output mode. The generator adds this to `next.config.ts` automatically, but verify it's present if builds fail with missing server files.
+
+## Related Guides
+
+- [Environment Setup](./environment-setup) - Configure production environment variables
+- [Deployment Overview](./deployment) - General deployment guidelines
+- [Railway](./railway) - Deploy to a managed platform instead
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Can I use Docker Compose for production?", "answer": "Yes, but the provided Dockerfile is designed for single-container deployment. For production Docker Compose, you'd add services for your database and any other infrastructure. Most users prefer managed database services (Neon, Supabase, Railway) over self-hosted PostgreSQL in Docker."},
+     {"question": "How do I update environment variables without rebuilding?", "answer": "MakerKit uses next-runtime-env for runtime environment injection. Server-side variables (without NEXT_PUBLIC_ prefix) are read at runtime and can be changed by restarting the container with a new --env-file. However, NEXT_PUBLIC_* variables are embedded at build time and require a rebuild."},
+     {"question": "Why is my Docker build failing on Apple Silicon?", "answer": "If deploying to x86 servers (most cloud providers), build with docker buildx build --platform linux/amd64 -t your-app . to cross-compile. The default docker build creates ARM images that won't run on x86 servers."},
+     {"question": "How do I reduce Docker image size?", "answer": "The multi-stage Dockerfile is already optimized. If your image exceeds 300MB: (1) add node_modules and .next to .dockerignore, (2) remove unused dependencies from package.json, (3) ensure you're using the standalone output mode."},
+     {"question": "Can I deploy this Docker image to Kubernetes?", "answer": "Yes. The image works with any container orchestration platform. You'll need to create Kubernetes manifests (Deployment, Service, ConfigMap/Secrets) for your environment. The health check endpoint at /api/healthcheck works with Kubernetes liveness and readiness probes."}
+   ]
+/%}

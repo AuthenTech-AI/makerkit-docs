@@ -1,0 +1,988 @@
+---
+title: "Next.js Course: Enforcing and validating the user's thresholds"
+label: "Permissions and Quotas"
+description: "In this lesson, we learn how to ensure users respect the limits and quotas according to their Stripe subscription"
+order: 8
+---
+
+Now that we can create Stripe subscriptions, we need to make sure that users respect the limits and quotas according to their Stripe subscriptions. To do so, we need to establish some thresholds and enforce them, which we will do in this lesson.
+
+## Guarding the content generation API with thresholds
+
+There are two instances where we need to guard the content generation API with thresholds:
+
+1. **Titles** - We need to make sure that the user has enough tokens to generate a list of titles before streaming the content
+2. **Content** - We need to make sure that the user has enough tokens to generate the content
+
+At the same time, we also need to report the tokens used by the user to the database, so that we can enforce the thresholds.
+
+## Setting up the thresholds
+
+If you recall the Pricing Table in the previous lesson, we have two different plans: 
+1. the **basic plan**, with a limit of 500,000 tokens per month
+2. the **pro plan**, with a limit of 3,000,000 tokens per month
+
+Both plans have a free trial and can also last for a month or a year. We need to take into account all these variables to calculate the thresholds.
+
+### Updating the Plans Models with the thresholds
+
+Let's start by updating the `plans` model to include the thresholds. We will add a `tokens` field to the model to store the number of tokens allowed per month.
+
+Let's update the `plans` model in `lib/stripe/plans.ts` with the number of tokens allowed per month. We will store the number of tokens in the environment variables `BASIC_PLAN_TOKENS` and `PRO_PLAN_TOKENS`:
+
+```tsx {% title="lib/stripe/plans.ts" %} {19, 26, 41, 48}
+const BASIC_PLAN_TOKENS =
+  Number(process.env.BASIC_PLAN_TOKENS);
+
+const PRO_PLAN_TOKENS
+  = Number(process.env.PRO_PLAN_TOKENS);
+
+const plans = [
+  {
+    name: 'Basic',
+    description: 'A basic plan for everyone',
+    features: [`Enjoy up to 500,000 tokens per month`, `Email Support`],
+    trialPeriodDays: 7,
+    prices: [
+      {
+        id: '<price_id>',
+        name: 'Monthly',
+        description: 'A monthly plan',
+        price: 9.99,
+        tokens: BASIC_PLAN_TOKENS,
+      },
+      {
+        id: 'price_1NRsbgEi65PUrsks1UNJcnEK',
+        name: 'Yearly',
+        description: 'A yearly plan',
+        price: 99.99,
+        tokens: BASIC_PLAN_TOKENS * 12,
+      },
+    ],
+  },
+  {
+    name: 'Pro',
+    description: 'A pro plan for ambitious writers',
+    features: [`Enjoy up to 3 million tokens per month`, `Chat Support`],
+    trialPeriodDays: 14,
+    prices: [
+      {
+        id: '<price_id>',
+        name: 'Monthly',
+        description: 'A monthly plan',
+        price: 29.99,
+        tokens: PRO_PLAN_TOKENS,
+      },
+      {
+        id: 'price_1NRsh6Ei65PUrsksS8JSHubP',
+        name: 'Yearly',
+        description: 'A yearly plan',
+        price: 299.99,
+        tokens: PRO_PLAN_TOKENS * 12,
+      },
+    ],
+  },
+];
+
+export default plans;
+```
+
+Now, add the environment variables to the `.env.local`:
+
+```bash {% title=".env.local" %}
+BASIC_PLAN_TOKENS=500000
+PRO_PLAN_TOKENS=3000000
+```
+
+If you want to use the same values for every environment, you can add the environment variables to the `.env` file instead.
+
+Feel free to change the values of the environment variables to whatever you want.
+
+### Updating the DB schema with the thresholds
+
+Now that we have the thresholds in the `plans` model, we need to update the database to store the number of tokens used by each user.
+
+We now create a `users_thresholds` table to store the tokens available to the subscribed user:
+
+```sql
+create table users_thresholds (
+  user_id uuid not null references users(id) on delete cascade,
+  tokens bigint not null default 0,
+  primary key (user_id)
+);
+```
+
+This table is associated with a single user, so we can use the `user_id` as the primary key. We also set the default value of the `tokens` field to 0, so that we don't have to worry about it when creating new users in the database. 
+
+This table's row will be created when the user signs up for a plan, and we will update it every time the user uses the API.
+
+#### Enabling RLS
+
+We also need to enable RLS on this table, so that users can only access their own row. We will do so by adding the following policy:
+
+```sql
+alter table users_thresholds enable row level security;
+
+create policy "Users can only read their own thresholds" on
+users_thresholds
+  for select
+    using (auth.uid () = user_id);
+```
+
+### Adding the thresholds row on user creation
+
+Do you remember when we added a trigger to create a new user record when a new user signs up? We will do the same thing here but for the `users_thresholds` table.
+
+Let's add the trigger `public.handle_user_thresholds` so that when the user signs up, they will also be associated with a `users_thresholds` row:
+
+```sql
+create function public.handle_user_thresholds()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+begin
+  insert into public.users_thresholds (user_id, tokens) 
+  values (new.id, 5000);
+
+  return new;
+end;
+$$;
+
+create trigger on_public_user_created
+  after insert on public.users
+  for each row execute procedure public.handle_user_thresholds();
+```
+
+#### Default value for the tokens
+
+We add a default value of 5000 tokens, so users can play around with the API without having to sign up for a plan right away.
+
+Feel free to change this value to whatever you want.
+
+### Reset the DB and run the Typescript generation
+
+Since we have made changes to the DB, we need to reset the DB and run the Typescript generation again:
+
+```bash
+npm run supabase:db:reset
+npm run typegen
+```
+
+Since you will lose your existing DB changes, you need to sign up again. When you sign up, you should see a new row in the `users_thresholds` table:
+
+{% img src="/assets/courses/thresholds.webp" width="1796" height="1014" /%}
+
+## Database Operations
+
+Before we can proceed with validating requests and enforcing the thresholds, we need to create a mutation to update the `users_thresholds` table when a user uses the API, and a query to retrieve the current number of tokens used by the user.
+
+### Updating the "users_thresholds" table
+
+Let's create a new mutation to update the `users_thresholds` table. We can do so by creating a new file at `lib/mutations/thresholds.ts`:
+
+```tsx {% title="lib/mutations/thresholds.ts" %}
+import { Database } from '@/database.types';
+import { SupabaseClient } from '@supabase/supabase-js';
+
+type Client = SupabaseClient<Database>;
+
+export async function updateUserTokens(
+  client: Client,
+  userId: string,
+  tokens: number
+) {
+  return client
+    .from('users_thresholds')
+    .update({ tokens })
+    .eq('user_id', userId)
+    .throwOnError();
+}
+```
+
+### Retrieving the current number of tokens
+
+Let's create a new query to retrieve the current number of tokens used by the user. We can do so by creating a new file at `lib/queries/thresholds.ts`:
+
+```tsx {% title="lib/queries/thresholds.ts" %}
+import { Database } from '@/database.types';
+import { SupabaseClient } from '@supabase/supabase-js';
+
+type Client = SupabaseClient<Database>;
+
+export async function getUserThresholds(client: Client, userId: string) {
+  const { data, error } = await client
+    .from('users_thresholds')
+    .select(`tokens`)
+    .eq('user_id', userId)
+    .single();
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+```
+
+We need the query above for two main reasons:
+
+1. **Validation**: We need to validate the request and make sure that the user is not exceeding the number of tokens allowed by their plan
+2. **Enforcement**: We need to update the `users_thresholds` table every time the user uses the API to keep track of the number of tokens used
+
+## Validating requests
+
+Now that we have the utilities to retrieve the current number of tokens used by the user, we can validate requests and make sure that the user is not exceeding the number of tokens allowed by their plan.
+
+### Validating the titles generation request
+
+When we generate the titles, we use streaming from the OpenAI API to send the text to the client in real-time: this means that we need to make sure that the user has enough tokens to generate the titles before streaming the content - but also that we keep track of the number of tokens used by the user.
+
+#### Calculating the number of tokens used by the API
+
+⚠️ **Problem**: **OpenAI does not provide the number of tokens used by the API when streaming text**. 
+
+This means that we need to **estimate the number of tokens** used by the API and **make sure it is reported to the database** while the API is streaming the text.
+
+#### Installing the GPT3 Tokenizer package
+
+To estimate the number of tokens used by the API, we will use [GPT3 Tokenizer](https://www.npmjs.com/package/gpt3-tokenizer), an isomorphic TypeScript tokenizer for OpenAI's GPT-3 model.
+
+Let's install the package:
+
+```bash
+npm install gpt3-tokenizer
+```
+
+#### Piping the text to the GPT3 Tokenizer
+
+Do you remember when we used the `StreamingTextResponse(processedStream);` function to stream text to the client? We will do the same thing here, but we will pipe the text to the GPT3 Tokenizer and count the number of tokens used by the API.
+
+1. To do so, we will use a [TransformStream](https://developer.mozilla.org/en-US/docs/Web/API/TransformStream) and decode the text 
+2. Once completed we will call the `onDone` callback with the full text streamed to the client
+
+{% alert type="info" %}
+We will break down the code into small chunks to make it easier to understand - and at the end, we will put everything together.
+{% /alert %}
+
+```tsx {% title="app/openai/stream/route.ts" %}
+import GPT3Tokenizer from 'gpt3-tokenizer';
+
+function pipeTransformStream(
+  stream: ReadableStream,
+  onDone: (fullText: string) => unknown
+) {
+  const decoder = new TextDecoder('utf-8');
+  let content = '';
+
+  // create a new transform stream
+  const transformStream = new TransformStream({
+    transform(chunk, controller) {
+      // decode the chunk to a string
+      content += decoder.decode(chunk);
+      // pass data unchanged to the readable side
+      controller.enqueue(chunk);
+    },
+    flush(controller) {
+      // call the callback with the full text
+      onDone(content);
+    },
+  });
+
+  // pipe the stream through the transform stream
+  return stream.pipeThrough(transformStream);
+}
+```
+
+In the above code, we pipe the text sent from OpenAI to a transformer stream, which will decode the text and call the `onDone` callback with the full text once the stream is completed.
+
+Now, we need to use this function in the POST request and then report the number of tokens used by the API to the database.
+
+```tsx {% title="app/openai/stream/route.ts" %}
+// process the stream to get the full text from OpenAI
+const stream = OpenAIStream(response);
+
+// pipe the stream through the transform stream
+const processedStream = pipeTransformStream(
+  stream, 
+  // this callback will be called once the stream is completed
+  async (fullText: string) => {
+    // once the stream is done, use the GPT3 Tokenizer to count the number of tokens used
+    const tokenizer = new GPT3Tokenizer({ type: 'gpt3' });
+
+    // calculate the number of tokens used by the API
+    const responseUsage = tokenizer.encode(fullText).text.length;
+    const promptUsage = tokenizer.encode(prompt).text.length;
+    const totalUsage = responseUsage + promptUsage;
+
+    // we use the admin client here because we bypass RLS
+    const adminClient = getSupabaseRouteHandlerClient({ admin: true });
+
+    // update the user's token count in the database
+    // by subtracting the number of tokens used by the API from the user's token count
+    await updateUserTokens(adminClient, userId, tokens - totalUsage);
+  });
+```
+
+As you can see, we use the `GPT3Tokenizer` to count the number of tokens used by the API and then update the user's token count in the database.
+
+We also perform some validation to make sure that the user is not exceeding the number of tokens allowed by their plan before we start streaming the text to the client.
+
+```tsx {% title="app/openai/stream/route.ts" %}
+// make sure the user is logged in
+const supabaseClient = getSupabaseRouteHandlerClient();
+const sessionResult = await supabaseClient.auth.getUser();
+const userId = sessionResult.data.user?.id;
+
+if (!userId) {
+  throw new Error(`User is not logged in`);
+}
+
+// get the user's token count
+const { tokens } = await getUserThresholds(supabaseClient, userId);
+const maxTokens = 500;
+
+// make sure the user has enough tokens
+if (tokens < maxTokens) {
+  throw new Error(`User does not have enough tokens`);
+}
+```
+
+Let's put everything together in the `POST` function:
+
+```tsx {% title="app/openai/stream/route.ts" %}
+import getOpenAIClient from '@/lib/openai-client';
+import { OpenAIStream, StreamingTextResponse } from 'ai';
+import { NextRequest } from 'next/server';
+import GPT3Tokenizer from 'gpt3-tokenizer';
+
+import { updateUserTokens } from '@/lib/mutations/thresholds';
+import { getUserThresholds } from '@/lib/queries/thresholds';
+
+import getSupabaseRouteHandlerClient from '@/lib/supabase/route-handler-client';
+
+// export const runtime = 'edge';
+
+// you can change this to any model you want
+const MODEL = 'gpt-3.5-turbo';
+
+export async function POST(req: NextRequest) {
+  const { prompt } = await req.json();
+  const client = getOpenAIClient();
+
+  const supabaseClient = getSupabaseRouteHandlerClient();
+  const sessionResult = await supabaseClient.auth.getUser();
+  const userId = sessionResult.data.user?.id;
+
+  if (!userId) {
+    throw new Error(`User is not logged in`);
+  }
+
+  // get the user's token count
+  const { tokens } = await getUserThresholds(supabaseClient, userId);
+  const maxTokens = 500;
+
+  // make sure the user has enough tokens
+  if (tokens < maxTokens) {
+    throw new Error(`User does not have enough tokens`);
+  }
+
+  const response = await client.chat.createChatCompletion({
+    model: MODEL,
+    stream: true,
+    messages: getPromptMessages(prompt),
+    max_tokens: maxTokens,
+  });
+
+  // process the stream to get the full text
+  const stream = OpenAIStream(response);
+
+  // pipe the stream through the transform stream
+  const processedStream = pipeTransformStream(
+    stream, 
+    // this callback will be called once the stream is completed
+    async (fullText: string) => {
+      // once the stream is done, use the GPT3 Tokenizer to count the number of tokens used
+      const tokenizer = new GPT3Tokenizer({ type: 'gpt3' });
+
+      // calculate the number of tokens used by the API
+      const responseUsage = tokenizer.encode(fullText).text.length;
+      const promptUsage = tokenizer.encode(prompt).text.length;
+      const totalUsage = responseUsage + promptUsage;
+
+      // we use the admin client here because we bypass RLS
+      const adminClient = getSupabaseRouteHandlerClient({ admin: true });
+
+      // update the user's token count in the database
+      // by subtracting the number of tokens used by the API from the user's token count
+      await updateUserTokens(adminClient, userId, tokens - totalUsage);
+    });
+
+  return new StreamingTextResponse(processedStream);
+}
+
+function getPromptMessages(topic: string) {
+  return [
+    {
+      content: `Given the topic "${topic}", return a list of possible titles for a blog post, without numbers or quotes. Separate each title with a new line. Create up to 5 titles.`,
+      role: 'user' as const,
+    },
+  ];
+}
+
+function pipeTransformStream(
+  stream: ReadableStream,
+  onDone: (fullText: string) => unknown
+) {
+  const decoder = new TextDecoder('utf-8');
+  let content = '';
+
+  const transformStream = new TransformStream({
+    transform(chunk, controller) {
+      // decode the chunk to a string
+      content += decoder.decode(chunk);
+      // pass data unchanged to the readable side
+      controller.enqueue(chunk);
+    },
+    flush(controller) {
+      // call the callback with the full text
+      onDone(content);
+    },
+  });
+
+  // pipe the stream through the transform stream
+  return stream.pipeThrough(transformStream);
+}
+```
+
+Perfect! Now we have validated the request and made sure that the user is not exceeding the number of tokens allowed by their plan. Additionally, we have also updated the `users_thresholds` table to reflect the number of tokens used by the user after a successful request to generate the titles.
+
+This is very important! Now you can keep track of the number of tokens used by the user and enforce the thresholds while using the Streaming API.
+
+But - we're not done yet! We also need to validate the content generation request and update the user's tokens after a successful request.
+
+### Validating the content generation request
+
+Let's start by validating the content generation request. We can add this check in the actions file, at `lib/actions/posts.ts`:
+
+```tsx title="lib/actions/posts.ts" {1,8}
+import { getUserThresholds } from '@/lib/queries/thresholds';
+
+async function validateContentGenerationRequest(
+  client: SupabaseClient,
+  userId: string,
+  minTokens = 500
+) {
+  const { tokens } = await getUserThresholds(client, userId);
+
+  if (tokens < minTokens) {
+    throw new Error(
+      `You have ${tokens} tokens left, but you need at least ${minTokens} tokens to use the API.`
+    );
+  }
+
+  return tokens;
+}
+```
+
+The function above takes the following arguments:
+1. `client`: the Supabase client
+2. `userId`: the user's ID
+3. `minTokens`: the minimum number of tokens required to use the API (default: 500)
+
+The function will throw an error if the user does not have enough tokens to use the API, and return the remaining number of tokens if the user has enough tokens.
+
+Now, we need to add this function to the `createPostAction` function. Below is the updated `createPostAction` function:
+
+```tsx title="lib/actions/posts.ts" {17}
+export async function createPostAction(
+  formData: FormData
+) {
+  const title = formData.get('title') as string;
+  const description = formData.get('description') as string | undefined;
+
+  const client = getSupabaseActionClient();
+  const { data, error } = await client.auth.getUser();
+
+  if (error) {
+    throw error;
+  }
+
+  const userId = data.user.id;
+
+  // Validate the request to check if the user has enough tokens
+  const tokens = await validateContentGenerationRequest(client, userId);
+
+  const content = await generatePostContent({
+    title,
+    description,
+  });
+
+  const { uuid } = await insertPost(client, {
+    title,
+    content,
+    description,
+    user_id: userId,
+  });
+
+  return redirect(`/dashboard/${uuid}`);
+}
+```
+
+We're not done yet, we also need to subtract the number of tokens used by the user after a successful request.
+
+### Updating the user's tokens after a successful request
+
+When a user successfully uses the OpenAI API, we need to update the `users_thresholds` table to reflect the number of tokens used by the user. 
+
+Let's add the `updateUserTokens` mutation to the `createPostAction` function:
+
+```tsx title="lib/actions/posts.ts" {1, 19, 27}
+import { updateUserTokens } from '@/lib/mutations/thresholds';
+
+export async function createPostAction(
+  formData: FormData
+) {
+  const title = formData.get('title') as string;
+  const description = formData.get('description') as string | undefined;
+
+  const client = getSupabaseServerActionClient();
+  const { data, error } = await client.auth.getUser();
+
+  if (error) {
+    throw error;
+  }
+
+  const userId = data.user.id;
+
+  // Validate the request to check if the user has enough tokens
+  const tokens = await validateContentGenerationRequest(client, userId);
+
+  const { text: content, usage } = await generatePostContent({
+    title,
+    description,
+  });
+
+  // update the user's token count
+  const updatedTokens = currentTokens - usage;
+
+  // we use the admin client here because we bypass RLS
+  const adminClient = getSupabaseServerActionClient({ admin: true });
+  await updateUserTokens(adminClient, userId, updatedTokens);
+
+  // insert the post into the database
+  const { uuid } = await insertPost(client, {
+    title,
+    content,
+    description,
+    user_id: userId,
+  });
+
+  return redirect(`/dashboard/${uuid}`);
+}
+```
+
+With this, we have completed two important tasks:
+
+1. **Validation**: We have validated the request and made sure that the user is not exceeding the number of tokens allowed by their plan
+2. **Enforcement**: We have updated the `users_thresholds` table to reflect the number of tokens used by the user after a successful request
+
+Now, we need to ensure that the user's tokens are updated when the Stripe subscription renews.
+
+#### Why are we using an admin client?
+
+We use an admin client to update the `users_thresholds` table because we bypass RLS - since **we must disallow users from updating their own tokens**, we need to use an admin client to update the `users_thresholds` table.
+
+### Full code
+
+Below is the full code for the `lib/actions/posts.ts` file:
+
+```tsx title="lib/actions/posts.ts"
+'use server';
+
+import { redirect } from 'next/navigation';
+import { revalidatePath } from 'next/cache';
+
+import OpenAI from 'openai';
+import ChatCompletion = OpenAI.ChatCompletion;
+
+import { SupabaseClient } from '@supabase/supabase-js';
+import getSupabaseServerActionClient from '@/lib/supabase/action-client';
+
+import getOpenAIClient from '../openai-client';
+import { deletePost, insertPost, updatePost } from '../mutations/posts';
+import { getUserThresholds } from '../queries/thresholds';
+import { updateUserTokens } from '../mutations/thresholds';
+
+interface GeneratePostParams {
+  title: string;
+}
+
+const MODEL = `gpt-3.5-turbo`;
+
+export async function createPostAction(formData: FormData) {
+  const title = formData.get('title') as string;
+
+  const client = getSupabaseServerActionClient();
+  const { data, error } = await client.auth.getUser();
+
+  if (error) {
+    throw error;
+  }
+
+  const userId = data.user.id;
+  const currentTokens = await validateContentGenerationRequest(client, userId);
+
+  const { text: content, usage } = await generatePostContent({
+    title,
+  });
+
+  // update the user's token count
+  const updatedTokens = currentTokens - usage;
+
+  // we use the admin client here because we bypass RLS
+  const adminClient = getSupabaseServerActionClient({ admin: true });
+  await updateUserTokens(adminClient, userId, updatedTokens);
+
+  // insert the post into the database
+  const { uuid } = await insertPost(client, {
+    title,
+    content,
+    user_id: data.user.id,
+  });
+
+  revalidatePath(`/dashboard`, 'page');
+
+  redirect(`/dashboard/${uuid}`);
+}
+
+export async function updatePostAction(formData: FormData) {
+  const title = formData.get('title') as string;
+  const description = formData.get('description') as string | undefined;
+  const content = formData.get('content') as string;
+  const uid = formData.get('uid') as string;
+
+  const client = getSupabaseServerActionClient();
+
+  await updatePost(client, {
+    title,
+    content,
+    description,
+    uid,
+  });
+
+  const postPath = `/dashboard/${uid}`;
+
+  revalidatePath(postPath, 'page');
+
+  redirect(postPath);
+}
+
+export async function deletePostAction(uid: string) {
+  const client = getSupabaseServerActionClient();
+  const postPath = `/dashboard`;
+
+  await deletePost(client, uid);
+
+  revalidatePath(postPath, 'page');
+
+  redirect(postPath);
+}
+
+async function generatePostContent(params: GeneratePostParams) {
+  const client = getOpenAIClient();
+  const content = getCreatePostPrompt(params);
+
+  const response = await client.chat.completions.create({
+    temperature: 0.7,
+    model: MODEL,
+    max_tokens: 500,
+    messages: [
+      {
+        role: 'user' as const,
+        content,
+      },
+    ],
+  });
+
+  const usage = response.usage?.total_tokens ?? 0;
+  const text = getResponseContent(response);
+
+  return {
+    text,
+    usage,
+  };
+}
+
+function getCreatePostPrompt(params: GeneratePostParams) {
+  return `
+    Write a blog post under 500 words whose title is "${params.title}".
+  `;
+}
+
+function getResponseContent(response: ChatCompletion) {
+  return (response.choices ?? []).reduce((acc, choice) => {
+    return acc + (choice.message?.content ?? '');
+  }, '');
+}
+
+async function validateContentGenerationRequest(
+  client: SupabaseClient,
+  userId: string,
+  minTokens = 500,
+) {
+  const { tokens } = await getUserThresholds(client, userId);
+
+  if (tokens < minTokens) {
+    throw new Error(
+      `You have ${tokens} tokens left, but you need at least ${minTokens} tokens to use the API.`,
+    );
+  }
+
+  return tokens;
+}
+````
+
+## Refreshing the user's tokens when the Stripe subscription renews
+
+When a user's subscription renews, we need to update the `users_thresholds` table to reflect the number of tokens allowed by the user's plan.
+
+We can do so by listening to the Stripe webhook `invoice.payment_succeeded` and updating the `users_thresholds` table accordingly.
+
+### Updating the webhook handler
+
+Let's update the webhooks API handler at `app/stripe/webhooks/route.ts` in the following way:
+
+1. We add a new Stripe topic `invoice.payment_succeeded`
+2. When the webhook is triggered, we retrieve the user's ID from the Stripe customer ID and update the `users_thresholds` table according to the user's plan tokens that we have defined at the beginning of this lesson
+
+We also need to update the `app/stripe/webhooks/route.ts` file to include the new webhook handler. First, let's add the new `invoice.payment_succeeded` topic:
+
+```tsx title="app/stripe/webhooks/index.ts"
+enum StripeWebhooks {
+  Completed = 'checkout.session.completed',
+  SubscriptionDeleted = 'customer.subscription.deleted',
+  SubscriptionUpdated = 'customer.subscription.updated',
+  InvoicePaid = 'invoice.payment_succeeded',
+}
+```
+
+Now, let's add the handler for the `invoice.payment_succeeded` topic in the switch statement. 
+
+Below is the complete `app/stripe/webhooks/route.ts` file:
+
+```tsx title="app/stripe/webhooks/route.ts" {103-132, 176-186}
+import type { Stripe } from 'stripe';
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+import { headers } from 'next/headers';
+import { NextResponse } from 'next/server';
+
+import getStripeInstance from '@/lib/stripe/client';
+import getSupabaseRouteHandlerClient from '@/lib/supabase/route-handler-client';
+
+import {
+  addSubscription,
+  deleteSubscription,
+  setCustomerSubscriptionData,
+  updateSubscriptionById,
+} from '@/lib/mutations/subscription';
+
+import { updateUserTokens } from '@/lib/mutations/thresholds';
+import plans from '@/lib/stripe/plans';
+
+const STRIPE_SIGNATURE_HEADER = 'stripe-signature';
+
+enum StripeWebhooks {
+  Completed = 'checkout.session.completed',
+  SubscriptionDeleted = 'customer.subscription.deleted',
+  SubscriptionUpdated = 'customer.subscription.updated',
+  InvoicePaid = 'invoice.payment_succeeded',
+}
+
+const webhookSecretKey = process.env.STRIPE_WEBHOOK_SECRET as string;
+
+export async function POST(request: Request) {
+  const signature = headers().get(STRIPE_SIGNATURE_HEADER);
+
+  console.info(`[Stripe] Received Stripe Webhook`);
+
+  if (!webhookSecretKey) {
+    return new Response(
+      `The variable STRIPE_WEBHOOK_SECRET is unset. Please add the STRIPE_WEBHOOK_SECRET environment variable`,
+      {
+        status: 400,
+      }
+    );
+  }
+
+  // verify signature header is not missing
+  if (!signature) {
+    return new Response(null, { status: 400 });
+  }
+
+  const rawBody = await request.text();
+  const stripe = await getStripeInstance();
+
+  // create an Admin client to write to the subscriptions table
+  const client = getSupabaseRouteHandlerClient({
+    admin: true,
+  });
+
+  try {
+    // build the event from the raw body and signature using Stripe
+    const event = stripe.webhooks.constructEvent(
+      rawBody,
+      signature,
+      webhookSecretKey
+    );
+
+    console.info(
+      {
+        type: event.type,
+      },
+      `[Stripe] Processing Stripe Webhook...`
+    );
+
+    switch (event.type) {
+      case StripeWebhooks.Completed: {
+        const session = event.data.object as Stripe.Checkout.Session;
+        const subscriptionId = session.subscription as string;
+
+        const subscription = await stripe.subscriptions.retrieve(
+          subscriptionId
+        );
+
+        await onCheckoutCompleted(client, session, subscription);
+
+        break;
+      }
+
+      case StripeWebhooks.SubscriptionDeleted: {
+        const subscription = event.data.object as Stripe.Subscription;
+
+        await deleteSubscription(client, subscription.id);
+
+        break;
+      }
+
+      case StripeWebhooks.SubscriptionUpdated: {
+        const subscription = event.data.object as Stripe.Subscription;
+
+        await updateSubscriptionById(client, subscription);
+
+        break;
+      }
+
+      case StripeWebhooks.InvoicePaid: {
+        const invoice = event.data.object as Stripe.Invoice;
+        const customerId = invoice.customer as string;
+
+        // we need to retrieve the user ID from the customer ID
+        const user = await client
+          .from('customers_subscriptions')
+          .select('user_id')
+          .eq('customer_id', customerId)
+          .single();
+
+        const userId = user.data?.user_id;
+
+        // if the user is not found, we return a 200
+        // so Stripe does not retry the webhook
+        if (!userId) {
+          return NextResponse.json({ success: true });
+        }
+
+        const stripePriceId = invoice.lines.data[0]?.price?.id;
+
+        if (!stripePriceId) {
+          return Promise.reject(`Price not found for invoice ${invoice.id}`);
+        }
+
+        // we need to update the user's tokens according to the plan
+        const tokens = getTokensByPriceId(stripePriceId);
+        
+        await updateUserTokens(client, userId, tokens);
+      }
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error(
+      {
+        error,
+      },
+      `[Stripe] Webhook handling failed`
+    );
+
+    return new Response(null, { status: 500 });
+  }
+}
+
+async function onCheckoutCompleted(
+  client: SupabaseClient,
+  session: Stripe.Checkout.Session,
+  subscription: Stripe.Subscription
+) {
+  const userId = getUserIdFromClientReference(session);
+  const customerId = session.customer as string;
+  const { error, data } = await addSubscription(client, subscription, userId);
+
+  if (error) {
+    return Promise.reject(
+      `Failed to add subscription to the database: ${error}`
+    );
+  }
+
+  // finally, we set the subscription data on
+  // the user subscriptions join table
+  return setCustomerSubscriptionData(client, {
+    customerId,
+    userId,
+    subscriptionId: data.id,
+  });
+}
+
+function getUserIdFromClientReference(session: Stripe.Checkout.Session) {
+  return session.client_reference_id as string;
+}
+
+function getTokensByPriceId(stripePriceId: string) {
+  for (const plan of plans) {
+    for (const price of plan.prices) {
+      if (price.id === stripePriceId) {
+        return price.tokens;
+      }
+    }
+  }
+
+  throw new Error(`Price not found for price ID ${stripePriceId}`);
+}
+```
+
+## Considerations around subscription cancelation
+
+When a user cancels their subscription, we need to decide what to do with their tokens. As is now, customers have access to their tokens even after their subscription has been canceled, since they have paid for the whole period.
+
+There are two ways to handle this:
+
+1. **Revoke tokens**: We can revoke the tokens when the subscription is canceled - in case you allow customers to immediately cancel their subscription.
+2. **Keep tokens**: We can keep the tokens and allow the user to use them until they run out of tokens. This is okay if you charge the customer for the whole period, even if they cancel their subscription.
+
+If you need to revoke the tokens, you can do so by updating the `users_thresholds` table when the `customer.subscription.deleted` webhook is received. In this way, the user will not be able to use the tokens anymore once the subscription is canceled.
+
+## Conclusion
+
+We have finally finished implementing the thresholds! Yay 🎉
+
+With this module, we have completed the following tasks:
+
+1. **Validation**: We have validated the request and made sure that the user is not exceeding the number of tokens allowed by their plan
+2. **Enforcement**: We have updated the `users_thresholds` table to reflect the number of tokens used by the user after a successful request
+3. **Thresholds Refill**: We have updated the `users_thresholds` table to reflect the number of tokens allowed by the user's plan when the Stripe subscription renews and the invoice is paid
+
+## Next Steps
+
+Our application is now complete! 🎉
+
+In the next lesson, we will learn how to deploy our application to Vercel and Supabase. We're almost there, stay tuned!

@@ -1,45 +1,217 @@
 ---
 status: "published"
-title: "Deploying Supamode using Docker"
+title: "Deploying Supamode with Docker"
 label: "Docker"
 order: 2
-description: "Learn how to deploy your Supamode backend"
+description: "Deploy Supamode using Docker containers. Build multi-stage images for the frontend and API, configure environment variables, and run with docker-compose."
 ---
 
-We provide a Dockerfile to run Supamode in a Docker container. This allows you to deploy Supamode on any platform that supports Docker, such as AWS, Google Cloud, or DigitalOcean.
+Docker is the most flexible deployment option for Supamode. Use it to deploy to any platform that supports containers: AWS ECS, Google Cloud Run, DigitalOcean App Platform, Fly.io, or your own servers.
 
-## Building and running the Docker image
+## Dockerfile Overview
 
-From the root of the Supamode repository, you can build the Docker image for the backend and frontend by running:
+Supamode includes a multi-stage Dockerfile that builds both the frontend and API:
+
+| Target | Description | Port |
+|--------|-------------|------|
+| `build-api` | Compiles the Hono API | - |
+| `build-app` | Builds the Vite frontend | - |
+| `api-runner` | Production API container | 3000 |
+| `app-runner` | Nginx serving static files | 80 |
+| `multi-runner` | Both services in one container | 80, 3000 |
+
+## Building the Images
+
+### Build Both Services
+
+From the repository root:
 
 ```bash
+# Build the combined image (frontend + API)
 docker build -t supamode .
 ```
 
-NB: you have to source the [build-time environment variables for the Vite frontend](./frontend.mdoc) to the Dockerfile in some way, for example by using the `--build-arg` flag.
+### Build with Environment Variables
 
-### Environment variables
-
-You can set the runtime environment variables for the Docker image by passing them to the `docker run` command, which are required to run the Supamode backend.
-
-Create a file named `.env.production` in the root of the Supamode repository and set the environment variables you need at runtime. These are defined at [./backend.mdoc](./backend.mdoc).
-
-### Running the Docker image
-
-Once you've built the Docker image, you can run it by running:
+The frontend requires build-time environment variables for Supabase configuration:
 
 ```bash
-docker run supamode --env-file .env.production
+docker build \
+  --build-arg VITE_SUPABASE_URL=https://YOUR_PROJECT.supabase.co \
+  --build-arg VITE_SUPABASE_ANON_KEY=your-anon-key \
+  --build-arg VITE_SITE_URL=https://admin.yourdomain.com \
+  --build-arg VITE_OAUTH_PROVIDERS=google \
+  -t supamode .
 ```
 
-### Using docker-compose
+### Build Specific Targets
 
-Alternatively, you can also use the `docker-compose.yml` file in the root of the Supamode repository to build the Docker images for both the backend and frontend.
+Build only the API or frontend:
 
 ```bash
-docker compose up
+# API only
+docker build --target api-runner -t supamode-api .
+
+# Frontend only
+docker build --target app-runner -t supamode-web .
 ```
 
-Once it's up and running, you can access the Supamode backend at `http://localhost:3000` and the frontend at `http://localhost:8080`.
+## Running the Containers
 
-Services like Railway will automatically use Docker for deployment.
+### Create Environment File
+
+Create `.env.production` with your runtime environment variables:
+
+```bash
+# API Configuration
+SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
+SERVICE_ROLE_KEY=your-service-role-key
+SUPABASE_DATABASE_URL=postgresql://postgres:PASSWORD@db.YOUR_PROJECT.supabase.co:5432/postgres
+APP_URL=https://admin.yourdomain.com
+```
+
+### Run the Combined Image
+
+```bash
+docker run -d \
+  --name supamode \
+  --env-file .env.production \
+  -p 8080:80 \
+  -p 3000:3000 \
+  supamode
+```
+
+### Run Separate Containers
+
+For better scaling and isolation:
+
+```bash
+# Start API
+docker run -d \
+  --name supamode-api \
+  --env-file .env.production \
+  -p 3000:3000 \
+  supamode-api
+
+# Start Frontend (configure nginx to proxy to API)
+docker run -d \
+  --name supamode-web \
+  -e API_URL=http://supamode-api:3000 \
+  -p 8080:80 \
+  supamode-web
+```
+
+## Using Docker Compose
+
+The easiest way to run Supamode is with the included `docker-compose.yml`:
+
+```bash
+docker compose up -d
+```
+
+This starts:
+- **web**: Frontend on port 8080
+- **api**: Backend on port 3000
+
+Both services share a Docker network for internal communication.
+
+### docker-compose.yml Configuration
+
+```yaml
+services:
+  web:
+    build:
+      context: .
+      target: app-runner
+      args:
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY}
+        VITE_SITE_URL: ${VITE_SITE_URL}
+    ports:
+      - "8080:80"
+    environment:
+      - API_URL=http://api:3000
+    depends_on:
+      - api
+
+  api:
+    build:
+      context: .
+      target: api-runner
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env.production
+```
+
+## Health Checks
+
+Both containers include health check endpoints:
+
+- **API**: `GET /api/v1/health`
+- **Frontend**: Standard nginx health (serves index.html)
+
+Configure your orchestrator to use these for liveness and readiness probes.
+
+## Production Considerations
+
+### Security
+
+- Run containers as non-root users (configured in Dockerfile)
+- Use Docker secrets or external secret managers for sensitive values
+- Enable TLS at the load balancer or reverse proxy level
+
+### Scaling
+
+- The API is stateless and can be scaled horizontally
+- Use a load balancer to distribute traffic
+- Consider connection pooling for database connections (Supavisor)
+
+### Logging
+
+- Logs are written to stdout/stderr
+- Configure your container platform to collect and aggregate logs
+- Set `PERF_LOG_LEVEL=basic` for performance metrics
+
+## Platform-Specific Guides
+
+### AWS ECS
+
+1. Push images to ECR
+2. Create task definitions for web and API
+3. Configure Application Load Balancer
+4. Set environment variables in task definition
+
+### Google Cloud Run
+
+```bash
+# Deploy API
+gcloud run deploy supamode-api \
+  --image gcr.io/PROJECT/supamode-api \
+  --platform managed \
+  --set-env-vars-file .env.production
+
+# Deploy Frontend
+gcloud run deploy supamode-web \
+  --image gcr.io/PROJECT/supamode-web \
+  --platform managed
+```
+
+### Fly.io
+
+```bash
+fly launch --dockerfile Dockerfile
+fly secrets import < .env.production
+fly deploy
+```
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Can I use a single container for both frontend and API?", "answer": "Yes. Build without specifying a target to get the multi-runner image that includes both services. This is simpler but offers less flexibility for scaling."},
+     {"question": "How do I update to a new version?", "answer": "Pull the latest code, rebuild the images, and restart containers. For zero-downtime updates, use rolling deployments with your orchestrator."},
+     {"question": "Why is my frontend not connecting to the API?", "answer": "The frontend proxies /api/* requests to the API. Ensure API_URL environment variable in the web container points to the API's internal address (e.g., http://api:3000 in compose)."},
+     {"question": "How do I enable HTTPS?", "answer": "Use a reverse proxy like Traefik, nginx, or your cloud provider's load balancer to terminate TLS. The containers serve HTTP internally."}
+   ]
+/%}

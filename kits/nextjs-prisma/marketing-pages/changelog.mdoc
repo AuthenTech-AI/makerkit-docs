@@ -1,0 +1,200 @@
+---
+status: "published"
+title: "Changelog"
+label: "Changelog"
+order: 4
+description: "Display product updates and release notes to keep users informed about new features and fixes."
+---
+
+The changelog displays product updates, new features, bug fixes, and breaking changes in a chronological feed. Users access it at `/changelog`, and entries are stored in `apps/web/content/changelog/`. 
+
+A well-maintained changelog builds trust, reduces support tickets about "what's new," and demonstrates active product development to potential customers.
+
+The changelog is a reverse-chronological feed of product updates, organized by date and optionally by version, that communicates what changed and why it matters to users.
+
+- **Use the changelog when:** announcing releases, bug fixes, new features, deprecations, or breaking changes that affect users.
+- **Use the blog when:** writing in-depth tutorials, thought leadership, or content that requires context beyond "what's new."
+- **Use documentation when:** the change requires users to learn new workflows or reference new features.
+
+**If unsure:** if it fits in one screen and answers "what changed?", use changelog. If it needs explanation beyond that, write a blog post and link from the changelog entry.
+
+## Changelog Structure
+
+Entries are stored in `apps/web/content/changelog/`:
+
+```
+apps/web/content/changelog/
+├── 2025-01-15-custom-roles.mdoc
+├── 2025-01-10-performance-improvements.mdoc
+├── 2025-01-05-bug-fixes.mdoc
+└── 2024-12-20-v2-launch.mdoc
+```
+
+### Naming Convention
+
+Use descriptive, SEO-friendly slugs that include the date:
+
+```
+YYYY-MM-DD-descriptive-slug.mdoc
+```
+
+Examples:
+- `2025-01-15-custom-roles-and-permissions.mdoc`
+- `2025-01-10-50-percent-faster-api.mdoc`
+- `2025-01-05-stripe-integration-fix.mdoc`
+
+## Entry Frontmatter
+
+```yaml
+---
+publishedAt: "2025-01-15"
+title: "Custom Roles & Permissions"
+description: "Create custom roles with granular permissions for team members."
+categories: []
+tags: []
+status: "published"
+---
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `publishedAt` | Yes | Publication date (YYYY-MM-DD) |
+| `title` | Yes | Entry title (what changed) |
+| `description` | Yes | One-line summary for SEO and cards |
+| `categories` | No | Array of category slugs |
+| `tags` | No | Array of tags (feature, fix, breaking) |
+| `status` | Yes | `"draft"` or `"published"` |
+
+## Entry Structure
+
+Follow a consistent structure for each entry:
+
+```markdown
+---
+publishedAt: "2025-01-15"
+title: "Custom Roles & Permissions"
+description: "Create custom roles with granular permissions for team members."
+status: "published"
+---
+
+## What's New
+
+### Custom Roles
+
+You can now create custom roles with granular permissions:
+
+- Define custom role names beyond Owner, Admin, Member
+- Assign specific permissions to each role
+- Control access at the feature level
+
+### Improved Team Dashboard
+
+The team dashboard now shows role assignments and permission summaries.
+
+## Bug Fixes
+
+- Fixed email verification timeout on slow connections
+- Resolved session persistence issue after password reset
+- Corrected timezone display in activity logs
+
+## Breaking Changes
+
+- `getTeamRole()` now returns a `Role` object instead of a string
+- Minimum Node.js version increased to 20.x
+```
+
+## Categorizing Updates
+
+Use consistent categories to help users scan:
+
+| Category | When to Use |
+|----------|-------------|
+| **What's New** | New features and capabilities |
+| **Improvements** | Enhancements to existing features |
+| **Bug Fixes** | Resolved issues and corrections |
+| **Breaking Changes** | Changes requiring user action |
+| **Security** | Security patches and updates |
+| **Deprecations** | Features being phased out |
+
+## Versioning Strategy
+
+For products with formal releases, include version numbers:
+
+```yaml
+title: "v2.5.0 - Custom Roles & Permissions"
+```
+
+For continuous deployment, use date-based entries without version numbers.
+
+### Semantic Versioning Reference
+
+If using versions:
+- **Major (3.0.0)**: Breaking changes, major rewrites
+- **Minor (2.5.0)**: New features, backward compatible
+- **Patch (2.4.1)**: Bug fixes, no new features
+
+## Writing Effective Entries
+
+1. **Lead with the benefit**: "You can now..." not "We added..."
+2. **Be specific**: "50% faster API response" not "Performance improvements"
+3. **Link to documentation**: If a feature needs explanation, link to docs
+4. **Acknowledge breaking changes**: Explain what changed and how to migrate
+5. **Credit contributors**: For open source or community contributions
+
+### Good Example
+
+```markdown
+## What's New
+
+### Real-time Notifications
+
+You can now receive instant notifications when team members join, leave, or 
+update their roles. Notifications appear in the dashboard header and can be 
+configured per-user in [notification settings](/docs/notifications).
+
+- Browser push notifications (requires permission)
+- In-app notification center with read/unread status
+- Email digest option for offline users
+```
+
+### Weak Example
+
+```markdown
+## Updates
+
+- Added notifications
+- Fixed some bugs
+- Made things faster
+```
+
+## Common Pitfalls
+
+- **Bundling too many changes**: One major feature per entry. Multiple small fixes can be bundled.
+- **Missing dates**: Every entry needs `publishedAt`. Undated entries confuse users about recency.
+- **Vague descriptions**: "Bug fixes" tells users nothing. Specify what was fixed.
+- **Forgetting breaking changes**: Always call out breaking changes prominently with migration steps.
+- **Inconsistent formatting**: Use the same structure (What's New, Bug Fixes, etc.) across all entries.
+- **No links to documentation**: New features should link to their documentation for details.
+- **Giant entries**: Break major releases into multiple focused entries or create a blog post with summary.
+
+## Related Documentation
+
+- [Blog System](./blog-system) - In-depth content and announcements
+- [Documentation](./documentation) - Feature reference and guides
+- [CMS Integration](../content/cms) - Content management configuration
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "How often should I publish changelog entries?", "answer": "Publish when you ship meaningful changes. Weekly for active products, or per-release for versioned products. Avoid daily entries for minor fixes."},
+     {"question": "Should I backdate changelog entries?", "answer": "Only if documenting historical releases. For new changes, use the actual ship date. Backdating active changes confuses users."},
+     {"question": "How do I announce breaking changes?", "answer": "Create a dedicated section with 'Breaking Changes' heading. Explain what changed, why, and provide migration steps or code examples."},
+     {"question": "Can I include images in changelog entries?", "answer": "Yes. Add screenshots for UI changes. Store in public/images/changelog/ and use descriptive filenames."},
+     {"question": "Should changelog entries have their own URLs?", "answer": "Yes. Each entry gets a URL based on its slug. This allows linking from support tickets, social media, and documentation."},
+     {"question": "How do I notify users about changelog updates?", "answer": "The changelog page serves as the notification. For critical updates, also send email announcements or in-app notifications."}
+   ]
+/%}
+
+---
+
+**Next:** [FAQ →](./faq)

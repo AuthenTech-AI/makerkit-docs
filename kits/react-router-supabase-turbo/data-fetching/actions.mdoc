@@ -186,7 +186,7 @@ const user = auth.data;
 
 Here's a complete example of the account deletion flow:
 
-1. **Route file exports the action:**
+**Route file exports the action:**
 
 ```tsx
 export const action = async (args: Route.ActionArgs) => {
@@ -203,7 +203,7 @@ export const action = async (args: Route.ActionArgs) => {
 };
 ```
 
-2. **Component uses the action:**
+**Component uses the action:**
 
 ```tsx
 function DeleteAccountForm(props: { email: string }) {
@@ -248,7 +248,7 @@ function DeleteAccountForm(props: { email: string }) {
 }
 ```
 
-3. **Implementation of the action:**
+**Implementation of the action:**
 
 ```tsx
 export const deletePersonalAccountAction = async ({

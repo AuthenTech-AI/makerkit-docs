@@ -1,73 +1,153 @@
 ---
 status: "published"
-title: "Technical Details of the Next.js Supabase SaaS Boilerplate"
+title: "Technical Details of the Next.js Supabase SaaS Starter Kit"
 label: "Technical Details"
 order: 2
-description: "Makerkit uses Next.js App Router, Supabase, Shadcn UI, React Query, Zod, Lucide, Nodemailer, and more."
+description: "Tech stack overview: Next.js 16, React 19, Supabase, Tailwind CSS 4, Turborepo monorepo with TypeScript, Shadcn UI, and Zod."
 ---
 
-The kit is built as a [Turborepo](https://turbo.build) monorepo, and is broadly using the following technologies:
+The kit is built as a [Turborepo](https://turbo.build) monorepo using these core technologies:
 
-1. **Next.js App Router** (using Turbopack for faster builds)
-2. **Supabase** for the database, authentication and storage
-3. **Shadcn UI** for the UI components
-4. **React Query** for client-side data fetching
-5. **Zod** for data validation
-6. **Lucide** for icons
-7. **Nodemailer** for emails, or **Resend** via HTTP (for edge runtimes)
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| Next.js | 16 | App Router with Turbopack |
+| React | 19 | UI framework |
+| Supabase | Latest | Database, Auth, Storage |
+| Tailwind CSS | 4 | Styling |
+| TypeScript | 5.9+ | Type safety |
+| pnpm | 10.19+ | Package manager |
+| Node.js | 20.10+ | Runtime (required) |
 
-Makerkit's modular architecture allows you to easily add or remove features, and customize the application to your needs.
+### Key Libraries
 
-Additionally, the kit is designed to be easily deployable to Vercel, Cloudflare, or any other hosting provider. It also supports edge rendering so you can deploy the application to Cloudflare Workers and go FAST.
+- **Shadcn UI** (Radix-based) for accessible UI components
+- **React Query** (@tanstack/react-query) for client-side data fetching
+- **Zod** for schema validation
+- **Lucide** for icons
+- **react.email** for email templates
+- **Nodemailer** or **Resend** for sending emails
 
-### Monorepo Structure
+The kit deploys to Vercel, Cloudflare, or any Node.js hosting. Edge runtime support enables deployment to Cloudflare Workers.
 
-Below are the reusable packages that can be shared across multiple applications (or packages):
+## Monorepo Structure
 
-- **@kit/ui**: Shared UI components and styles (using Shadcn UI and some custom components)
-- **@kit/shared**: Shared code and utilities
-- **@kit/supabase**: Supabase package that defines the schema and logic for managing Supabase
-- **@kit/i18n**: Internationalization package that defines utilities for managing translations
-- **@kit/billing**: Billing package that defines the schema and logic for managing subscriptions
-- **@kit/billing-gateway**: Billing gateway package that defines the schema and logic for managing payment gateways
-- **@kit/email-templates**: Here we define the email templates using the react.email package.
-- **@kit/mailers**: Mailer package that abstracts the email service provider (e.g., Resend, Cloudflare, SendGrid, Mailgun, etc.)
-- **@kit/monitoring**: A unified monitoring package that defines the schema and logic for monitoring the application with third party services (e.g., Sentry, Baselime, etc.)
-- **@kit/database-webhooks**: Database webhooks package that defines the actions following database changes (e.g., sending an email, updating a record, etc.)
-- **@kit/cms**: CMS package that defines the schema and logic for managing content
-- **@kit/next**: Next.js specific utilities
+### Core Packages
 
-And features that can be added to the application:
+| Package | Import | Purpose |
+|---------|--------|---------|
+| `@kit/ui` | `@kit/ui/*` | Shadcn UI components and custom components |
+| `@kit/supabase` | `@kit/supabase/*` | Supabase clients, types, and queries |
+| `@kit/next` | `@kit/next/*` | Server Actions, route handlers, middleware utilities |
+| `@kit/shared` | `@kit/shared/*` | Shared utilities and helpers |
+| `@kit/i18n` | `@kit/i18n/*` | Internationalization utilities |
 
-- **@kit/auth**: Authentication package (using Supabase)
-- **@kit/accounts**: Package that defines components and logic for managing personal accounts
-- **@kit/team-accounts**: Package that defines components and logic for managing team
-- **@kit/admin**: Admin package that defines the schema and logic for managing users, subscriptions, and more.
-- **@kit/notifications**: Notifications package that defines the schema and logic for managing notifications
+### Feature Packages
 
-And billing packages that can be added to the application:
+Located in `packages/features/`:
 
-- **@kit/stripe**: Stripe package that defines the schema and logic for managing Stripe. This is used by the @kit/billing-gateway package and abstracts the Stripe API.
-- **@kit/lemon-squeezy**: Lemon Squeezy package that defines the schema and logic for managing Lemon Squeezy. This is used by the @kit/billing-gateway package and abstracts the Lemon Squeezy API.
+| Package | Purpose |
+|---------|---------|
+| `@kit/auth` | Authentication flows (Supabase Auth) |
+| `@kit/accounts` | Personal account management |
+| `@kit/team-accounts` | Team/organization management |
+| `@kit/admin` | Super admin dashboard |
+| `@kit/notifications` | In-app notifications |
 
-The CMSs that can be added to the application:
+### Billing Packages
 
-- **@kit/keystatic**: [Keystatic](https://keystatic.com/) package that defines the schema and logic for managing Keystatic. This is used by the @kit/cms package and abstracts the Keystatic API
-- **@kit/wordpress**:  WordPress package that defines the schema and logic for managing WordPress. This is used by the @kit/cms package and abstracts the WordPress API.
+Located in `packages/billing/`:
 
-Also planned (post-release):
+| Package | Purpose |
+|---------|---------|
+| `@kit/billing` | Core billing logic and types |
+| `@kit/billing-gateway` | Payment provider abstraction |
+| `@kit/stripe` | Stripe integration |
+| `@kit/lemon-squeezy` | Lemon Squeezy integration |
 
-- **@kit/plugins**: Move the existing plugins to a separate package here
-- **@kit/analytics**: A unified analytics package to track user behavior
+### Infrastructure Packages
 
-### Application Configuration
+| Package | Purpose |
+|---------|---------|
+| `@kit/mailers` | Email provider abstraction (Resend, Nodemailer, SendGrid) |
+| `@kit/email-templates` | React Email templates |
+| `@kit/monitoring` | Error tracking (Sentry, Baselime) |
+| `@kit/analytics` | User behavior tracking |
+| `@kit/database-webhooks` | Database trigger handlers |
+| `@kit/cms` | Content management abstraction |
+| `@kit/keystatic` | Keystatic CMS integration |
+| `@kit/wordpress` | WordPress headless CMS integration |
+| `@kit/policies` | Authorization policy helpers |
+| `@kit/otp` | One-time password utilities |
 
-The configuration is defined in the `apps/web/config` folder. Here you can find the following configuration files:
+## Application Configuration
 
-- **app.config.ts**: Application configuration (e.g., name, description, etc.)
-- **auth.config.ts**: Authentication configuration
-- **billing.config.ts**: Billing configuration
-- **feature-flags.config.ts**: Feature flags configuration
-- **paths.config.ts**: Paths configuration (e.g., routes, API paths, etc.)
-- **personal-account-sidebar.config.ts**: Personal account sidebar configuration (e.g., links, icons, etc.)
-- **team-account-sidebar.config.ts**: Team account sidebar configuration (e.g., links, icons, etc.)
+Configuration files live in `apps/web/config/`:
+
+| File | Purpose |
+|------|---------|
+| `app.config.ts` | App name, description, URLs |
+| `auth.config.ts` | Auth providers, redirect paths |
+| `billing.config.ts` | Billing provider, plans |
+| `feature-flags.config.ts` | Feature toggles |
+| `paths.config.ts` | Route definitions |
+| `personal-account-navigation.config.tsx` | Personal dashboard sidebar |
+| `team-account-navigation.config.tsx` | Team dashboard sidebar |
+
+## Key Patterns
+
+### Server Actions
+
+Use `enhanceAction` from `@kit/next/actions` for type-safe, validated server actions:
+
+```typescript
+import { enhanceAction } from '@kit/next/actions';
+import { z } from 'zod';
+
+const schema = z.object({ name: z.string().min(1) });
+
+// Authenticated action (default: auth is required)
+export const updateName = enhanceAction(async (data, user) => {
+  // data is validated, user is authenticated
+}, { schema });
+
+// Public action (no auth required)
+export const submitContact = enhanceAction(async (data) => {
+  // data is validated, no user required
+}, { schema, auth: false });
+```
+
+By default, `auth: true` requires authentication. Set `auth: false` for public actions like contact forms.
+
+### Route Handlers
+
+Use `enhanceRouteHandler` from `@kit/next/routes` for API routes:
+
+```typescript
+import { enhanceRouteHandler } from '@kit/next/routes';
+
+export const POST = enhanceRouteHandler(async ({ body, user }) => {
+  // body is parsed, user is available
+  return NextResponse.json({ success: true });
+}, { schema: yourSchema });
+```
+
+### Supabase Clients
+
+```typescript
+// Server Components and Server Actions
+import { getSupabaseServerClient } from '@kit/supabase/server-client';
+
+// Admin operations (bypasses RLS)
+import { getSupabaseServerAdminClient } from '@kit/supabase/server-admin-client';
+```
+
+## Deployment Targets
+
+The kit supports multiple deployment targets:
+
+- **Vercel**: Zero-config deployment with environment variables
+- **Cloudflare Pages/Workers**: Edge runtime support
+- **Docker**: Self-hosted deployments
+- **Any Node.js host**: Standard Next.js deployment
+
+For production deployment, see the [going to production checklist](/docs/next-supabase-turbo/going-to-production/checklist).

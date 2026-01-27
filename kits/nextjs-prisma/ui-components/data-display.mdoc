@@ -1,0 +1,260 @@
+---
+status: "published"
+title: "Data Display"
+label: "Data Display"
+order: 6
+description: "Tables, badges, avatars, and data presentation components."
+---
+
+Display data with `Table` for basic layouts or `DataTable` for sorting, filtering, and pagination via TanStack Table. Use `Badge` for status labels, `Avatar`/`ProfileAvatar` for user images, `EmptyState` for zero-data screens, `Skeleton` for loading placeholders, and `Chart` for visualizations with Recharts.
+
+This guide is part of the [UI Components](./overview) documentation.
+
+Data display components present information in structured, scannable formats - from tabular data and status indicators to user avatars and loading states - with consistent styling and accessibility.
+
+**Use Table when:** displaying simple, static data without sorting/filtering. 
+- **Use DataTable when:** you need pagination, sorting, or filtering (most admin views). 
+- **Use Badge when:** showing status (active/inactive) or categories. 
+- **Use Skeleton when:** loading takes >300ms. 
+- **If unsure:** DataTable for lists, Badge for status.
+
+## Table
+
+Basic table for structured data.
+
+```typescript
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@kit/ui/table';
+```
+
+```tsx
+<Table>
+  <TableHeader>
+    <TableRow>
+      <TableHead>Name</TableHead>
+      <TableHead>Email</TableHead>
+      <TableHead>Status</TableHead>
+    </TableRow>
+  </TableHeader>
+  <TableBody>
+    <TableRow>
+      <TableCell>John Doe</TableCell>
+      <TableCell>john@example.com</TableCell>
+      <TableCell>Active</TableCell>
+    </TableRow>
+  </TableBody>
+</Table>
+```
+
+## Data Table
+
+Advanced table with sorting, filtering, and pagination using TanStack Table.
+
+```typescript
+import { DataTable } from '@kit/ui/data-table';
+```
+
+```tsx
+import { ColumnDef } from '@tanstack/react-table';
+
+const columns: ColumnDef<User>[] = [
+  {
+    accessorKey: 'name',
+    header: 'Name',
+  },
+  {
+    accessorKey: 'email',
+    header: 'Email',
+  },
+  {
+    accessorKey: 'status',
+    header: 'Status',
+  },
+];
+
+<DataTable
+  data={users}
+  columns={columns}
+  pageIndex={0}
+  pageSize={10}
+  pageCount={totalPages}
+/>
+```
+
+### With Pagination Callbacks
+
+```tsx
+<DataTable
+  data={users}
+  columns={columns}
+  pageIndex={page}
+  pageSize={10}
+  pageCount={totalPages}
+  onPaginationChange={(pagination) => {
+    setPage(pagination.pageIndex);
+  }}
+/>
+```
+
+## Badge
+
+Small label for status or categories.
+
+```typescript
+import { Badge } from '@kit/ui/badge';
+```
+
+```tsx
+<Badge>Default</Badge>
+<Badge variant="secondary">Secondary</Badge>
+<Badge variant="outline">Outline</Badge>
+<Badge variant="destructive">Destructive</Badge>
+```
+
+## Avatar
+
+User avatar with image and fallback.
+
+```typescript
+import { Avatar, AvatarImage, AvatarFallback } from '@kit/ui/avatar';
+```
+
+```tsx
+<Avatar>
+  <AvatarImage src="/avatar.jpg" alt="User" />
+  <AvatarFallback>JD</AvatarFallback>
+</Avatar>
+```
+
+## Profile Avatar
+
+Avatar component with automatic initials fallback.
+
+```typescript
+import { ProfileAvatar } from '@kit/ui/profile-avatar';
+```
+
+```tsx
+{/* With image */}
+<ProfileAvatar
+  displayName="John Doe"
+  pictureUrl="/avatar.jpg"
+/>
+
+{/* Initials fallback */}
+<ProfileAvatar
+  displayName="John Doe"
+/>
+
+{/* Single letter */}
+<ProfileAvatar text="J" />
+```
+
+## Empty State
+
+Placeholder for empty content areas.
+
+```typescript
+import { EmptyState, EmptyStateHeading, EmptyStateText, EmptyStateButton } from '@kit/ui/empty-state';
+```
+
+```tsx
+<EmptyState>
+  <EmptyStateHeading>No items found</EmptyStateHeading>
+  <EmptyStateText>
+    Get started by creating your first item.
+  </EmptyStateText>
+  <EmptyStateButton>Create Item</EmptyStateButton>
+</EmptyState>
+```
+
+### With Icon
+
+```tsx
+import { EmptyMedia } from '@kit/ui/empty-state';
+import { Inbox } from 'lucide-react';
+
+<EmptyState>
+  <EmptyMedia variant="icon">
+    <Inbox />
+  </EmptyMedia>
+  <EmptyStateHeading>No messages</EmptyStateHeading>
+  <EmptyStateText>Your inbox is empty.</EmptyStateText>
+</EmptyState>
+```
+
+## Skeleton
+
+Loading placeholder animation.
+
+```typescript
+import { Skeleton } from '@kit/ui/skeleton';
+```
+
+```tsx
+{/* Text skeleton */}
+<Skeleton className="h-4 w-48" />
+
+{/* Avatar skeleton */}
+<Skeleton className="h-12 w-12 rounded-full" />
+
+{/* Card skeleton */}
+<div className="space-y-2">
+  <Skeleton className="h-4 w-full" />
+  <Skeleton className="h-4 w-3/4" />
+  <Skeleton className="h-4 w-1/2" />
+</div>
+```
+
+## Chart
+
+Chart components using Recharts.
+
+```typescript
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@kit/ui/chart';
+```
+
+```tsx
+import { Bar, BarChart, XAxis, YAxis } from 'recharts';
+
+const chartConfig = {
+  value: {
+    label: 'Value',
+    color: 'hsl(var(--primary))',
+  },
+};
+
+<ChartContainer config={chartConfig}>
+  <BarChart data={data}>
+    <XAxis dataKey="name" />
+    <YAxis />
+    <ChartTooltip content={<ChartTooltipContent />} />
+    <Bar dataKey="value" fill="var(--color-value)" />
+  </BarChart>
+</ChartContainer>
+```
+
+In MakerKit, we use DataTable for all admin list views (members, invoices, projects). The consistent pagination and sorting patterns reduce cognitive load for users navigating between sections.
+
+## Common Pitfalls
+
+- **DataTable missing column types**: Always define `ColumnDef<T>[]` with proper typing. Missing types cause runtime errors and poor autocompletion.
+- **Skeleton size mismatch**: Match skeleton dimensions to actual content. A text skeleton should match the expected text height, not be arbitrarily sized.
+- **Avatar without fallback**: Always provide `AvatarFallback` for when images fail to load. Use initials or a default icon.
+- **Empty state not centered**: EmptyState needs a container with proper height. Use `min-h-[400px]` or similar to give it vertical space.
+- **Chart config color mismatch**: Chart colors use CSS variables. Ensure `--color-{key}` matches your chartConfig keys exactly.
+- **DataTable pagination state**: Pagination is controlled externally. Manage `pageIndex` in your component state and update via `onPaginationChange`.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "When should I use Table vs DataTable?", "answer": "Use Table for simple, static data. Use DataTable when you need sorting, filtering, or pagination - it wraps TanStack Table with built-in controls."},
+     {"question": "How do I add sorting to DataTable columns?", "answer": "TanStack Table sorting is configured per column. Add enableSorting: true to the column definition and the header will become clickable."},
+     {"question": "Can I use ProfileAvatar without an image?", "answer": "Yes. Pass only displayName and it generates initials automatically. Or pass just text for a single letter/character."},
+     {"question": "How do I make skeletons animate?", "answer": "Skeleton has built-in pulse animation. If it's not animating, check that Tailwind's animation utilities aren't being purged."},
+     {"question": "What chart types does ChartContainer support?", "answer": "ChartContainer wraps Recharts, supporting all Recharts types: BarChart, LineChart, AreaChart, PieChart, etc. Configure via Recharts components."}
+   ]
+/%}
+
+---
+
+**Next:** [Feedback & Loading →](./feedback-and-loading)

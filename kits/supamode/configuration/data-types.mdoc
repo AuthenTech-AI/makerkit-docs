@@ -1,108 +1,332 @@
 ---
 status: "published"
-title: "Configuring Data Types in Supamode"
+title: "UI Data Types Reference"
 label: "Data Types"
 order: 5
-description: "Learn how to set up data types for your columns to get the best possible UX out of Supamode"
+description: "Complete reference for Supamode UI data types. Choose the right input control for each column to give your team the best editing experience."
 ---
 
-When Supamode syncs your table, it uses PostgreSQL metadata to pick a sensible default control for each column (e.g. a date picker for `timestamp` fields, a switch for `boolean`, etc.). 
+The UI Data Type determines how Supamode renders input controls for a column. Setting the correct type gives your team appropriate inputs, validation, and formatting for each field.
 
-The **UI Data Type** dropdown in the column editor lets you override that default and choose exactly how your editors see and edit each value.
+## How Data Types Work
 
-Setting the correct UI data type is **essential to get the best user experience in Supamode** - since it will render the correct input control, validation rules, and table formatting.
+Supamode infers types from PostgreSQL metadata:
+- `text` columns default to Plain Text
+- `boolean` columns get a toggle switch
+- `timestamp` columns get a date picker
+- `jsonb` columns get a JSON editor
 
-## Choosing a UI Data Type
+You can override these defaults to better match your data. For example, a `text` column storing email addresses should use the Email type for proper validation and formatting.
 
-Open the **Edit Column** modal and find **UI Data Type**:
+## Data Type Reference
 
-{% img src="/images/supamode/ui-data-type-dropdown.png" alt="UI Data Type dropdown" width="1450" height="1800" /%}
+### Text Types
 
-Here’s what each option does:
+#### Plain Text
 
-### Plain Text
+Single-line text input for short strings.
 
-A single-line text input.
+**Input control:** `<input type="text">`
+**Best for:** Names, titles, slugs, short identifiers
+**Table display:** Truncated if too long
 
-* Ideal for short strings (names, titles, slugs).
-* Renders as a truncated label in tables and as an `<input type="text">` in forms.
+**Example columns:** `first_name`, `title`, `slug`
 
-### Long Text
+#### Long Text
 
-A multi-line textarea.
+Multi-line textarea with auto-resize.
 
-* Good for body content, descriptions, or any free-form text.
-* Renders as a `<textarea>` with automatic resize in forms.
+**Input control:** `<textarea>`
+**Best for:** Descriptions, bios, notes, any multi-line content
+**Table display:** First line with ellipsis
 
-### Email
+**Example columns:** `description`, `bio`, `notes`
 
-Validates and formats as an email address.
+#### Markdown
 
-* Renders as `<input type="email">`.
-* In the table, you get a copy-to-clipboard icon plus a mail icon.
+Rich Markdown editor with toolbar and live preview.
 
-### URL
+**Input control:** Markdown editor with formatting buttons
+**Best for:** Blog content, documentation, formatted text
+**Table display:** Plain text preview (no formatting)
+**Stored as:** Raw Markdown string
 
-Validates and formats as a URL.
+**Example columns:** `content`, `body`, `readme`
 
-* Renders as `<input type="url">`.
-* In the table, you see a link icon and can copy the URL.
+#### HTML
 
-### Color
+WYSIWYG rich text editor.
 
-Renders a color-picker input.
+**Input control:** Visual editor with formatting, links, embeds
+**Best for:** Marketing content, email templates, rich descriptions
+**Table display:** Plain text preview (tags stripped)
+**Stored as:** Sanitized HTML
 
-* Backed by `<input type="color">` plus a swatch preview.
-* Stored as a hex/RGB string.
+**Example columns:** `html_content`, `email_body`
 
-### Markdown
+### Contact Types
 
-Renders a rich Markdown editor.
+#### Email
 
-* Supports live preview and basic toolbar (bold, links, lists).
-* Stored as a raw Markdown string.
+Email input with validation.
 
-### HTML
+**Input control:** `<input type="email">`
+**Validation:** Must be valid email format
+**Table display:** Email with copy button and mail icon
+**Best for:** Email address columns
 
-Renders a WYSIWYG HTML editor.
+**Example columns:** `email`, `contact_email`, `notification_email`
 
-* Full rich-text editing (formatting, links, embeds).
-* Stored as sanitized HTML.
+#### Phone
 
-### Address
+Telephone input.
 
-Breaks out into separate sub-fields: street, city, state, zip, country.
+**Input control:** `<input type="tel">`
+**Table display:** Phone number with copy button
+**Best for:** Phone number columns
 
-* Persists as a JSON object.
-* Editors get individual inputs for each part of the address.
+**Example columns:** `phone`, `mobile`, `contact_number`
 
-### Phone
+#### URL
 
-Renders as `<input type="tel">`.
+URL input with validation.
 
-* Basic validation for phone patterns.
-* Copy-to-clipboard support in the table.
+**Input control:** `<input type="url">`
+**Validation:** Must be valid URL
+**Table display:** Clickable link with external icon
+**Best for:** Website URLs, links, references
 
-### File / Image / Audio / Video
+**Example columns:** `website`, `profile_url`, `source_url`
 
-Unified file uploader for any media.
-* Integrates with Supabase's storage.
-* Drag & drop or browse your file.
-* Stores an object with URL, filename, size, etc.
-* Renders previews for images and video thumbnails.
+#### Address
 
-### Currency / Percentage (advanced)
+Structured address input with multiple fields.
 
-* **Currency** lets you pick a currency code (USD, EUR, etc.) and formats values accordingly.
-* **Percentage** adds a “%” suffix in both table and form.
+**Input control:** Separate inputs for street, city, state, zip, country
+**Stored as:** JSON object
+**Table display:** Formatted single-line address
 
----
+**Example columns:** `address`, `billing_address`, `shipping_address`
 
-#### When to override the inferred type
+**JSON structure:**
+```json
+{
+  "street": "123 Main St",
+  "city": "San Francisco",
+  "state": "CA",
+  "zip": "94102",
+  "country": "USA"
+}
+```
 
-* **Data requires special formatting** (e.g. slugs as URLs, colors as hex swatches).
-* **You need validation** (email/URL patterns, numeric ranges).
-* **Rich editing** (Markdown or HTML) for content fields.
-* **Compound data** (addresses, file metadata).
+### Numeric and Financial Types
 
-Once you’ve picked the right UI Data Type, hit **Save Changes**. Supamode will render your column with the matching input control, validation rules, and table formatting—giving your editors a flawless experience every time.
+#### Integer
+
+Whole number input.
+
+**Input control:** Number input (no decimals)
+**Table display:** Formatted number
+**Best for:** Counts, quantities, IDs
+
+#### Float
+
+Decimal number input.
+
+**Input control:** Number input with decimals
+**Table display:** Formatted number
+**Best for:** Measurements, ratings, percentages
+
+#### Currency
+
+Number input with currency formatting.
+
+**Input control:** Number input with currency symbol
+**Configuration:** Select currency code (USD, EUR, GBP, etc.)
+**Table display:** Formatted with currency symbol and decimals
+**Stored as:** Number (cents or full amount based on your schema)
+
+**Example columns:** `price`, `amount`, `total`
+
+#### Percentage
+
+Number input with percentage display.
+
+**Input control:** Number input
+**Table display:** Number with % suffix
+**Best for:** Rates, discounts, completion percentages
+
+**Example columns:** `discount_rate`, `tax_rate`, `progress`
+
+### Date and Time Types
+
+#### Date
+
+Date picker.
+
+**Input control:** Calendar date picker
+**Stored as:** ISO date string or timestamp
+**Table display:** Localized date format
+
+#### DateTime
+
+Date and time picker.
+
+**Input control:** Calendar + time picker
+**Table display:** Localized date and time
+
+#### Time
+
+Time picker only.
+
+**Input control:** Time input
+**Table display:** Formatted time
+
+### Boolean Type
+
+#### Boolean
+
+Toggle switch.
+
+**Input control:** On/off switch
+**Table display:** Checkmark or X icon
+**Best for:** Flags, status toggles
+
+**Example columns:** `is_active`, `is_published`, `email_verified`
+
+### Selection Types
+
+#### List
+
+Dropdown from predefined options.
+
+**Input control:** Select dropdown
+**Configuration:** Define available options
+**Best for:** Enums, status fields, categories
+
+**Example columns:** `status`, `type`, `category`
+
+### Visual Types
+
+#### Color
+
+Color picker input.
+
+**Input control:** Color picker with hex/RGB input
+**Table display:** Color swatch with hex code
+**Stored as:** Hex string (e.g., `#FF5733`)
+
+**Example columns:** `brand_color`, `theme_color`, `accent`
+
+### File Types
+
+For file types, you also need to configure [storage settings](./storage).
+
+#### File
+
+General file upload.
+
+**Input control:** File picker/drag-and-drop
+**Table display:** Filename with download link
+**Best for:** Documents, PDFs, any file type
+
+**Example columns:** `attachment`, `document`, `resume`
+
+#### Image
+
+Image upload with preview.
+
+**Input control:** Image picker with preview
+**Table display:** Thumbnail preview
+**Best for:** Photos, avatars, graphics
+
+**Example columns:** `avatar`, `cover_image`, `thumbnail`
+
+#### Audio
+
+Audio file upload with player.
+
+**Input control:** Audio file picker
+**Table display:** Audio player
+**Best for:** Music, podcasts, voice recordings
+
+**Example columns:** `audio_file`, `podcast_episode`
+
+#### Video
+
+Video upload with player.
+
+**Input control:** Video file picker
+**Table display:** Video player/thumbnail
+**Best for:** Videos, recordings
+
+**Example columns:** `video_url`, `intro_video`
+
+## PostgreSQL to UI Type Mapping
+
+Supamode auto-detects types based on PostgreSQL column types:
+
+| PostgreSQL Type | Default UI Type |
+|-----------------|-----------------|
+| `text`, `varchar`, `char` | Plain Text |
+| `boolean` | Boolean |
+| `integer`, `int4`, `int8` | Integer |
+| `numeric`, `decimal`, `float4`, `float8` | Float |
+| `date` | Date |
+| `timestamp`, `timestamptz` | DateTime |
+| `time`, `timetz` | Time |
+| `json`, `jsonb` | JSON Editor |
+| `uuid` | Plain Text |
+| `bytea` | File |
+
+## When to Override the Default
+
+Override the auto-detected type when:
+
+| Scenario | Override To |
+|----------|-------------|
+| `text` column stores emails | Email |
+| `text` column stores URLs | URL |
+| `text` column stores Markdown | Markdown |
+| `text` column stores HTML | HTML |
+| `text` column stores file paths | File/Image |
+| `numeric` column is money | Currency |
+| `numeric` column is percentage | Percentage |
+| `text` column has enum values | List |
+| `text` column stores colors | Color |
+| `text` column stores phones | Phone |
+
+## Configuration Tips
+
+### Use Specific Types
+
+Don't leave everything as Plain Text. Specific types provide:
+- Better input controls (date pickers, color pickers)
+- Input validation (email format, URL format)
+- Better table formatting (currency, percentages)
+- Improved UX (copy buttons, preview)
+
+### Match Your Schema
+
+If your PostgreSQL column has constraints, match them in the UI type:
+- `CHECK` constraint for specific values → List type
+- `email` in column name → Email type
+- `_url` suffix → URL type
+
+### Consider the User
+
+Choose types based on who edits the data:
+- Technical users: Plain Text is fine
+- Non-technical users: Use specific types with validation
+- Content editors: Markdown or HTML editors
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Can I create custom data types?", "answer": "No. Supamode has a fixed set of UI data types. For custom needs, use the closest type or store the data as JSON and use the JSON editor."},
+     {"question": "Does changing the UI type affect the database?", "answer": "No. UI types only control how the Data Explorer renders inputs and displays values. Your PostgreSQL column type stays the same."},
+     {"question": "Why isn't my file upload working?", "answer": "File types (File, Image, Audio, Video) require storage configuration. Set up the bucket name and path template in the column's storage settings."},
+     {"question": "Can I validate input beyond what the type provides?", "answer": "UI types provide basic validation. For complex validation, use PostgreSQL CHECK constraints or database triggers. Supamode will show constraint violation errors."},
+     {"question": "How do I handle JSONB columns?", "answer": "JSONB columns default to a JSON editor. For structured JSON (like addresses), consider the Address type. Otherwise, the JSON editor provides syntax highlighting and validation."}
+   ]
+/%}

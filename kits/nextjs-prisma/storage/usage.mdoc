@@ -1,0 +1,135 @@
+---
+status: "published"
+title: "Storage Usage"
+label: "Usage"
+order: 3
+description: "Upload, download, delete, and list files using the storage service."
+---
+
+This guide covers common storage operations including uploading, downloading, deleting, and listing files.
+
+## Getting the Storage Instance
+
+Use `getStorageService()` to get the configured storage instance:
+
+```typescript
+import 'server-only';
+
+import { getStorageService } from '@kit/storage';
+
+const storage = await getStorageService();
+```
+
+This function returns an instance of the [Unstorage API](https://unstorage.unjs.io/guide), so you can use the complete API reference there.
+
+## Uploading Files
+
+### Using the Helper Function
+
+The `uploadFile` helper handles metadata and URL generation:
+
+```typescript
+import { getStorageService } from '@kit/storage';
+
+async function uploadImage(userId: string, buffer: Buffer) {
+  const storage = await getStorageService();
+  
+  const key = `avatars/${userId}/profile.png`;
+
+  await storage.setItemRaw(key, buffer, {
+    contentType: 'image/png',
+    cacheControl: 'max-age=31536000',
+    metadata: {
+      uploadedBy: userId,
+      uploadedAt: new Date().toISOString(),
+    },
+  });
+}
+```
+
+## Downloading Files
+
+To download a file, you can use the `getItemRaw` method:
+
+```typescript
+import { getStorageService } from '@kit/storage';
+
+async function downloadFile(key: string): Promise<Buffer> {
+  const storage = await getStorageService();
+  const data = await storage.getItemRaw(key);
+
+  if (!data) {
+    throw new Error(`File not found: ${key}`);
+  }
+
+  // Convert to Buffer if needed
+  if (data instanceof Buffer) {
+    return data;
+  }
+
+  return Buffer.from(data as ArrayBuffer);
+}
+```
+
+## Deleting Files
+
+### Single File
+
+To delete a file, you can use the `removeItem` method:
+
+```typescript
+import { getStorageService } from '@kit/storage';
+
+async function deleteFile(key: string) {
+  const storage = await getStorageService();
+  await storage.removeItem(key);
+}
+```
+
+### Delete by Prefix
+
+Delete all files matching a prefix using the `clear` method:
+
+```typescript
+import { getStorageService } from '@kit/storage';
+
+async function deleteUserFiles(userId: string) {
+  const storage = await getStorageService();
+  await storage.clear(`avatars/${userId}/`);
+}
+```
+
+## Listing Files
+
+To list files, you can use the `getKeys` method:
+
+```typescript
+import { getStorageService } from '@kit/storage';
+
+async function listUserFiles(userId: string): Promise<string[]> {
+  const storage = await getStorageService();
+
+  // List all files with the given prefix
+  const keys = await storage.getKeys(`avatars/${userId}/`);
+
+  return keys;
+}
+```
+
+## Checking File Existence
+
+To check if a file exists, you can use the `hasItem` method:
+
+```typescript
+import { getStorageService } from '@kit/storage';
+
+async function fileExists(key: string): Promise<boolean> {
+  const storage = await getStorageService();
+  
+  return await storage.hasItem(key);
+}
+```
+
+---
+
+**Next:** [Providers](./providers)

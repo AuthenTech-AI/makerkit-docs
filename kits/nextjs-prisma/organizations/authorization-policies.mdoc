@@ -1,0 +1,433 @@
+---
+status: "published"
+title: "Authorization Policies"
+label: "Authorization Policies"
+order: 5
+description: "Add custom authorization rules for organization operations via Better Auth hooks."
+---
+
+Add custom business rules to control organization operations - limit org creation, restrict invitation domains, require subscriptions for certain actions, and more.
+
+Authorization policies in the Next.js Prisma kit add custom business rules to Better Auth organization operations - creation, updates, deletion, invitations, and role changes. Each policy evaluates before the operation and returns `allow()` or `deny()`. If any registered policy denies, the operation fails with an `APIError`. Use policies for limits, domain restrictions, subscription requirements, and approval workflows.
+
+Authorization policies are functions evaluated before organization operations (create, update, delete, invite, etc.). Each policy returns `allow()` or `deny()`. If any policy denies, the operation is rejected.
+
+**Use policies when:** you need business logic beyond role-based permissions - limits, domain restrictions, subscription requirements, approval workflows.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Better Auth                               │
+│  ┌─────────────────────────────────────────────────────────┐    │
+│  │  Organization Plugin (organizationHooks)                 │    │
+│  │                                                          │    │
+│  │  beforeCreateOrganization ──┐                            │    │
+│  │  beforeUpdateOrganization   │                            │    │
+│  │  beforeDeleteOrganization   │    ┌────────────────────┐  │    │
+│  │  beforeCreateInvitation     ├───►│ Policy Runtimes    │  │    │
+│  │  beforeAcceptInvitation     │    │ (evaluate all      │  │    │
+│  │  beforeCancelInvitation     │    │  registered        │  │    │
+│  │  beforeRemoveMember         │    │  policies)         │  │    │
+│  │  beforeUpdateMemberRole ────┘    └────────────────────┘  │    │
+│  │                                            │              │    │
+│  └────────────────────────────────────────────┼──────────────┘    │
+│                                               ▼                   │
+│                                    ┌──────────────────┐           │
+│                                    │ allow() → proceed│           │
+│                                    │ deny()  → reject │           │
+│                                    └──────────────────┘           │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## How It Works
+
+1. **User triggers an operation** - e.g., creates an invitation via the UI
+2. **Better Auth receives the request** - via its API routes
+3. **Organization hook fires** - e.g., `beforeCreateInvitation`
+4. **Hook builds context** - extracts `userId`, `organizationId`, etc. from the request
+5. **Policy runtime evaluates** - runs all registered policies for that operation
+6. **Result determines outcome**:
+   - All policies return `allow()` → operation proceeds
+   - Any policy returns `deny()` → operation is rejected with `APIError`
+
+## Package Structure
+
+```
+packages/organization/policies/src/
+├── registry.ts      # Singleton registries + runtimes (edit to register policies)
+├── types.ts         # Context type definitions
+├── policies/
+│   └── custom.ts    # YOUR POLICIES (won't be modified by upstream updates)
+└── index.ts         # Package exports
+
+packages/organization/hooks/src/
+└── authorization-hooks.ts   # Better Auth hook implementations
+```
+
+## Available Registries
+
+By default, **no policies are registered**. The registries are empty, meaning all operations are allowed. You add policies to enforce your business rules.
+
+| Registry | Better Auth Hook | When It Runs |
+|----------|-----------------|--------------|
+| `organizationCreateRegistry` | `beforeCreateOrganization` | User creates a new organization |
+| `organizationUpdateRegistry` | `beforeUpdateOrganization` | User updates org name/slug/logo |
+| `organizationDeleteRegistry` | `beforeDeleteOrganization` | User deletes an organization |
+| `invitationCreateRegistry` | `beforeCreateInvitation` | User sends a member invitation |
+| `invitationAcceptRegistry` | `beforeAcceptInvitation` | User accepts an invitation |
+| `invitationCancelRegistry` | `beforeCancelInvitation` | User cancels a pending invitation |
+| `memberRemoveRegistry` | `beforeRemoveMember` | User removes a member |
+| `roleUpdateRegistry` | `beforeUpdateMemberRole` | User changes a member's role |
+
+## Context Types
+
+Each hook passes a typed context to policies. The context contains all information available at that point in the request.
+
+### OrganizationCreateContext
+
+```typescript
+interface OrganizationCreateContext {
+  userId: string;      // User attempting to create
+  timestamp: string;   // ISO timestamp
+}
+```
+
+No `organizationId` - the organization doesn't exist yet.
+
+### OrganizationUpdateContext
+
+```typescript
+interface OrganizationUpdateContext {
+  userId: string;
+  organizationId: string;
+  update: {
+    name?: string;
+    slug?: string;
+    logo?: string;
+  };
+  timestamp: string;
+}
+```
+
+### OrganizationDeleteContext
+
+```typescript
+interface OrganizationDeleteContext {
+  userId: string;
+  organizationId: string;
+  timestamp: string;
+}
+```
+
+### InvitationCreateContext
+
+```typescript
+interface InvitationCreateContext {
+  userId: string;         // User sending the invitation
+  organizationId: string;
+  inviteeEmail: string;   // Email being invited
+  inviteeRole: string;    // Role assigned to invitee
+  timestamp: string;
+}
+```
+
+### InvitationAcceptContext
+
+```typescript
+interface InvitationAcceptContext {
+  userId: string;         // User accepting
+  userEmail: string;      // User's email
+  invitation: {
+    id: string;
+    email: string;        // Email the invite was sent to
+    organizationId: string;
+    role: string;
+    expiresAt: Date;
+  };
+  timestamp: string;
+}
+```
+
+### InvitationCancelContext
+
+```typescript
+interface InvitationCancelContext {
+  userId: string;         // User canceling
+  invitation: {
+    id: string;
+    organizationId: string;
+    inviterId: string;    // Who originally sent the invite
+  };
+  timestamp: string;
+}
+```
+
+### MemberRemoveContext
+
+```typescript
+interface MemberRemoveContext {
+  userId: string;         // User performing removal
+  organizationId: string;
+  targetUserId: string;   // Member being removed
+  timestamp: string;
+}
+```
+
+### RoleUpdateContext
+
+```typescript
+interface RoleUpdateContext {
+  userId: string;         // User changing the role
+  organizationId: string;
+  targetUserId: string;   // Member whose role is changing
+  newRole: string;        // The new role
+  timestamp: string;
+}
+```
+
+## Adding Custom Policies
+
+### Step 1: Define Your Policy
+
+Create or edit `packages/organization/policies/src/policies/custom.ts`:
+
+```typescript
+import { definePolicy, allow, deny } from '@kit/policies';
+import type { OrganizationCreateContext } from '../types';
+
+export const orgCreationLimitPolicy = definePolicy<OrganizationCreateContext>({
+  id: 'organization-create.limit-per-user',
+  evaluate: async (context) => {
+    const count = await getUserOrgCount(context.userId);
+
+    if (count >= 3) {
+      return deny({
+        code: 'ORG_LIMIT_EXCEEDED',
+        message: 'Maximum 3 organizations allowed',
+        remediation: 'Delete an existing organization first',
+      });
+    }
+
+    return allow();
+  },
+});
+```
+
+### Step 2: Register Your Policy
+
+Edit `packages/organization/policies/src/registry.ts`:
+
+```typescript
+import { orgCreationLimitPolicy } from './policies/custom';
+
+// Find the ORGANIZATION CREATE section and add:
+organizationCreateRegistry.registerPolicy(orgCreationLimitPolicy);
+```
+
+## Policy Results
+
+Use helpers from `@kit/policies`:
+
+```typescript
+import { allow, deny } from '@kit/policies';
+
+// Allow the operation to proceed
+return allow();
+
+// Block the operation
+return deny({
+  code: 'CUSTOM_ERROR_CODE',      // Stable code for programmatic handling
+  message: 'Human-readable error', // Shown to user
+  remediation: 'How to fix this',  // Optional guidance
+});
+```
+
+## Error Handling
+
+When a policy denies an operation, the hook throws a Better Auth `APIError`:
+
+```typescript
+throw new APIError('FORBIDDEN', {
+  code: 'CUSTOM_ERROR_CODE',
+  message: 'Human-readable error',
+});
+```
+
+The error propagates to the client and can be handled in your UI.
+
+## Example Policies
+
+### Limit Organizations Per User
+
+```typescript
+import { definePolicy, allow, deny } from '@kit/policies';
+import { db, member } from '@kit/database';
+import { eq, sql } from 'drizzle-orm';
+import type { OrganizationCreateContext } from '../types';
+
+export const orgLimitPolicy = definePolicy<OrganizationCreateContext>({
+  id: 'organization-create.user-limit',
+  evaluate: async (context) => {
+    const result = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(member)
+      .where(eq(member.userId, context.userId));
+
+    if (result[0].count >= 5) {
+      return deny({
+        code: 'ORG_LIMIT_EXCEEDED',
+        message: 'You can only belong to 5 organizations',
+      });
+    }
+
+    return allow();
+  },
+});
+```
+
+### Email Domain Restriction for Invitations
+
+```typescript
+import { definePolicy, allow, deny } from '@kit/policies';
+import type { InvitationCreateContext } from '../types';
+
+export const domainPolicy = definePolicy<InvitationCreateContext>({
+  id: 'invitation-create.domain-restriction',
+  evaluate: async (context) => {
+    const allowedDomains = ['company.com', 'subsidiary.com'];
+    const domain = context.inviteeEmail.split('@')[1];
+
+    if (!allowedDomains.includes(domain)) {
+      return deny({
+        code: 'DOMAIN_NOT_ALLOWED',
+        message: `Only ${allowedDomains.join(', ')} emails can be invited`,
+      });
+    }
+
+    return allow();
+  },
+});
+```
+
+### Prevent Self-Removal
+
+```typescript
+import { definePolicy, allow, deny } from '@kit/policies';
+import type { MemberRemoveContext } from '../types';
+
+export const preventSelfRemovalPolicy = definePolicy<MemberRemoveContext>({
+  id: 'member-remove.prevent-self',
+  evaluate: async (context) => {
+    if (context.userId === context.targetUserId) {
+      return deny({
+        code: 'CANNOT_REMOVE_SELF',
+        message: 'You cannot remove yourself from the organization',
+        remediation: 'Ask another admin to remove you',
+      });
+    }
+
+    return allow();
+  },
+});
+```
+
+### Require Subscription for Invitations
+
+```typescript
+import { definePolicy, allow, deny } from '@kit/policies';
+import { db, subscription } from '@kit/database';
+import { and, eq, inArray } from 'drizzle-orm';
+import type { InvitationCreateContext } from '../types';
+
+export const subscriptionRequiredPolicy = definePolicy<InvitationCreateContext>({
+  id: 'invitation-create.subscription-required',
+  evaluate: async (context) => {
+    const activeSub = await db
+      .select({ id: subscription.id })
+      .from(subscription)
+      .where(
+        and(
+          eq(subscription.referenceId, context.organizationId),
+          inArray(subscription.status, ['active', 'trialing']),
+        ),
+      )
+      .limit(1);
+
+    if (!activeSub.length) {
+      return deny({
+        code: 'SUBSCRIPTION_REQUIRED',
+        message: 'An active subscription is required to invite members',
+        remediation: 'Subscribe to a plan first',
+      });
+    }
+
+    return allow();
+  },
+});
+```
+
+## Seat Enforcement
+
+Seat-based subscription limits are enforced via `SeatEnforcementService`, not policies. This is because seat enforcement has special logic for resend operations that policies can't easily handle.
+
+See [Seat Enforcement](/docs/nextjs-prisma/billing/seat-enforcement) for details.
+
+## Testing Policies
+
+Policies are pure functions that can be unit tested:
+
+```typescript
+import { describe, it, expect } from 'vitest';
+import { orgLimitPolicy } from './custom';
+
+describe('orgLimitPolicy', () => {
+  it('allows creation when under limit', async () => {
+    const result = await orgLimitPolicy.evaluate({
+      userId: 'user-with-2-orgs',
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.allowed).toBe(true);
+  });
+
+  it('denies creation when at limit', async () => {
+    const result = await orgLimitPolicy.evaluate({
+      userId: 'user-with-5-orgs',
+      timestamp: new Date().toISOString(),
+    });
+
+    expect(result.allowed).toBe(false);
+    expect(result.metadata?.code).toBe('ORG_LIMIT_EXCEEDED');
+  });
+});
+```
+
+## Common Pitfalls
+
+- **Forgetting to register policies**: Defining a policy isn't enough - you must call `registry.registerPolicy()` to activate it.
+- **Async issues in evaluate**: The `evaluate` function must be async and return a Promise. Missing `await` on database calls causes silent failures.
+- **Not handling errors**: If your policy throws, the operation fails with a generic error. Wrap database calls in try/catch and return meaningful `deny()` messages.
+- **Confusing policies with RLS**: Policies control actions (can they do X?), RLS controls data access (can they see Y?). Use both together.
+- **Over-restricting operations**: Test policies thoroughly. Overly strict policies frustrate users and cause support tickets.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Do policies run before or after RLS?", "answer": "Policies run before the database operation. They evaluate in the Better Auth hook, which fires before any Supabase query. RLS then applies to the actual database operation."},
+     {"question": "Can I have multiple policies for the same operation?", "answer": "Yes. All registered policies run. If any returns deny(), the operation fails. Use this to layer multiple business rules."},
+     {"question": "How do I debug policy failures?", "answer": "Add logging inside your evaluate function. The deny() message is returned to the client, so include helpful error codes and remediation hints."},
+     {"question": "Can I access the database in policies?", "answer": "Yes. Import your database client and run queries. Just ensure your policy is async and awaits all database calls."},
+     {"question": "What's the difference between policies and middleware?", "answer": "Middleware runs on every request at the edge. Policies run only for specific Better Auth operations and have full context (userId, organizationId, etc.)."}
+   ]
+/%}
+
+## Related
+
+- [Seat Enforcement](../billing/seat-enforcement) - Subscription-based member limits
+- [Roles & Permissions](../members-management/roles-permissions) - RBAC system
+- [Invitations](../members-management/invitations) - Invitation workflow
+
+---
+
+**Next:** [Members Management →](../members-management/overview)

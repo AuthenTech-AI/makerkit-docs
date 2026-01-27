@@ -1,0 +1,142 @@
+---
+status: "published"
+title: "Admin Overview"
+label: "Overview"
+order: 1
+description: "Overview of the admin panel features including user management, organization oversight, and platform analytics."
+---
+
+The MakerKit Admin Panel is a built-in dashboard for managing users, organizations, and platform activity. It provides user management (ban, impersonate, role changes), organization oversight, session control, and RBAC-based permissions. 
+
+Access it at `/admin` with an admin account. The panel integrates with Better Auth's admin plugin and supports custom admin roles for support staff or moderators.
+
+## Getting Started
+
+### Creating Your First Admin
+
+After running `pnpm seed`, use these test credentials:
+
+- **Email**: `admin1@makerkit.dev`
+- **Password**: `testingpassword`
+
+To promote an existing user to admin:
+
+1. Run Prisma Studio: `pnpm --filter "@kit/database" prisma:studio`
+2. Open the `users` table
+3. Set the `role` column to `admin` for your user
+4. Sign out and back in to refresh the session
+
+### Dashboard Metrics
+
+The admin dashboard at `/admin` displays four key metrics:
+
+| Metric | Description |
+|--------|-------------|
+| **Total Users** | All registered accounts on your platform |
+| **Active Sessions** | Sessions created in the last 24 hours that haven't expired |
+| **Banned Users** | Accounts with restricted access |
+| **New This Week** | Sign-ups from the past 7 days |
+
+## Core Features
+
+### User Management
+
+The Users section (`/admin/users`) provides full control over user accounts:
+
+- **Search**: Find users by name or email
+- **Filter**: By role (user/admin) and status (active/banned)
+- **Sort**: By name, email, creation date, role, or status
+- **Paginated results**: 25 users per page
+
+Available actions per user:
+
+| Action | Description |
+|--------|-------------|
+| View Details | Full user profile with sessions and subscriptions |
+| Change Role | Promote to admin or demote to user |
+| Impersonate | Sign in as the user for debugging (non-admin users only) |
+| Ban/Unban | Restrict or restore account access |
+| Remove | Permanently delete the account (non-admin users only) |
+| View Sessions | See all active sessions |
+| Revoke Sessions | End specific or all sessions |
+
+{% img src="/images/docs/admin-users-table.webp" width="2844" height="1938" alt="Admin Users Table" /%}
+
+See [User Management](./user-management) for detailed documentation.
+
+### Organization Management
+
+The Organizations section (`/admin/organizations`) lets you oversee all teams:
+
+- **Search**: Find organizations by name
+- **View Details**: See organization info, members, and subscriptions
+- **Member Access**: Click through to any member's user details
+
+{% img src="/images/docs/admin-organizations-table.webp" width="2844" height="1938" alt="Admin Organizations Table" /%}
+
+See [Organization Management](./organization-management) for detailed documentation.
+
+### Role-Based Access Control
+
+Admin permissions are configured via RBAC in `packages/rbac/src/admin-rbac.config.ts`:
+
+```typescript
+import { defineAdminRBACConfig } from './admin/factory';
+
+export default defineAdminRBACConfig({
+  // Default: single 'admin' role with full permissions
+  // Add custom roles as needed:
+  /*
+  roles: {
+    support: 50,    // Can help users but not delete
+    moderator: 30,  // Can ban but limited access
+  },
+  permissions: {
+    support: {
+      user: ['list', 'get', 'ban'],
+      session: ['list', 'revoke'],
+      organizations: ['list', 'view'],
+      dashboard: ['view'],
+    },
+  },
+  */
+});
+```
+
+See [RBAC Permissions](./rbac-permissions) for detailed documentation on customizing admin roles.
+
+## Navigation
+
+The admin sidebar includes:
+
+- **Dashboard** (`/admin`) - Overview and statistics
+- **Users** (`/admin/users`) - User management
+- **Organizations** (`/admin/organizations`) - Organization oversight
+
+Click "Back to Dashboard" in the sidebar header to return to your regular account.
+
+## Security Considerations
+
+The admin panel includes multiple security layers:
+
+1. **Route Protection**: Middleware blocks non-admin access to `/admin/*` routes
+2. **Server-Side Checks**: `requireAdmin()` verifies admin status in server components
+3. **Action Middleware**: `adminActionClient` protects all server actions
+4. **Permission Checks**: `withAdminPermission()` enforces granular RBAC permissions
+5. **Impersonation Safeguards**: Cannot impersonate admin users or banned accounts
+
+For implementation details, see [Extending Admin](./extending-admin).
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "How do I create an admin user?", "answer": "Run pnpm seed for test credentials (admin1@makerkit.dev), or use Prisma Studio to set a user's role column to 'admin'. Sign out and back in to refresh the session."},
+     {"question": "Can I have multiple admin roles with different permissions?", "answer": "Yes. Define custom roles like 'support' or 'moderator' in packages/rbac/src/admin-rbac.config.ts with specific permissions for each role."},
+     {"question": "What happens when I impersonate a user?", "answer": "You're signed in as that user for up to 1 hour. A banner shows you're impersonating. Click 'Stop Impersonating' or sign out to end the session."},
+     {"question": "Why can't I impersonate certain users?", "answer": "Security restrictions prevent impersonating other admin users or banned accounts. Demote the admin to a regular user first if debugging is needed."}
+   ]
+/%}
+
+---
+
+**Next:** [User Management](./user-management)

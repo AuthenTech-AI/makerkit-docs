@@ -1,0 +1,94 @@
+---
+status: "published"
+title: "Members Management Overview"
+label: "Overview"
+order: 0
+description: "Manage organization members, roles, permissions, and invitations in MakerKit."
+---
+
+Members management handles who can access your organization and what they can do. The system includes viewing and managing members, sending invitations, assigning roles, and enforcing permissions.
+
+## Key Capabilities
+
+| Feature | Description |
+|---------|-------------|
+| Member list | View all organization members with their roles and join dates |
+| Role management | Change member roles or remove members from the organization |
+| Invitations | Send email invitations with role assignment |
+| Role-based access | Three default roles (owner, admin, member) with configurable permissions |
+| Custom roles | Create organization-specific roles through the UI (optional) |
+
+## How It Works
+
+The members system combines two authorization approaches:
+
+1. **Role hierarchy** - Numeric levels determine who can manage whom. Owners (100) can manage admins (50), admins can manage members (10), but not vice versa.
+
+2. **Resource permissions** - Each role has specific permissions for resources like `organization`, `member`, `invitation`, and `billing`. Permissions are checked server-side via Better Auth.
+
+All role and permission configuration happens in a single file: `packages/rbac/src/rbac.config.ts`.
+
+## Default Roles
+
+| Role | Level | Can Manage |
+|------|-------|------------|
+| owner | 100 | Full control, can manage admins and members |
+| admin | 50 | Can manage members, billing, and invitations |
+| member | 10 | Basic access, cannot manage other members |
+
+## Section Guide
+
+### [Viewing Members](./viewing-members)
+
+Display the members list, update roles, and remove members from the organization.
+
+### [Invitations](./invitations)
+
+Send email invitations, manage pending invites, and configure invitation policies.
+
+### [Roles & Permissions](./roles-permissions)
+
+Configure role hierarchy, permissions, and add custom resources/actions in `rbac.config.ts`.
+
+### [Custom Roles](./custom-roles)
+
+Enable UI-based role creation for per-organization roles without code changes.
+
+### [Permissions API](./permissions-api)
+
+Reference for `@kit/rbac` functions, Better Auth permission checks, and server action middleware.
+
+## Quick Start
+
+To check permissions in a server action:
+
+```typescript
+'use server';
+
+import { authenticatedActionClient, withFeaturePermission } from '@kit/action-middleware';
+
+export const inviteMemberAction = authenticatedActionClient
+  .use(withFeaturePermission({ member: ['create'] }))
+  .inputSchema(InviteSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    // User has member:create permission
+  });
+```
+
+To check if one role can manage another:
+
+```typescript
+import { canTargetRole, ROLE_HIERARCHY } from '@kit/rbac';
+
+// Admin (50) can manage member (10)
+canTargetRole('admin', 'member', false, ROLE_HIERARCHY); // true
+
+// Admin (50) cannot manage owner (100)
+canTargetRole('admin', 'owner', false, ROLE_HIERARCHY); // false
+```
+
+This members management system is part of the [Next.js Drizzle SaaS Kit](/drizzle).
+
+---
+
+**Next:** [Viewing Members](./viewing-members)

@@ -229,7 +229,7 @@ export namespace Route {
 }
 ```
 
-2. **Loader Type Inference**
+### Loader Type Inference
 
 The loader return type is automatically inferred:
 
@@ -242,7 +242,7 @@ export const loader = async (args: Route.LoaderArgs) => {
 };
 ```
 
-3. **Component Props Typing**
+### Component Props Typing
 
 The component props are typed based on the loader return:
 
@@ -267,24 +267,20 @@ export default function MyPage(props: Route.ComponentProps) {
 ## Best Practices for Loaders
 
 1. **Keep loaders focused**
-- Load only what the component needs
-- Use separate loaders for different data concerns
-
+    - Load only what the component needs
+    - Use separate loaders for different data concerns
 2. **Handle errors gracefully**
-- Use try/catch to handle errors
-- Provide fallback UIs or redirects for error states
-
+    - Use try/catch to handle errors
+    - Provide fallback UIs or redirects for error states
 3. **Consider performance**
-- Use parallel data fetching with `Promise.all` when appropriate
-- Consider caching strategies for expensive data
-
+    - Use parallel data fetching with `Promise.all` when appropriate
+    - Consider caching strategies for expensive data
 4. **Type everything**
-- Use TypeScript to ensure type safety
-- Take advantage of Makerkit's type system
-
+    - Use TypeScript to ensure type safety
+    - Take advantage of Makerkit's type system
 5. **Extract reusable loaders**
-- Move common loading patterns to shared functions
-- Keep route files clean and focused
+    - Move common loading patterns to shared functions
+    - Keep route files clean and focused
 
 ## Example: Complete Page with Loader
 

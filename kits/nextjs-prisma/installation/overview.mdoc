@@ -1,0 +1,215 @@
+---
+status: "published"
+title: "Installing the Kit"
+label: "Installation"
+order: 1
+description: "Complete installation guide for setting up the Next.js Prisma SaaS Kit on your local machine."
+---
+
+Clone the repository, install dependencies with pnpm, run the setup script, start Docker for Postgres and Mailpit, generate the Prisma client, run migrations, and start the dev server. You'll have a fully functional SaaS application running at `localhost:3000`.
+
+This guide is part of the Next.js Prisma 7 SaaS Starter Kit documentation.
+
+If you're comparing options, see the **[Prisma ORM SaaS Starter Kit for Next.js teams](/prisma)** landing page for a complete overview.
+
+{% sequence title="Installation Steps" description="Get the SaaS kit running on your local machine" %}
+
+[Documentation vs Course](#documentation-vs-course)
+
+[Prerequisites](#prerequisites)
+
+[Clone Repository](#clone-repository)
+
+[Setup Dependencies](#setup-dependencies)
+{% /sequence %}
+
+{% callout title="Definition" %}
+This **Makerkit** version is a production-ready SaaS starter kit built on Next.js 16, React 19, and Prisma 7 and Better Auth that provides authentication, multi-tenancy, billing, and admin dashboards out of the box - so you can focus on your product instead of boilerplate.
+{% /callout %}
+
+Makerkit is a **production-ready SaaS starter kit** that provides all the foundational features every SaaS application needs out of the box:
+
+- **Authentication** - Sign up, sign in, password reset, OAuth providers, MFA
+- **Multi-tenancy** - Organizations, team members, invitations, role-based access
+- **Billing & Subscriptions** - Stripe integration, checkout, customer portal
+- **Admin Dashboard** - User management, metrics, impersonation
+- **Email System** - Transactional emails with customizable templates
+- **Account Settings** - User profiles, organization settings, preferences
+
+Built on modern technologies including **Next.js 16**, **React 19**, **PostgreSQL**, **Prisma ORM**, and **Better Auth**, Makerkit lets you start with a working foundation and focus on building your unique product features instead of reinventing common SaaS functionality.
+
+### When to Use This Kit
+
+**Use the Next.js Prisma Kit when:**
+- You want a Prisma-based data layer with any PostgreSQL provider (Neon, Supabase, Railway, etc.)
+- You prefer Better Auth for authentication
+- You don't want to use Supabase or host in Supabase
+
+**Consider the Supabase Kit instead when:**
+- You want Supabase Auth and Supabase-managed PostgreSQL
+- You need Supabase Realtime
+- You want tighter Supabase ecosystem integration
+
+**If you're unsure:** Start with this kit if you want maximum database flexibility and provider independence. Start with the Supabase kit if you're already invested in the Supabase ecosystem.
+
+### Documentation vs Course
+
+This **documentation** serves as a comprehensive **API reference** covering every feature, configuration option, and integration point in detail. It's ideal for looking up specific implementations, understanding how individual features work, or customizing specific aspects of your application.
+
+For a **streamlined, hands-on approach** to learning Makerkit, we recommend the **[Next.js Prisma 7 Course](/courses/nextjs-prisma/course)**. The course walks you through building a complete SaaS application (TeamPulse - a team feedback tool) from scratch, teaching you:
+- How all the pieces fit together in a real application
+- Best practices and architectural patterns
+- Building features step-by-step with real-world examples
+- Understanding the "why" behind implementation decisions
+
+**Recommendation:** Start with the course to understand the foundations and see how everything connects, then use this documentation as a reference when building your own features. Or use them together as you build your own features.
+
+---
+
+By the end of this installation, you'll have:
+- A fully functional local development environment
+- A running PostgreSQL database with migrations applied
+- The Next.js application running on `http://localhost:3000`
+- The ability to create accounts and test all features
+
+## Prerequisites
+
+Before you begin, ensure you have the following installed on your machine:
+
+### Required Software
+
+1. **Node.js 20.20 or later**
+   - Check your version: `node --version`
+   - Download from [nodejs.org](https://nodejs.org/)
+   - We recommend using Node.js 20.20 or later for best compatibility or (even better) the latest LTS version
+2. **pnpm (Package Manager)**
+   - This project uses pnpm for package management
+   - Install globally: `npm install -g pnpm`
+   - Check your version: `pnpm --version`
+3. **PostgreSQL 16 or later**
+   - A running Postgres instance (local or hosted)
+   - You'll need connection credentials
+   - Options: native installation, Docker (recommended), Postgres.app, or hosted (Supabase, Neon, Railway, etc.)
+4. **Git**
+   - For cloning the repository
+   - Check if installed: `git --version`
+
+For running the database and the Mailer testing service, **we suggest installing and running Docker**.
+
+This will allow you to run a full local development environment with all the dependencies needed.
+
+## Quick Start
+
+If you're familiar with the process, here's the quick version:
+
+```bash
+# Clone the repository
+git clone git@github.com:makerkit/next-prisma-saas-kit-turbo.git
+
+# Install dependencies
+pnpm install
+
+# Run setup script and follow the prompts
+pnpm turbo gen setup
+
+# Start Docker (Postgres and Mailpit)
+# make sure you have Docker installed and running
+pnpm run compose:dev:up
+
+# Generate Prisma client
+pnpm --filter @kit/database prisma:generate
+
+# Run database migrations
+pnpm --filter @kit/database prisma:migrate
+
+# Seed the database with test data
+pnpm run seed
+
+# Start the development server
+pnpm dev
+```
+
+Navigate to `http://localhost:3000` and start developing!
+
+### Seeding data
+
+If you haven't already seeded the database, you can use the following command to seed it with some test data.
+
+```bash
+pnpm run seed
+```
+
+This will create 5 users, 2 organizations per user, and 3 members per organization. Follow the instructions in the terminal to login with the test data.
+
+## Detailed Installation Steps
+
+For a step-by-step walkthrough, follow these guides in order:
+
+1. **[Prerequisites](./prerequisites)** - Detailed prerequisite setup
+2. **[Clone Repository](./clone-repository)** - Get the code on your machine
+3. **[Setup Dependencies](./setup-dependencies)** - Install all packages
+4. **[Project Setup](./project-setup)** - Configure the project
+5. **[Environment Variables](./environment-variables)** - Configure required settings
+6. **[Running the Project](./running-the-project)** - Start developing!
+
+## Common Pitfalls
+
+Avoid these issues we've seen repeatedly in support:
+
+- **Running Docker compose before Docker is running** - Ensure Docker Desktop or Orbstack is started first
+- **Forgetting to run migrations** - The database exists but has no tables without migrations
+- **Cloning into OneDrive-synced folder (Windows)** - Causes file locking and build failures
+- **Using npm instead of pnpm** - The monorepo is configured for pnpm; npm will fail
+- **Missing Node.js 20.20+** - Older versions cause cryptic build errors
+- **Not seeding the database** - The app works but has no test users to log in with
+
+## Common Installation Issues
+
+### pnpm command not found
+
+**Solution:** Install pnpm globally:
+```bash
+npm install -g pnpm
+```
+
+### Port 3000 already in use
+
+**Solution:** Kill the process using port 3000 or specify a different port:
+```bash
+# Find and kill process on port 3000 (macOS/Linux)
+lsof -ti:3000 | xargs kill -9
+
+# Or run on a different port
+PORT=3001 pnpm dev
+```
+
+### Prisma client not found after generation
+
+**Solution:** Run `pnpm i` after generating the Prisma client:
+```bash
+pnpm --filter @kit/database prisma:generate
+pnpm i  # Required to link the generated package
+```
+
+### Database connection refused
+
+**Solution:** Ensure Docker is running and the containers are up:
+```bash
+# Check if Docker is running
+docker ps
+
+# Start the development containers
+pnpm run compose:dev:up
+```
+
+### Windows: Module not found errors
+
+**Solutions:**
+- Place repository near drive root (e.g., `C:\projects\`)
+- Avoid OneDrive-synced directories
+- Use PowerShell or Windows Terminal (not Command Prompt)
+- Consider using WSL2 for better compatibility
+
+---
+
+**Next:** [Prerequisites →](./prerequisites)

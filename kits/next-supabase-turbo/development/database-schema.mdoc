@@ -2,7 +2,7 @@
 status: "published"
 label: "Extending the DB Schema"
 order: 2
-title: "How to create new migrations and update the database schema in your Next.js Supabase application"
+title: "Extending the Database Schema in Next.js Supabase"
 description: "Learn how to create new migrations and update the database schema in your Next.js Supabase application"
 ---
 
@@ -87,7 +87,7 @@ ALTER TYPE public.app_permissions ADD VALUE 'notes.delete';
 COMMIT;
 ```
 
-NB: the Supabase diff function does not support adding new permissions to enum types. Please add the new permissions manually instead of using the diff function.
+**Note:** The Supabase diff function does not support adding new permissions to enum types. Please add the new permissions manually instead of using the diff function.
 
 **Permission Naming Convention**: Use the pattern `resource.action` for consistency:
 - `notes.create` - Create new notes
@@ -249,13 +249,13 @@ Add triggers for common patterns:
 CREATE TRIGGER notes_updated_at
   BEFORE UPDATE ON public.notes
   FOR EACH ROW
-  EXECUTE FUNCTION kit.update_updated_at();
+  EXECUTE FUNCTION kit.trigger_set_timestamps();
 
 -- Track who made changes
 CREATE TRIGGER notes_track_changes
   BEFORE INSERT OR UPDATE ON public.notes
   FOR EACH ROW
-  EXECUTE FUNCTION kit.track_user_changes();
+  EXECUTE FUNCTION kit.trigger_set_user_tracking();
 ```
 
 ## Advanced Patterns

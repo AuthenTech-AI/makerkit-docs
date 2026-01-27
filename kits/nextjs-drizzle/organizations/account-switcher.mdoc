@@ -1,0 +1,47 @@
+---
+status: "published"
+title: "Account Switcher"
+label: "Account Switcher"
+order: 3
+description: "Switch between personal and organization accounts."
+---
+
+The account switcher allows users to navigate between their personal account and any organizations they belong to. This is the default behavior in the [Drizzle](/drizzle) kit.
+
+It appears in the sidebar and provides a seamless way to change context without leaving the current page.
+
+When changing workspace, the account switcher will update the URL and redirect to the dashboard of the new workspace, by following the default URL of the internal dashboard route.
+
+## How It Works
+
+When a user clicks the account switcher, a dropdown appears showing:
+
+1. **Personal Account** — Always listed first, representing the user's individual workspace (if hybrid mode is enabled)
+2. **Organizations** — All the organizations the user belongs to, displayed with their name and avatar (if organizations mode is enabled)
+3. **Create Organization** — A button to create a new organization (when enabled)
+
+Selecting an account updates the application context immediately by setting the active account in the application context. The dashboard, settings, and all other pages reflect the newly selected account's data.
+
+## User Experience
+
+The switcher displays the currently active account with its avatar and name. Organizations show their configured logo or a fallback with the first letter of their name. The personal account displays the user's profile picture or a default icon.
+
+Users can search through their accounts using the built-in search field, which is helpful for users who belong to many organizations.
+
+## Configuration
+
+The account switcher respects your [account mode configuration](../configuration/account-modes):
+
+- **Personal Only mode** — The switcher is hidden since users only have personal accounts
+- **Organizations Only mode** — The personal account option is hidden; users switch between organizations
+- **Hybrid mode** — Full functionality with both personal and organization accounts visible
+
+## Component Location
+
+The account switcher is implemented as the `WorkspaceDropdown` component at `apps/web/app/[locale]/(internal)/_components/workspace-dropdown.tsx`.
+
+The component integrates with the workspace context providers to manage the active account state across the application.
+
+---
+
+**Next:** [Settings →](./settings)

@@ -1,0 +1,516 @@
+---
+status: "published"
+title: "Stripe Billing and Subscriptions"
+label: "Billing and Subscriptions"
+order: 8
+description: "Configure Stripe subscriptions, define pricing tiers, and enforce plan limits in your Makerkit application."
+---
+
+Makerkit integrates Stripe (and Polar) for subscription billing. You define your pricing catalog once, and it flows through to the billing UI, webhooks, and limit enforcement.
+
+**What you'll build:**
+- Stripe configuration for local development
+- TeamPulse pricing plans with feature limits
+- Billing UI at `/settings/billing`
+- Server-side plan limit enforcement
+
+**Prerequisites:** Complete [Module 7: Organizations & Teams](./organizations-and-teams) first.
+
+---
+
+## Configure Stripe
+
+To continue with this module, you're going to need a Stripe account. You can use the Sandbox mode keys for development as you build your application. You can deal with the bureaucratic process of getting a real account later on.
+
+### Get API Keys
+
+1. Go to [Stripe Dashboard](https://dashboard.stripe.com/) and stay in **Sandbox**
+2. Copy the Secret key (`sk_test_...`)
+
+Add to `apps/web/.env.local`:
+
+```bash
+STRIPE_SECRET_KEY=sk_test_your_secret_key
+```
+
+### Set Up Local Webhooks
+
+To set up Webhooks locally, we provide a Docker command that will start the Stripe CLI and forward webhooks to your local server. 
+
+```bash
+pnpm --filter web run stripe:listen
+```
+
+**Note**: if you don't want to use Docker, you can install the Stripe CLI globally on your machine and run the following command instead:
+
+```bash
+stripe listen --forward-to http://localhost:3000/api/auth/stripe/webhook
+```
+
+The command will output the webhook secret. Please copy the webhook secret (starts with `whsec_`) and add to `apps/web/.env.local`:
+
+```bash
+STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret
+```
+
+Keep `stripe listen` running while testing billing. This process will listen for events from Stripe and forward them to your local server.
+
+### Create Products
+
+In the Stripe Dashboard, create three products:
+
+| Product | Monthly | Yearly |
+|---------|---------|--------|
+| TeamPulse Starter | $9/month | $90/year |
+| TeamPulse Pro | $29/month | $290/year |
+| TeamPulse Enterprise | $99/month | $990/year |
+
+Copy each **Price ID** (`price_...`) for the next step.
+
+---
+
+## Define the Pricing Catalog
+
+The billing catalog lives in `packages/billing/config/src/config.ts`. Define your plans once, and they flow through to the Stripe provider, billing UI, and limit checks.
+
+```typescript {% title="packages/billing/config/src/config.ts" %}
+import { BillingConfig } from '@kit/billing';
+
+export const billingConfig: BillingConfig = {
+  products: [
+    {
+      id: 'starter',
+      name: 'Starter',
+      description: 'Perfect for individuals and small teams',
+      currency: 'USD',
+      badge: 'Value',
+      features: [
+        'Up to 3 team members',
+        'Up to 3 feedback boards',
+        'Core features',
+        'Email support',
+      ],
+      plans: [
+        {
+          name: 'starter-monthly',
+          planId: process.env.NEXT_PUBLIC_STRIPE_STARTER_MONTHLY_PLAN_ID!,
+          displayName: 'Starter Monthly',
+          interval: 'month',
+          cost: 9.99,
+          limits: { seats: 1, boards: 3 },
+          freeTrial: { days: 14 },
+        },
+        {
+          name: 'starter-yearly',
+          planId: process.env.NEXT_PUBLIC_STRIPE_STARTER_YEARLY_PLAN_ID!,
+          displayName: 'Starter Yearly',
+          interval: 'year',
+          cost: 99.99,
+          limits: { seats: 1, boards: 3 },
+          freeTrial: { days: 14 },
+        },
+      ],
+    },
+    {
+      id: 'pro',
+      name: 'Pro',
+      badge: 'Popular',
+      highlighted: true,
+      description: 'Best for growing teams',
+      currency: 'USD',
+      features: [
+        'Up to 10 team members',
+        'Up to 10 feedback boards',
+        'Priority support',
+        'Advanced analytics',
+      ],
+      plans: [
+        {
+          name: 'pro-monthly',
+          planId: process.env.NEXT_PUBLIC_STRIPE_PRO_MONTHLY_PLAN_ID!,
+          displayName: 'Pro Monthly',
+          interval: 'month',
+          cost: 19.99,
+          limits: { seats: 3, boards: 10 },
+          freeTrial: { days: 14 },
+        },
+        {
+          name: 'pro-yearly',
+          planId: process.env.NEXT_PUBLIC_STRIPE_PRO_YEARLY_PLAN_ID!,
+          displayName: 'Pro Yearly',
+          interval: 'year',
+          cost: 199.99,
+          limits: { seats: 3, boards: 10 },
+          freeTrial: { days: 14 },
+        },
+      ],
+    },
+    {
+      id: 'enterprise',
+      name: 'Enterprise',
+      description: 'Unlimited scale for large organizations',
+      currency: 'USD',
+      ctaLabel: 'Contact Sales',
+      ctaHref: 'mailto:info@makerkit.dev',
+      features: [
+        'Unlimited team members',
+        'Unlimited feedback boards',
+        'Dedicated support',
+        'Custom integrations',
+      ],
+      plans: [
+        {
+          name: 'enterprise-monthly',
+          planId: process.env.NEXT_PUBLIC_STRIPE_ENTERPRISE_MONTHLY_PLAN_ID!,
+          displayName: 'Enterprise Monthly',
+          interval: 'month',
+          cost: 99.99,
+          limits: { seats: null, boards: null },
+        },
+        {
+          name: 'enterprise-yearly',
+          planId: process.env.NEXT_PUBLIC_STRIPE_ENTERPRISE_YEARLY_PLAN_ID!,
+          displayName: 'Enterprise Yearly',
+          interval: 'year',
+          cost: 999.99,
+          limits: { seats: null, boards: null },
+        },
+      ],
+    },
+  ],
+};
+```
+
+The `limits` object defines quotas (`null` = unlimited). Add custom keys like `projects` or `storage` as needed.
+
+For more information about the billing configuration, please refer to the [Billing Configuration Documentation](/docs/nextjs-drizzle/billing/billing-configuration).
+
+### Environment Variables
+
+For convenience, you can use environment variables to store the plan IDs. This will allow you to easily switch between test and production environments.
+
+**Note**: the name below are just examples. You can name them whatever you want. The key is that the `planId` must be the correct identifier for the active provider.
+
+Add the Stripe Price IDs to `apps/web/.env.local`:
+
+```bash
+NEXT_PUBLIC_STRIPE_STARTER_MONTHLY_PLAN_ID=price_xxxxx
+NEXT_PUBLIC_STRIPE_STARTER_YEARLY_PLAN_ID=price_xxxxx
+NEXT_PUBLIC_STRIPE_PRO_MONTHLY_PLAN_ID=price_xxxxx
+NEXT_PUBLIC_STRIPE_PRO_YEARLY_PLAN_ID=price_xxxxx
+NEXT_PUBLIC_STRIPE_ENTERPRISE_MONTHLY_PLAN_ID=price_xxxxx
+NEXT_PUBLIC_STRIPE_ENTERPRISE_YEARLY_PLAN_ID=price_xxxxx
+```
+
+---
+
+## Billing UI Components
+
+The `/settings/billing` page uses components from `@kit/billing-ui`:
+
+- **PlanPicker** - Displays plans and creates subscriptions
+- **SubscriptionCard** - Shows active subscription status
+- **BillingPortalCard** - Links to Stripe's customer portal
+
+```tsx
+import { BillingPortalCard } from '@kit/billing-ui/components/billing-portal-card';
+import { PlanPicker } from '@kit/billing-ui/components/plan-picker';
+import { SubscriptionCard } from '@kit/billing-ui/components/subscription-card';
+import { loadBillingData } from '@kit/billing-ui/server';
+
+export default async function BillingPage() {
+  const context = await getAccountContext();
+  const { referenceId, isPersonal } = resolveReference(context);
+  const billingData = await loadBillingData({
+    referenceId,
+    isPersonalAccount: isPersonal,
+  });
+
+  return (
+    <div className="space-y-8">
+      {billingData.subscriptions.map((subscription) => (
+        <SubscriptionCard
+          key={subscription.id}
+          subscription={subscription}
+          referenceId={referenceId}
+          capabilities={billingData.capabilities}
+          canCreate={billingData.permissions.canCreate}
+          canUpdate={billingData.permissions.canUpdate}
+          canDelete={billingData.permissions.canDelete}
+        />
+      ))}
+
+      <PlanPicker referenceId={referenceId} currentPlanId={undefined} />
+
+      <BillingPortalCard
+        customerId={billingData.customerId}
+        capabilities={billingData.capabilities}
+        permissions={billingData.permissions}
+      />
+    </div>
+  );
+}
+```
+
+If you want to customize the UI, you can customize the UI in `packages/billing/ui/src/components`.
+
+---
+
+## Test the Subscription Flow
+
+1. Run the Stripe CLI as described in the [Configure Webhooks](#configure-webhooks) section.
+2. Go to `/settings/billing` and subscribe with the test card `4242 4242 4242 4242`. You can use the [Stripe Test Cards](https://stripe.com/docs/testing#cards) to test the subscription flow.
+3. Verify the `SubscriptionCard` shows the plan name
+4. Click **Manage Subscription** to open the billing portal
+5. Cancel in Stripe's dashboard and verify the page shows `PlanPicker`
+
+Webhooks are handled automatically - just keep the Stripe CLI running as described in the [Configure Webhooks](#configure-webhooks) section.
+
+---
+
+## Subscription Lifecycle Hooks
+
+React to subscription events in `packages/billing/stripe/src/hooks`. Use these to send emails, update CRM, or trigger workflows.
+
+For more information about the lifecycle hooks, please refer to the [Lifecycle Hooks Documentation](/docs/nextjs-drizzle/billing/lifecycle-hooks).
+
+Here are some examples of how to use the lifecycle hooks:
+
+### On Subscription Created
+
+```typescript {% title="packages/billing/stripe/src/hooks/on-subscription-created.ts" %}
+export async function onSubscriptionCreated(subscription: {
+  id: string;
+  plan: string;
+  referenceId: string;
+  status: string | null;
+}): Promise<void> {
+  // Send welcome email, trigger onboarding, update CRM
+}
+```
+
+### On Subscription Canceled
+
+```typescript {% title="packages/billing/stripe/src/hooks/on-subscription-canceled.ts" %}
+export async function onSubscriptionCanceled(subscription: {
+  id: string;
+  referenceId: string;
+  plan: string;
+}): Promise<void> {
+  // Send confirmation, trigger win-back campaign
+}
+```
+
+### On Trial Ending
+
+```typescript {% title="packages/billing/stripe/src/hooks/on-trial-ending.ts" %}
+export async function onTrialEnding(subscription: {
+  id: string;
+  plan: string;
+  trialEnd: Date | null;
+  daysRemaining: number;
+}): Promise<void> {
+  // Send reminder, offer upgrade incentive
+}
+```
+
+The `referenceId` is the User ID or Organization ID. Look up the user to get their email.
+
+---
+
+## Enforce Plan Limits
+
+Limits in the billing config are just data - you must enforce them in server actions. Without enforcement, users can bypass limits.
+
+We have already written the code required for enforcing the limits in the server actions in the previous modules. Let's take a look at an example of how to enforce the `boards` limit in the create board action:
+
+### Server-Side Enforcement
+
+Here's an example of how to enforce the `boards` limit in the create board action:
+
+```typescript {% title="apps/web/lib/boards/boards-server-actions.ts" %}
+import { count, eq } from 'drizzle-orm';
+
+import { authenticatedActionClient } from '@kit/action-middleware';
+import { auth } from '@kit/better-auth';
+import { getActiveOrganizationId } from '@kit/better-auth/context';
+import { getBilling } from '@kit/billing-api';
+import { board, db } from '@kit/database';
+
+export const createBoardAction = authenticatedActionClient
+  .inputSchema(createBoardSchema)
+  .action(async ({ parsedInput: data, ctx }) => {
+    const organizationId = await getActiveOrganizationId();
+
+    if (!organizationId) {
+      throw new Error('No active organization');
+    }
+
+    // 1. Count current usage
+    const [{ value: boardCount }] = await db
+      .select({ value: count() })
+      .from(board)
+      .where(eq(board.organizationId, organizationId));
+
+    // 2. Check against plan limit
+    const billing = await getBilling(auth);
+    const { allowed, limit } = await billing.checkPlanLimit({
+      referenceId: organizationId,
+      limitKey: 'boards',        // Must match key in billing config
+      currentUsage: boardCount,
+    });
+
+    // 3. Reject if over limit
+    if (!allowed) {
+      throw new Error(
+        `Board limit reached. Your plan allows ${limit} boards. Please upgrade to create more.`,
+      );
+    }
+
+    // 4. Proceed with creation
+    const [boardRecord] = await db
+      .insert(board)
+      .values({
+        id: generateId(),
+        organizationId,
+        name: data.name,
+        // ...
+      })
+      .returning();
+
+    return { board: boardRecord };
+  });
+```
+
+The `limitKey` must match your billing config (e.g., `'boards'`, `'seats'`). Provide helpful errors that tell users the limit and suggest upgrading.
+
+### UI Limit Checks (Optional)
+
+Check limits in your loader to disable create buttons when at capacity:
+
+```typescript {% title="apps/web/lib/boards/boards-page.loader.ts" %}
+import { cache } from 'react';
+
+import { auth } from '@kit/better-auth';
+import { getActiveOrganizationId } from '@kit/better-auth/context';
+import { getBilling } from '@kit/billing-api';
+import { board, db } from '@kit/database';
+
+export const checkBoardsLimit = cache(async () => {
+  const organizationId = await getActiveOrganizationId();
+
+  if (!organizationId) {
+    return { allowed: false, limit: 0, usage: 0 };
+  }
+
+  const [{ value: boardCount }] = await db
+    .select({ value: count() })
+    .from(board)
+    .where(eq(board.organizationId, organizationId));
+
+  const billing = await getBilling(auth);
+
+  return billing.checkPlanLimit({
+    referenceId: organizationId,
+    limitKey: 'boards',
+    currentUsage: boardCount,
+  });
+});
+```
+
+Use the limit in your page:
+
+```tsx
+const billingLimit = await checkBoardsLimit();
+const canCreateBoard = hasPermission && billingLimit.allowed;
+
+{!billingLimit.allowed && (
+  <Alert variant="warning">
+    You've reached the {billingLimit.limit} board limit.
+    <Link href="/settings/billing">Upgrade your plan</Link> to create more.
+  </Alert>
+)}
+
+<CreateBoardDialog disabled={!canCreateBoard} />
+```
+
+Makerkit provides more utilities for checking and enforcing limits in the `@kit/billing-api` package. Please refer to the [Billing Documentation](/docs/nextjs-drizzle/billing/overview) for more information.
+
+---
+
+## Checkpoint
+
+| Requirement | Status |
+|-------------|--------|
+| Stripe keys and webhook secret configured | |
+| All price IDs in `.env.local` | |
+| Billing page shows subscription status | |
+| Plan changes work in Stripe Sandbox | |
+| Billing portal opens correctly | |
+
+Run quality checks:
+
+```bash
+pnpm healthcheck
+```
+
+---
+
+## Summary
+
+TeamPulse now has Stripe billing: users can subscribe to plans, manage subscriptions through the portal, and server actions enforce plan limits.
+
+**Next:** [Module 9: Emails](./email-and-notifications) for understanding the email system and how to customize email templates.
+
+---
+
+## Troubleshooting
+
+### Webhook Events Not Arriving
+
+If subscriptions aren't updating after payment:
+
+1. Verify Stripe CLI is running: `stripe listen --forward-to localhost:3000/api/auth/stripe/webhook`
+2. Check webhook signing secret matches `STRIPE_WEBHOOK_SECRET`
+3. Look for 4xx errors in the Stripe CLI output
+4. Verify the webhook endpoint returns 200
+
+### "No such price" Errors
+
+If Stripe throws price ID errors:
+
+1. Confirm you created products in **Test Mode** (not Live)
+2. Verify price IDs in your config are from test mode
+3. Price IDs start with `price_` not `prod_`
+
+### Subscription Status Out of Sync
+
+If UI shows wrong subscription status:
+
+1. Check webhook received all events
+2. Verify database subscription record exists
+3. Use Stripe Dashboard to confirm subscription state
+4. Re-sync by triggering a test event: `stripe trigger customer.subscription.updated`
+
+---
+
+## Frequently Asked Questions
+
+{% faq
+   title="Billing FAQ"
+   items=[
+     {"question": "Can I use Lemon Squeezy or Paddle instead of Stripe?", "answer": "This specific kit supports Stripe and Polar."},
+     {"question": "How do I offer a free trial?", "answer": "Configure trial days in your Stripe price settings or in the product configuration in the billing config. When users subscribe, they get access immediately but aren't charged until the trial ends. Makerkit's billing helper functions detect trial status and display appropriately."},
+     {"question": "Can I have multiple pricing tiers?", "answer": "Yes. Create additional products in Stripe, add their price IDs to your configuration, and extend the limit-checking function to return different limits per plan. The billing setup scales to any number of tiers."},
+     {"question": "How do I handle failed payments?", "answer": "Stripe automatically retries failed payments. Makerkit syncs subscription status via webhooks. When a subscription becomes 'past_due', you can restrict access by checking subscription.status in your feature checks."}
+   ]
+/%}
+
+---
+
+## Learn More
+
+- [Billing Documentation](/docs/nextjs-drizzle/billing/overview)
+- [Stripe Documentation](https://stripe.com/docs)
+- [Stripe CLI](https://stripe.com/docs/stripe-cli)
+- [Better Auth Stripe Plugin](https://www.better-auth.com/docs/plugins/stripe)

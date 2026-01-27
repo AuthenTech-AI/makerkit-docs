@@ -1,0 +1,176 @@
+---
+status: "published"
+label: "Fonts"
+title: "Font Configuration"
+order: 3
+description: "Configure custom fonts and typography in your Next.js Prisma kit application."
+---
+
+Customize your application's typography by configuring fonts in a single TypeScript file - the kit uses Next.js font optimization for automatic loading and performance.
+
+The Next.js Prisma 7 SaaS kit defines fonts in `apps/web/lib/fonts.ts` using Next.js's built-in font optimization. By default, it uses Inter from Google Fonts with Apple system fonts as the primary choice on Apple devices. You can change fonts, add heading variants, or use self-hosted fonts - all while maintaining optimal loading performance.
+
+Font configuration in the kit uses Next.js's `next/font` module, which automatically optimizes font loading, eliminates layout shift, and self-hosts font files for privacy and performance.
+
+**Use Google Fonts when:** you want easy setup with automatic optimization and a wide font selection.
+
+**Use self-hosted fonts when:** you need custom fonts, Adobe Fonts, or have strict privacy requirements.
+
+**If unsure:** start with Google Fonts - they're optimized out of the box and cover most use cases.
+
+## Font Configuration Location
+
+| File | Purpose |
+|------|---------|
+| `apps/web/lib/fonts.ts` | Font definitions |
+| `apps/web/styles/shadcn-ui.css` | Font CSS variables |
+
+## Default Configuration
+
+The kit ships with this font setup:
+
+```typescript
+import { Inter as SansFont } from 'next/font/google';
+
+const sans = SansFont({
+  subsets: ['latin'],
+  variable: '--font-sans-fallback',
+  fallback: ['system-ui', 'Helvetica Neue', 'Helvetica', 'Arial'],
+  preload: true,
+  weight: ['300', '400', '500', '600', '700'],
+});
+
+const heading = sans;
+
+export { sans, heading };
+```
+
+Key points:
+- `variable`: Creates a CSS variable for Tailwind to use
+- `fallback`: System fonts used while loading
+- `preload`: Loads font immediately for above-fold content
+- `weight`: Only loads specified weights (reduces bundle size)
+
+## Changing to a Different Google Font
+
+### Step 1: Update the Import
+
+Edit `apps/web/lib/fonts.ts`:
+
+```typescript
+import { Poppins as SansFont } from 'next/font/google';
+
+const sans = SansFont({
+  subsets: ['latin'],
+  variable: '--font-sans-fallback',
+  fallback: ['system-ui', 'Helvetica Neue', 'Helvetica', 'Arial'],
+  preload: true,
+  weight: ['400', '500', '600', '700'],
+});
+```
+
+Browse available fonts at [Google Fonts](https://fonts.google.com/).
+
+### Step 2: Using Different Fonts for Headings
+
+To use a display font for headings:
+
+```typescript
+import { Inter as SansFont, Playfair_Display as HeadingFont } from 'next/font/google';
+
+const sans = SansFont({
+  subsets: ['latin'],
+  variable: '--font-sans-fallback',
+  fallback: ['system-ui', 'Helvetica'],
+  preload: true,
+  weight: ['400', '500', '600'],
+});
+
+const heading = HeadingFont({
+  subsets: ['latin'],
+  variable: '--font-heading',
+  fallback: ['Georgia', 'serif'],
+  preload: true,
+  weight: ['400', '700'],
+});
+
+export { sans, heading };
+```
+
+## Using Self-Hosted Fonts
+
+For custom fonts or Adobe Fonts, use `next/font/local`:
+
+```typescript
+import localFont from 'next/font/local';
+
+const sans = localFont({
+  src: [
+    {
+      path: '../public/fonts/CustomFont-Regular.woff2',
+      weight: '400',
+      style: 'normal',
+    },
+    {
+      path: '../public/fonts/CustomFont-Medium.woff2',
+      weight: '500',
+      style: 'normal',
+    },
+    {
+      path: '../public/fonts/CustomFont-Bold.woff2',
+      weight: '700',
+      style: 'normal',
+    },
+  ],
+  variable: '--font-sans-fallback',
+  fallback: ['system-ui', 'Helvetica'],
+});
+```
+
+Place font files in `public/fonts/` and use WOFF2 format for best compression.
+
+## Removing Apple System Font Priority
+
+By default, the kit prioritizes Apple's system font on Apple devices. This is intentional: system fonts render sharper on Retina displays and eliminate the 100-200ms flash while Google Fonts load. If your audience is >50% non-Apple users, consider disabling this.
+
+To use your custom font everywhere:
+
+Edit `apps/web/styles/shadcn-ui.css` and find the `--font-sans` variable:
+
+```css
+:root {
+  /* Before: Apple fonts first */
+  --font-sans: -apple-system, BlinkMacSystemFont, var(--font-sans-fallback), sans-serif;
+
+  /* After: Your font first */
+  --font-sans: var(--font-sans-fallback), system-ui, sans-serif;
+}
+```
+
+## Common Pitfalls
+
+- **Loading too many weights**: Each weight adds to bundle size. Only include weights you actually use (typically 400, 500, 600, 700).
+- **Forgetting subsets**: Always specify `subsets: ['latin']` at minimum. Add others only if needed (e.g., `latin-ext`, `cyrillic`).
+- **Wrong font variable name**: The CSS variable in `fonts.ts` must match what Tailwind expects (`--font-sans-fallback`).
+- **Not preloading**: Set `preload: true` for fonts used above the fold to prevent flash of unstyled text.
+- **Large local font files**: Use WOFF2 format and subset fonts to only include needed characters.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "How do I use Adobe Fonts (Typekit)?", "answer": "Adobe Fonts must be self-hosted for Next.js font optimization. Download the font files from Adobe, convert to WOFF2, and use next/font/local. Alternatively, use Adobe's CSS embed but you'll lose optimization benefits."},
+     {"question": "Why does my font look different on Windows vs Mac?", "answer": "Font rendering differs by OS. Test on both platforms. Consider using slightly heavier weights on Windows where fonts often render thinner."},
+     {"question": "Can I use variable fonts?", "answer": "Yes. Variable fonts work with next/font. Set weight as a range: weight: '100 900'. This loads one file for all weights."},
+     {"question": "How do I add fonts for non-Latin languages?", "answer": "Add the required subset to the subsets array (e.g., 'cyrillic', 'japanese'). Some fonts don't support all languages - check Google Fonts for coverage."}
+   ]
+/%}
+
+## Related
+
+- [Branding Overview](./overview) - Full branding customization guide
+- [Tailwind CSS Configuration](./tailwind-css) - Theme and color customization
+- [Logo Configuration](./logo) - Application logo and favicons
+
+---
+
+**Back to:** [Branding Overview](./overview)

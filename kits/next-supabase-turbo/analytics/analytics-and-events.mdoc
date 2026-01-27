@@ -1,196 +1,363 @@
 ---
 status: "published"
-title: 'Understanding Analytics and Events in Makerkit'
+title: 'Understanding Analytics and App Events in MakerKit'
 label: 'Analytics and Events'
-description: 'Learn how to use the Analytics and App Events systems in Makerkit to track user behavior and app-wide occurrences.'
+description: 'Learn how the Analytics and App Events systems work together to provide centralized, maintainable event tracking in your MakerKit SaaS application.'
 order: 0
 ---
 
-{% sequence title="How to use the Analytics and App Events systems in Makerkit" description="Learn how to use the Analytics and App Events systems in Makerkit to track user behavior and app-wide occurrences." %}
+MakerKit separates event emission from analytics tracking through two interconnected systems: **App Events** for broadcasting important occurrences in your app, and **Analytics** for tracking user behavior. This separation keeps your components clean and your analytics logic centralized.
 
-[Analytics and App Events](#analytics-and-app-events)
+## Why Centralized Analytics
 
-[Analytics Providers](#analytics-providers)
+Scattering `analytics.trackEvent()` calls throughout your codebase creates maintenance problems. When you need to change event names, add properties, or switch providers, you hunt through dozens of files.
 
-[Understanding the Relationship Between Analytics and App Events](#understanding-the-relationship-between-analytics-and-app-events)
+The centralized approach solves this:
 
-[Recommended Approach: Centralized Analytics](#recommended-approach:-centralized-analytics)
+```typescript
+// Instead of this (scattered analytics)
+function CheckoutButton() {
+  const handleClick = () => {
+    analytics.trackEvent('checkout_started', { plan: 'pro' });
+    analytics.identify(userId);
+    mixpanel.track('Checkout Started');
+    // More provider-specific code...
+  };
+}
 
-[Using App Events with Analytics](#using-app-events-with-analytics)
+// Do this (centralized via App Events)
+function CheckoutButton() {
+  const { emit } = useAppEvents();
 
-[Extending with Custom Events](#extending-with-custom-events)
+  const handleClick = () => {
+    emit({ type: 'checkout.started', payload: { planId: 'pro' } });
+  };
+}
+```
 
-[Default Event Types](#default-event-types)
+The analytics mapping lives in one place: `apps/web/components/analytics-provider.tsx`.
 
-[When to use Custom Events](#when-to-use-custom-events)
+## How It Works
 
-{% /sequence %}
+The system has three parts:
 
+1. **App Events Provider**: A React Context that provides `emit`, `on`, and `off` functions
+2. **Analytics Provider**: Subscribes to App Events and maps them to analytics calls
+3. **Analytics Manager**: Dispatches events to all registered analytics providers
 
-## Analytics and App Events
-Makerkit provides two powerful, interconnected systems for tracking user behavior and app-wide occurrences: **Analytics** and **App Events**.
+```
+Component                   Analytics Provider           Providers
+    │                             │                         │
+    │  emit('checkout.started')   │                         │
+    │────────────────────────────▶│                         │
+    │                             │  analytics.trackEvent   │
+    │                             │────────────────────────▶│
+    │                             │  analytics.identify     │
+    │                             │────────────────────────▶│
+```
 
-While these systems are separate, they are designed to work seamlessly together, providing a flexible and maintainable approach to event tracking and analysis in your SaaS application.
+## Emitting Events
 
-One doesn't need the other to function, but they are designed to work together. Here's a brief overview of each system.
-
-## Analytics Providers
-
-The Analytics system is implemented in the `@kit/analytics` package, and is abstracted to allow for easy integration with various analytics services, and not lock you into a specific provider.
-
-The implementations are made possible using Makerkit Plugins, which means you can install them using the normal plugins system. 
-
-By default, Makerkit provides three analytics providers: 
-1. Google Analytics
-2. Umami
-3. PostHog
-
-These are provided as plugins.
-
-However, should you prefer different providers than the ones provided by default, you can easily create your own custom analytics provider.
-
-[Read more about creating a custom analytics provider](custom-analytics-provider).
-
-## Understanding the Relationship Between Analytics and App Events
-
-While separate, the Analytics and App Events systems in Makerkit are designed to work together to provide a centralized approach to event tracking and analysis in your SaaS application.
-
-- **App Events**: A client-side event system for emitting and listening to important app-wide occurrences. Use this to bubble up important events in your app that you can handle centrally.
-- **Analytics**: A centralized system for tracking and analyzing user behavior and app usage. Use this to track important events and user interactions in your app.
-
-While these systems can be used independently, they shine when used together, creating a powerful, centralized approach to event handling and analytics.
-
-{% img src="/assets/images/docs/analytics-events-overview.webp" alt="Analytics and Events in Makerkit" width="1062" height="342" /%}
-
-## Recommended Approach: Centralized Analytics
-
-We strongly recommend using a centralized approach to analytics by leveraging the App Events system. Instead of scattering `analytics.trackEvent()` calls throughout your codebase, use App Events to emit important occurrences, then handle these events centrally to track analytics.
-
-Benefits of this approach:
-
-1. **Cleaner Code**: Keeps your components focused on their primary responsibilities.
-2. **Easier Maintenance**: Centralizes all analytics logic in one place.
-3. **Flexibility**: Easily change or extend analytics tracking without modifying component code.
-4. **Consistency**: Ensures a standardized approach to event tracking across your app.
-5. **Visibility**: Provides a clear picture of all events emitted in your app in one place.
-
-Of course - this is just a recommendation. Nothing prevents you from using the `analytics` object directly in your components. However, we believe that the centralized approach provides a cleaner and more maintainable solution for most SaaS applications.
-
-## Using App Events with Analytics
-
-Here's how to use the pre-configured App Events system for analytics in your Makerkit project:
-
-1. Emit events in your components:
+Use the `useAppEvents` hook to emit events from any component:
 
 ```typescript
 import { useAppEvents } from '@kit/shared/events';
 
-function SomeComponent() {
+function FeatureButton() {
   const { emit } = useAppEvents();
 
-  const handleSignUp = (userId: string) => {
-    emit({ type: 'user.signedUp', payload: { userId } });
+  const handleClick = () => {
+    emit({
+      type: 'feature.used',
+      payload: { featureName: 'export' }
+    });
   };
 
-  // ...
+  return <button onClick={handleClick}>Export</button>;
 }
 ```
 
-That's it! Makerkit automatically handles these events and tracks them in your configured analytics service.
+The event is broadcast to all listeners, including the analytics provider.
 
-## Extending with Custom Events
+## Default Event Types
 
-You can easily extend the system with your own custom events:
-
-### Define your custom events
-
-Create a new file to define your custom events:
+MakerKit defines these base event types in `@kit/shared/events`:
 
 ```typescript
+interface BaseAppEventTypes {
+  'user.signedIn': { userId: string };
+  'user.signedUp': { method: 'magiclink' | 'password' };
+  'user.updated': Record<string, never>;
+  'checkout.started': { planId: string; account?: string };
+}
+```
+
+These events are emitted automatically by MakerKit components and mapped to analytics calls.
+
+### Event Descriptions
+
+| Event | When Emitted | Analytics Action |
+|-------|--------------|------------------|
+| `user.signedIn` | After successful login | `identify(userId)` |
+| `user.signedUp` | After registration | `trackEvent('user.signedUp')` |
+| `user.updated` | After profile update | `trackEvent('user.updated')` |
+| `checkout.started` | When billing checkout begins | `trackEvent('checkout.started')` |
+
+**Note**: The `user.signedUp` event does not fire automatically for social/OAuth signups. You may need to emit it manually in your OAuth callback handler.
+
+## Creating Custom Events
+
+Define custom events by extending `ConsumerProvidedEventTypes`:
+
+```typescript {% title="lib/events/custom-events.ts" %}
 import { ConsumerProvidedEventTypes } from '@kit/shared/events';
 
 export interface MyAppEvents extends ConsumerProvidedEventTypes {
-  'feature.used': { featureName: string };
-  'subscription.changed': { newPlan: string };
+  'feature.used': { featureName: string; duration?: number };
+  'project.created': { projectId: string; template: string };
+  'export.completed': { format: 'csv' | 'json' | 'pdf'; rowCount: number };
 }
 ```
 
-### Use your custom events
-
-Once you've defined your custom events, you can use them in your components:
+Use the typed hook in your components:
 
 ```typescript
 import { useAppEvents } from '@kit/shared/events';
-import { MyAppEvents } from './myAppEvents';
+import type { MyAppEvents } from '~/lib/events/custom-events';
 
-function SomeComponent() {
+function ProjectForm() {
   const { emit } = useAppEvents<MyAppEvents>();
 
-  const handleFeatureUse = () => {
-    emit({ type: 'feature.used', payload: { featureName: 'coolFeature' } });
+  const handleCreate = (project: Project) => {
+    emit({
+      type: 'project.created',
+      payload: {
+        projectId: project.id,
+        template: project.template,
+      },
+    });
   };
-
-  // ...
 }
 ```
 
-### Emit and handle your custom events
+TypeScript enforces the correct payload shape for each event type.
 
-A common pattern is to emit custom events in your components and handle them in a centralized location. You can easily extend the App Events system to handle your custom events.
+## Mapping Events to Analytics
 
-Here's an example of how you might handle custom events in your analytics provider:
+The `AnalyticsProvider` component maps events to analytics calls. Add your custom events here:
 
- ```typescript {% title="apps/web/components/analytics-provider.tsx" %} {18-21}
+```typescript {% title="apps/web/components/analytics-provider.tsx" %}
 const analyticsMapping: AnalyticsMapping = {
   'user.signedIn': (event) => {
-    const userId = event.payload.userId;
-
+    const { userId, ...traits } = event.payload;
     if (userId) {
-      analytics.identify(userId);
+      return analytics.identify(userId, traits);
     }
   },
   'user.signedUp': (event) => {
-    analytics.trackEvent(event.type, event.payload);
+    return analytics.trackEvent(event.type, event.payload);
   },
   'checkout.started': (event) => {
-    analytics.trackEvent(event.type, event.payload);
+    return analytics.trackEvent(event.type, event.payload);
   },
-  'user.updated': (event) => {
-    analytics.trackEvent(event.type, event.payload);
-  },
+  // Add custom event mappings
   'feature.used': (event) => {
-    analytics.trackEvent(event.type, event.payload);
+    return analytics.trackEvent('Feature Used', {
+      feature_name: event.payload.featureName,
+      duration: String(event.payload.duration ?? 0),
+    });
+  },
+  'project.created': (event) => {
+    return analytics.trackEvent('Project Created', {
+      project_id: event.payload.projectId,
+      template: event.payload.template,
+    });
   },
 };
 ```
 
-By following this approach, you can easily extend the App Events system with your own custom events, providing a flexible and maintainable approach to event tracking in your SaaS application.
+This is the only place you need to modify when changing analytics behavior.
 
-## Default Event Types
+## Listening to Events
 
-Makerkit provides a set of default event types that are automatically tracked in your analytics service. These events are emitted by the Makerkit components and can be used to track common user interactions and app-wide occurrences.
+Beyond analytics, you can subscribe to events for other purposes:
 
-Here are some of the default event types provided by Makerkit:
-1. `user.signedIn`: Emitted when a user signs in. We use this event to identify the user in the analytics service. This makes sure that all subsequent events are associated with the user.
-2. `user.signedUp`: Emitted when a user signs up. This event is used to track user signups in the analytics service. NB: this does not work automatically for social signups.
-3. `checkout.started`: Emitted when a user starts the checkout process. This event is used to track the start of the checkout process in the analytics service.
-4. `user.updated`: Emitted when a user updates their authentication details. This event is used to track user updates in the analytics service.
+```typescript
+import { useAppEvents } from '@kit/shared/events';
+import { useEffect } from 'react';
 
-In addition to this, Makerkit tracks page views automatically. This means that you don't need to manually track page views in your application. However, you can still use the `trackPageView` method to manually track page views if needed.
+function NotificationListener() {
+  const { on, off } = useAppEvents();
 
-### When to use Custom Events
+  useEffect(() => {
+    const handler = (event) => {
+      showToast(`Project ${event.payload.projectId} created!`);
+    };
 
-As Makerkit becomes more and more like a framework, there is a need to expose more customization options to developers, ideally without the need to customize the core codebase. This is where Custom Events come in - which allow you to listen to and emit custom events in your application.
+    on('project.created', handler);
+    return () => off('project.created', handler);
+  }, [on, off]);
 
-Custom Events are useful when you need to track specific user interactions or app-wide occurrences that are not covered by the default event types. For example, you might want to track when a user interacts with a specific feature, or for tracking specific user actions in your app.
+  return null;
+}
+```
 
-By using Custom Events, you can extend the App Events system to track any event that is important to your application, providing a flexible and maintainable approach to event tracking in your SaaS application.
+This pattern is useful for triggering side effects like notifications, confetti animations, or feature tours.
 
-Other use cases may include:
-1. Propagating events from Makerkit's deep components to the top-level application (please do let us know if you need any)
-2. Centralizing event tracking for third-party integrations (e.g., tracking events in Segment, Amplitude, etc.)
-3. Tracking user interactions with specific features in your application
+## Direct Analytics API
 
-## Conclusion
+While centralized events are recommended, you can use the analytics API directly when needed:
 
-By using the Analytics and App Events systems in Makerkit, you can easily track (or react to) user behavior and app-wide occurrences in your SaaS application. The centralized approach to event tracking provides a clean and maintainable solution for tracking analytics, while the flexibility of Custom Events allows you to extend the system to track any event that is important to your application.
+```typescript
+import { analytics } from '@kit/analytics';
+
+// Identify a user
+void analytics.identify('user_123', {
+  email: 'user@example.com',
+  plan: 'pro',
+});
+
+// Track an event
+void analytics.trackEvent('Button Clicked', {
+  button: 'submit',
+  page: 'settings',
+});
+
+// Track a page view (usually automatic)
+void analytics.trackPageView('/dashboard');
+```
+
+Use direct calls for one-off tracking that does not warrant an event type.
+
+## Automatic Page View Tracking
+
+The `AnalyticsProvider` automatically tracks page views when the Next.js route changes:
+
+```typescript
+// This happens automatically in AnalyticsProvider
+function useReportPageView(reportFn: (url: string) => unknown) {
+  const pathname = usePathname();
+
+  useEffect(() => {
+    const url = pathname;
+    reportFn(url);
+  }, [pathname]);
+}
+```
+
+You do not need to manually track page views unless you have a specific use case.
+
+## Common Patterns
+
+### Track Form Submissions
+
+```typescript
+function ContactForm() {
+  const { emit } = useAppEvents<MyAppEvents>();
+
+  const handleSubmit = async (data: FormData) => {
+    await submitForm(data);
+
+    emit({
+      type: 'form.submitted',
+      payload: { formName: 'contact', fields: Object.keys(data).length },
+    });
+  };
+}
+```
+
+### Track Feature Engagement
+
+```typescript
+function AIAssistant() {
+  const { emit } = useAppEvents<MyAppEvents>();
+  const startTime = useRef<number>();
+
+  const handleOpen = () => {
+    startTime.current = Date.now();
+  };
+
+  const handleClose = () => {
+    const duration = Date.now() - (startTime.current ?? Date.now());
+
+    emit({
+      type: 'feature.used',
+      payload: { featureName: 'ai-assistant', duration },
+    });
+  };
+}
+```
+
+### Track Errors
+
+```typescript
+function ErrorBoundary({ children }) {
+  const { emit } = useAppEvents<MyAppEvents>();
+
+  const handleError = (error: Error) => {
+    emit({
+      type: 'error.occurred',
+      payload: {
+        message: error.message,
+        stack: error.stack?.slice(0, 500),
+      },
+    });
+  };
+}
+```
+
+## Debugging Events
+
+During development, add logging to your event handlers to verify events are emitting correctly:
+
+```typescript {% title="apps/web/components/analytics-provider.tsx" %}
+const analyticsMapping: AnalyticsMapping = {
+  'user.signedIn': (event) => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Analytics Event]', event.type, event.payload);
+    }
+
+    const { userId, ...traits } = event.payload;
+    if (userId) {
+      return analytics.identify(userId, traits);
+    }
+  },
+  'checkout.started': (event) => {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[Analytics Event]', event.type, event.payload);
+    }
+
+    return analytics.trackEvent(event.type, event.payload);
+  },
+  // Add logging to other handlers as needed
+};
+```
+
+You can also use your analytics provider's debug mode (PostHog and GA4 both offer live event views in their dashboards).
+
+## Best Practices
+
+1. **Use App Events for domain events**: Business-relevant events (signup, purchase, feature use) should go through App Events
+2. **Keep payloads minimal**: Only include data you will actually analyze
+3. **Use consistent naming**: Follow a pattern like `noun.verb` (user.signedUp, project.created)
+4. **Type your events**: Define interfaces for compile-time safety
+5. **Test event emission**: Verify critical events emit during integration tests
+6. **Document your events**: Maintain a list of events and their purposes
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Can I use analytics without App Events?", "answer": "Yes. Import analytics from @kit/analytics and call trackEvent directly. However, the centralized approach through App Events is easier to maintain as your application grows."},
+     {"question": "How do I track events on the server side?", "answer": "Import analytics from @kit/analytics/server. Note that only PostHog supports server-side analytics out of the box. The App Events system is client-side only."},
+     {"question": "Are page views tracked automatically?", "answer": "Yes. The AnalyticsProvider component tracks page views whenever the Next.js route changes. You only need manual tracking for virtual page views in SPAs."},
+     {"question": "How do I debug which events are firing?", "answer": "Add a wildcard handler in your analytics mapping that logs events in development mode. You can also use browser DevTools or your analytics provider's debug mode."},
+     {"question": "Can I emit events from Server Components?", "answer": "No. App Events use React Context which requires a client component. Emit events from client components or use the server-side analytics API directly."},
+     {"question": "What happens if no analytics provider is configured?", "answer": "Events dispatch to the NullAnalyticsService which silently ignores them. Your application continues to work without errors."}
+   ]
+/%}
+
+## Next Steps
+
+- [Set up Google Analytics](google-analytics-provider) for marketing analytics
+- [Set up PostHog](posthog-analytics-provider) for product analytics with feature flags
+- [Create a custom provider](custom-analytics-provider) to integrate other services

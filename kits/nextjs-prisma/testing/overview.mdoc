@@ -1,0 +1,81 @@
+---
+title: "Testing Overview"
+label: "Overview"
+description: "Run end-to-end tests with Playwright and unit tests with Vitest in your MakerKit application."
+order: 0
+status: "published"
+---
+
+MakerKit ships with a production-ready testing setup: **Playwright** for end-to-end tests and **Vitest** for unit tests. Both are pre-configured and ready to use.
+
+The test suite covers authentication flows (sign up, sign in, MFA, password reset), organization management (members, invitations, roles), admin features, and core business logic. E2E tests run against a real PostgreSQL database with seeded data, giving you confidence that user flows work correctly in production.
+
+## Quick Start
+
+Run all tests with a single command:
+
+```bash
+# Run E2E tests (requires running web server)
+pnpm --filter web build:test && pnpm --filter web start:test
+pnpm --filter web-e2e test:slow
+
+# Run all unit tests across packages
+pnpm test:unit
+```
+
+## What's Included
+
+The testing infrastructure covers:
+
+- **E2E tests** for authentication, organizations, members, settings, and admin flows
+- **Unit tests** for business logic in packages like RBAC, billing, auth, and organization services
+- **Page Object pattern** for maintainable E2E tests
+- **Bootstrap helpers** for fast test setup without UI interaction
+- **Global database seeding** before E2E test runs
+
+## Topics
+
+1. **[E2E Testing with Playwright](./e2e)** - Browser-based testing for user flows
+2. **[Unit Testing with Vitest](./unit)** - Fast, isolated tests for business logic
+3. **[Writing Your Own Tests](./writing-tests)** - Patterns and best practices
+
+## Testing Strategy
+
+We recommend this approach:
+
+1. **Unit tests** for pure functions, validators, and business logic (fast feedback)
+2. **E2E tests** for critical user flows: authentication, payments, core features (confidence in production)
+3. **Skip integration tests** unless you have specific external service integrations
+
+E2E tests in MakerKit run against a real database with seeded data. This catches issues that mocks would miss, like database constraints and auth session handling.
+
+## Environment Setup
+
+E2E tests require:
+
+- A running PostgreSQL database (use `pnpm compose:dev:up` for Docker)
+- Environment variables configured in `apps/e2e/.env` or `apps/e2e/.env.local`
+- Mailpit running for email verification tests
+
+Unit tests run in isolation with no external dependencies.
+
+## Common Pitfalls
+
+Watch out for these when running tests:
+
+1. **Database not running**: Start Docker containers with `pnpm compose:dev:up` before running E2E tests
+2. **Stale build**: Run `pnpm --filter web build:test` after code changes
+3. **Port conflicts**: Ensure nothing else is running on port 3000
+4. **Flaky tests**: Run with `--workers=1` to isolate timing issues
+5. **Missing seed data**: Global setup seeds the database, but if you reset it manually, run `pnpm seed` first
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "What testing frameworks does MakerKit use?", "answer": "MakerKit uses Playwright for end-to-end browser testing and Vitest for unit testing. Both are pre-configured and ready to use out of the box."},
+     {"question": "Do I need to set up a separate test database?", "answer": "No. E2E tests run against your development PostgreSQL database with seeded test data. The global setup automatically seeds the database before tests run."},
+     {"question": "Should I write unit tests or E2E tests for my feature?", "answer": "Use unit tests for pure functions, validators, and business logic that doesn't need a browser. Use E2E tests for user flows that span multiple pages or require authentication and database state."},
+     {"question": "How do I run a single test file?", "answer": "For E2E: pnpm --filter web-e2e exec playwright test auth.spec.ts --workers=1. For unit tests: pnpm --filter @kit/rbac exec vitest run src/core/__tests__/factory.test.ts"},
+     {"question": "Why are my E2E tests flaky?", "answer": "Common causes include race conditions, animation timing, and resource contention. Try running with --workers=1, use polling assertions with expect().toPass(), and ensure tests don't depend on each other's data."}
+   ]
+/%}

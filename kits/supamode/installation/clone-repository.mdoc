@@ -3,93 +3,234 @@ status: "published"
 title: "Clone the Supamode Repository"
 label: "Clone the Repository"
 order: 3
-description: "Clone the Supamode repository to your local machine."
+description: "Set up Supamode on your local machine. Clone the repository, install dependencies, and configure git remotes for updates."
 ---
+
+This guide walks you through cloning the Supamode repository and setting up your development environment. The process takes about 5 minutes.
 
 ## Prerequisites
 
-- Node.js 20.x or later
-- Docker
-- Pnpm
-- Supabase account (optional for local development)
+Before starting, ensure you have:
 
-## Install Pnpm
+| Requirement | Version | Purpose |
+|-------------|---------|---------|
+| **Node.js** | 20.x or later | JavaScript runtime |
+| **pnpm** | 10.x or later | Package manager (faster than npm) |
+| **Docker** | Latest | Runs Supabase locally |
+| **Git** | Latest | Version control |
 
-If you don't have pnpm installed, you can install it using the following command:
+**Optional**: A Supabase account if you want to connect to a remote project (not required for local development).
 
-```bash
-# Install pnpm
-npm i -g pnpm
-```
+### Install pnpm
 
-## Automatic Setup
-
-If this is the first-time setup, you can use the `npx create-supamode-app` command to automatically setup a new Supamode application.
-
-You can use the `npx create-supamode-app` command to automatically setup a new Supamode application.
+If you don't have pnpm installed:
 
 ```bash
-npx create-supamode-app
+npm install -g pnpm
 ```
 
-NB: If your don't have SSH configured with Github - the command won't work. Please refer to the [manual setup](#manual-setup) below.
-
-## Setup dependencies
-
-Next, you need to install the dependencies.
+Verify the installation:
 
 ```bash
-# Install dependencies
-pnpm i
+pnpm --version
+# Expected: 10.x.x or higher
 ```
+
+## Quick Setup (Recommended)
+
+The fastest way to get started is using our CLI tool:
+
+```bash
+npx create-supamode-app@latest
+```
+
+This command:
+1. Clones the repository using SSH
+2. Installs all dependencies
+3. Runs the interactive setup wizard
+4. Configures environment variables
+
+{% alert type="warning" title="SSH Required" %}
+The automatic setup uses SSH to clone. If you haven't configured SSH keys with GitHub, use the [manual setup](#manual-setup) below instead.
+{% /alert %}
+
+After the CLI completes, skip to [Running Supamode](./running-project).
 
 ## Manual Setup
 
-If you don't want to use the automatic setup or if you want to use HTTPS instead of SSH to authenticate with Github, you can clone the repository manually.
+Use manual setup if you prefer HTTPS authentication or need more control over the process.
+
+### Step 1: Clone the Repository
+
+**Using SSH (recommended if configured):**
 
 ```bash
-git clone https://github.com/makerkit/supamode
+git clone git@github.com:makerkit/supamode.git
+cd supamode
 ```
 
-NB: please switch to HTTPS for ALL commands if you are not using SSH, not just the clone command.
-
-Now, run the following commands to setup the project:
+**Using HTTPS:**
 
 ```bash
-pnpm i
+git clone https://github.com/makerkit/supamode.git
+cd supamode
+```
+
+### Step 2: Install Dependencies
+
+```bash
+pnpm install
+```
+
+This installs dependencies for all packages in the monorepo. The first install may take a few minutes.
+
+### Step 3: Run the Setup Wizard
+
+```bash
 pnpm turbo gen setup
 ```
 
-This will guide you through the setup process.
+The wizard prompts you to configure:
+- Site URL for local development
+- Supabase connection details
+- OAuth providers (optional)
 
-### Setting up the repository to pull updates
+## Configure Git Remotes for Updates
 
-Now, remove the original `origin`:
+Supamode receives regular updates. Configure your git remotes to pull updates while maintaining your own repository.
+
+### Remove the Default Origin
 
 ```bash
 git remote rm origin
 ```
 
-Add upstream pointing to this repository so you can pull updates
+### Add Upstream for Updates
 
+**SSH:**
 ```bash
-git remote add upstream git@github.com:makerkit/supamode
+git remote add upstream git@github.com:makerkit/supamode.git
 ```
 
-Once you have your own repository, do the same but use `origin` instead of `upstream`
+**HTTPS:**
+```bash
+git remote add upstream https://github.com/makerkit/supamode.git
+```
 
-To pull updates (please do this daily with your morning coffee ☕️):
+### Add Your Own Repository
+
+Create a new repository on GitHub (or your preferred host), then:
+
+```bash
+git remote add origin git@github.com:YOUR_USERNAME/YOUR_REPO.git
+git push -u origin main
+```
+
+### Pull Updates
+
+Pull updates regularly to get new features and bug fixes:
 
 ```bash
 git pull upstream main
 ```
 
-This will keep your repository up to date.
+{% alert type="default" title="Update Strategy" %}
+We recommend pulling updates at least weekly. Before pulling, commit or stash your local changes. If you encounter merge conflicts, they're typically in configuration files that you can resolve by keeping your customizations.
+{% /alert %}
 
-## Windows Users
+## Platform-Specific Notes
 
-**Windows Users**: place the repository near the root of your drive.
+### Windows
 
-Some Windows users hit errors loading certain modules due to very long paths. To avoid this, try placing the repository near the root of your drive.
+Place the repository near your drive root (e.g., `C:\supamode`) to avoid path length issues. Windows has a 260-character path limit that can cause module loading errors with deeply nested `node_modules`.
 
-Avoid using OneDrive, as it can cause issues with Node.js.
+**Avoid**:
+- OneDrive folders (sync conflicts with `node_modules`)
+- Paths with spaces
+- Deep directory nesting
+
+### macOS / Linux
+
+No special considerations. The repository works in any directory.
+
+## Verify Installation
+
+After setup, verify everything is working:
+
+```bash
+# Check Node version
+node --version
+# Expected: v20.x.x or higher
+
+# Check pnpm version
+pnpm --version
+# Expected: 10.x.x or higher
+
+# Check Docker is running
+docker info
+# Expected: No errors
+
+# List installed packages
+pnpm list --depth=0
+# Expected: Shows workspace packages
+```
+
+## Project Structure
+
+After cloning, you'll see this structure:
+
+```
+supamode/
+├── apps/
+│   ├── app/          # React frontend (Vite + React Router)
+│   ├── api/          # Hono.js backend API
+│   └── e2e/          # Playwright tests
+├── packages/
+│   ├── features/     # Feature modules (auth, data-explorer, etc.)
+│   ├── supabase/     # Supabase client and Drizzle schema
+│   └── ui/           # Shared UI components
+├── tooling/          # ESLint, Prettier, TypeScript configs
+└── turbo.json        # Turborepo configuration
+```
+
+## Next Steps
+
+1. **[Run the project](./running-project)** to start the development servers
+2. **[Seed demo data](./running-project#3-seeding-the-database-with-test-data)** to explore the interface
+3. **[Configure environment variables](./technical-details)** for your Supabase project
+
+## Troubleshooting
+
+### `EACCES` Permission Errors
+
+If you see permission errors during `pnpm install`:
+
+```bash
+sudo chown -R $(whoami) ~/.pnpm-store
+```
+
+### SSH Authentication Failed
+
+If SSH fails, switch to HTTPS:
+
+```bash
+git remote set-url upstream https://github.com/makerkit/supamode.git
+```
+
+### Docker Not Running
+
+If Docker commands fail, ensure Docker Desktop is running. On Linux, you may need to start the daemon:
+
+```bash
+sudo systemctl start docker
+```
+
+### Module Not Found Errors
+
+Clear the pnpm cache and reinstall:
+
+```bash
+pnpm store prune
+rm -rf node_modules
+pnpm install
+```

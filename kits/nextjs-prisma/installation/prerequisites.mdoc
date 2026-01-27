@@ -1,0 +1,173 @@
+---
+status: "published"
+title: "Installation Prerequisites"
+label: "Prerequisites"
+order: 1
+description: "Required software and tools needed to run the Next.js Prisma SaaS Kit locally."
+---
+
+You need **Node.js 20.20+**, **pnpm**, **Docker** (for Postgres and Mailpit), and **Git**. Docker handles the database and email testing service, so you don't need to install PostgreSQL separately.
+
+This guide is part of the [Next.js Prisma SaaS Kit installation](./overview).
+
+{% sequence title="Prerequisites" description="Required software and tools needed to run the Next.js Prisma SaaS Kit locally." %}
+[Node.js](#node.js-20.20-or-later)
+
+[pnpm Package Manager](#pnpm-package-manager)
+
+[PostgreSQL 16 or Later](#postgresql-16-or-later)
+
+[Git](#git)
+
+[Docker](#docker-desktoporbstack)
+
+[Database Management Tools](#database-management-tools)
+
+[Email Service](#email-service)
+{% /sequence %}
+
+## Node.js 20.20 or Later
+
+The SaaS Kit requires Node.js version 20.20.0 or later. We recommend using the latest LTS version.
+
+**Check if Node.js is installed:**
+```bash
+node --version
+```
+
+**Install Node.js:**
+
+- **Using Official Installer:**
+   - Download from [nodejs.org](https://nodejs.org/)
+   - Choose the LTS (Long Term Support) version
+   - Run the installer and follow the prompts
+   - [Bun](https://bun.sh) may also work, but we cannot promise full compatibility.
+- **Alternative: Using nvm (Recommended for developers):**
+   - Install nvm (macOS/Linux)
+   - Run the following command:
+     ```bash
+     curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+
+     # Install latest LTS Node.js
+     nvm install --lts
+     nvm use --lts
+     ```
+
+To verify the installation, run the following commands:
+
+```bash
+node --version
+npm --version
+```
+
+## pnpm Package Manager
+
+This project uses [pnpm](https://pnpm.io/) instead of npm or yarn for better performance and disk space efficiency.
+
+**Install pnpm globally:**
+```bash
+npm install -g pnpm
+```
+
+**Verify installation:**
+```bash
+pnpm --version
+```
+
+**Why pnpm?**
+- **Faster** - Up to 2x faster than npm
+- **Efficient** - Saves disk space with content-addressable storage
+- **Strict** - Better dependency management
+- **Monorepo support** - Excellent for our Turborepo setup
+
+## PostgreSQL 16 or Later
+
+You need a running PostgreSQL instance.
+
+We recommend using the provided Docker compose file to run the database and the Mailer testing service.
+
+If you have Docker up and running on your machine, you can run the following command to start the Postgres database and the Mailer testing service:
+
+```bash
+pnpm run compose:dev:up
+```
+
+This will spin up:
+- **Postgres**: a Postgres 17 instance
+- **Mailpit**: a service for testing emails locally
+
+### Docker vs Hosted Database
+
+**Use Docker (recommended) when:**
+- Local development on your machine
+- Testing migrations before deploying
+- You want identical dev/prod database behavior
+- Running E2E tests that need a fresh database
+
+**Use a hosted database when:**
+- Your team needs shared development data
+- Docker has issues on your machine (M1 Mac, corporate restrictions)
+- You're already using Neon, Supabase, or Railway for production
+
+**If unsure:** Start with Docker for the smoothest local experience. You can switch to a hosted database later by updating `DATABASE_URL` in `.env.local`.
+
+## Git
+
+Required for cloning the repository and version control.
+
+**Check if Git is installed:**
+```bash
+git --version
+```
+
+## Docker Desktop/Orbstack
+
+Useful for running PostgreSQL and other services in containers.
+
+**Download:**
+- **macOS/Windows:** [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop)
+- **Linux:** Follow [Docker Engine installation](https://docs.docker.com/engine/install/)
+
+On MacOS, we recommend using Orbstack instead of Docker Desktop. It is a lighter alternative that is faster and more efficient.
+
+**Download:**
+- **macOS:** [orbstack.dev](https://orbstack.dev/)
+
+## Database Management Tools
+
+To inspect and manage your database:
+
+**Prisma Studio** (Recommended - Built-in):
+```bash
+# Run after installation is complete
+pnpm --filter "@kit/database" prisma:studio
+```
+
+## Email Service
+
+All emails will **be logged to the console for local development**. However, we recommend setting up an email testing service to test email features (invitations, password reset). 
+
+**This is also required for full end-to-end testing of the kit** - since it relies on emails being sent and received.
+
+We recommend using Mailpit to test emails locally. This will be run automatically when you start the provided Docker compose file.
+
+## Common Pitfalls
+
+- **Node version manager conflicts** - If using nvm, fnm, or volta, ensure the correct version is active in your terminal before running commands
+- **pnpm installed but wrong version** - The kit requires pnpm 9.x or 10.x; older versions may fail silently on workspace features
+- **Docker not running in background** - Docker Desktop/Orbstack must be running before `pnpm run compose:dev:up` will work
+- **Firewall blocking Docker ports** - Ensure ports 5432 (Postgres) and 8025 (Mailpit) are not blocked by your firewall or another service
+- **Apple Silicon Rosetta issues** - On M1/M2 Macs, ensure Docker is configured for ARM64, not running under Rosetta emulation
+
+## Verification Checklist
+
+Before proceeding, verify you have:
+
+- [ ] Node.js 20.20 or later installed
+- [ ] pnpm installed globally
+- [ ] PostgreSQL 16+ running (local, Docker or hosted)
+- [ ] Git installed and configured
+
+---
+
+**Next:** [Clone Repository →](./clone-repository)

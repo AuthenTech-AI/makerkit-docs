@@ -1,9 +1,293 @@
 ---
 status: "published"
-title: "Security in Next.js Supabase Turbo"
+title: "Security Best Practices for Next.js Supabase SaaS Applications"
 label: "Security"
 order: 14
-description: "Security in Next.js Supabase Turbo"
+description: "Learn how to secure your multi-tenant SaaS application with Row Level Security, Content Security Policy, data validation, and authentication best practices in the Next.js Supabase Turbo kit."
 collapsible: true
 collapsed: true
 ---
+
+Security is fundamental to building a trustworthy SaaS application. Makerkit provides multiple layers of protection out of the box, from database-level Row Level Security (RLS) to application-level validation and Content Security Policy headers.
+
+This section covers the security architecture and best practices you need to understand to build and maintain a secure application.
+
+## Security architecture overview
+
+Makerkit implements a defense-in-depth security model with four primary layers:
+
+| Layer | Purpose | Implementation |
+|-------|---------|----------------|
+| **Database** | Data access control | Row Level Security (RLS) policies |
+| **Application** | Input validation | Zod schemas with `enhanceAction` and `enhanceRouteHandler` |
+| **Transport** | Request protection | Content Security Policy (CSP) headers |
+| **Authentication** | Identity verification | Supabase Auth with optional MFA |
+
+Each layer provides independent protection, so a failure in one layer doesn't compromise the entire system.
+
+## Why security matters for multi-tenant applications
+
+In a multi-tenant SaaS application like Makerkit, multiple customers share the same database and application infrastructure. This architecture requires careful security design to ensure:
+
+1. **Data isolation**: One team's data must never be accessible to another team
+2. **Permission enforcement**: Users can only perform actions their role allows
+3. **Input sanitization**: Malicious input cannot compromise the system
+4. **Session security**: Authentication tokens are protected and properly scoped
+
+Makerkit addresses each of these concerns through its security architecture.
+
+## Database security with Row Level Security
+
+Row Level Security (RLS) is your first line of defense. When enabled, PostgreSQL evaluates policies before returning any data, ensuring users only see data they're authorized to access.
+
+Makerkit provides helper functions that simplify writing RLS policies for multi-tenant applications:
+
+```sql
+-- Verify user has any role on the account
+public.has_role_on_account(account_id)
+
+-- Verify user has a specific role
+public.has_role_on_account(account_id, 'admin')
+
+-- Verify user has a specific permission
+public.has_permission(auth.uid(), account_id, 'documents.write')
+
+-- Verify user is the account owner
+public.is_account_owner(account_id)
+```
+
+Example policy for a team-scoped table:
+
+```sql
+create policy "Team members can view documents"
+    on public.documents
+    to authenticated
+    for select
+    using (public.has_role_on_account(account_id));
+```
+
+{% link href="/docs/next-supabase-turbo/security/row-level-security" title="Row Level Security" description="Learn how to write and test RLS policies for your tables." /%}
+
+## Application-level data validation
+
+Never trust client input. Makerkit uses Zod schemas to validate all data entering the system through Server Actions and API Route Handlers.
+
+The `enhanceAction` utility automatically validates input against your schema before your handler executes:
+
+```typescript
+'use server';
+
+import { enhanceAction } from '@kit/next/actions';
+import { z } from 'zod';
+
+const CreateDocumentSchema = z.object({
+  title: z.string().min(1).max(200),
+  content: z.string(),
+  accountId: z.string().uuid(),
+});
+
+export const createDocumentAction = enhanceAction(
+  async (data, user) => {
+    // data is already validated against CreateDocumentSchema
+    // user is the authenticated user
+    return createDocument(data);
+  },
+  {
+    schema: CreateDocumentSchema,
+    auth: true,
+  }
+);
+```
+
+For API routes, use `enhanceRouteHandler` with the same pattern:
+
+```typescript
+import { enhanceRouteHandler } from '@kit/next/api-routes';
+
+export const POST = enhanceRouteHandler(
+  async ({ parsedInput, user }) => {
+    // parsedInput is validated, user is authenticated
+    return NextResponse.json({ success: true });
+  },
+  {
+    schema: CreateDocumentSchema,
+    auth: true,
+  }
+);
+```
+
+{% link href="/docs/next-supabase-turbo/security/data-validation" title="Data Validation" description="Learn how to validate cookies, URL parameters, and form data." /%}
+
+## Content Security Policy
+
+Content Security Policy (CSP) headers protect against cross-site scripting (XSS) and other injection attacks by controlling which resources the browser can load.
+
+Enable strict CSP in your environment:
+
+```bash
+ENABLE_STRICT_CSP=true
+```
+
+When enabled, Makerkit automatically:
+
+- Adds CSP headers via Next.js middleware
+- Generates nonces for inline scripts
+- Restricts connections to your Supabase project by default
+
+For third-party scripts, retrieve the nonce from headers:
+
+```tsx
+import { headers } from 'next/headers';
+
+async function Component() {
+  const headersStore = await headers();
+  const nonce = headersStore.get('x-nonce');
+
+  return <script nonce={nonce} src="https://analytics.example.com/script.js" />;
+}
+```
+
+{% link href="/docs/next-supabase-turbo/security/csp" title="Content Security Policy" description="Configure CSP headers and allowed origins for your application." /%}
+
+## Multi-Factor Authentication
+
+Makerkit supports TOTP-based multi-factor authentication through Supabase Auth. When users enable MFA, restrictive RLS policies automatically apply to sensitive tables:
+
+```sql
+-- This policy restricts access when MFA is enabled but not verified
+create policy restrict_mfa_accounts
+    on public.accounts
+    as restrictive
+    to authenticated
+    using (public.is_mfa_compliant());
+```
+
+The `is_mfa_compliant()` function checks whether:
+
+- If the user has MFA enabled, they must have completed the second factor (AAL2)
+- If the user has no MFA, standard authentication (AAL1) is sufficient
+
+This ensures users with MFA enabled cannot access data without completing the second factor.
+
+## Role-based permissions
+
+Makerkit includes a hierarchical role system with three default roles:
+
+| Role | Hierarchy Level | Typical Permissions |
+|------|-----------------|---------------------|
+| Owner | 1 (highest) | Full account control, billing, delete account |
+| Admin | 2 | Manage members, settings, most operations |
+| Member | 3 | Read access, limited write operations |
+
+Permissions are granted to roles, and you can check them in RLS policies or application code:
+
+```sql
+-- In RLS policy
+using (public.has_permission(auth.uid(), account_id, 'documents.delete'))
+```
+
+```typescript
+// In application code
+import { hasPermission } from '@kit/permissions';
+
+if (await hasPermission(userId, accountId, 'documents.delete')) {
+  // Allow deletion
+}
+```
+
+## Security best practices
+
+Follow these practices to maintain a secure application:
+
+### Server-side data handling
+
+1. **Never pass secrets to client components** — API keys and tokens must stay server-side
+2. **Use `import 'server-only'`** — Prevents server code from accidentally bundling to the client
+3. **Separate client and server exports** — Use different entry points in package.json
+
+```typescript
+// packages/my-feature/package.json
+{
+  "exports": {
+    "./server": "./src/server/index.ts",
+    "./client": "./src/client/index.tsx"
+  }
+}
+```
+
+### Environment variables
+
+1. **Never prefix secrets with `NEXT_PUBLIC_`** — These are embedded in client bundles
+2. **Use `.env.local` for secrets** — This file is gitignored by default
+3. **Validate environment variables at startup** — Fail fast if required variables are missing
+
+### Database access
+
+1. **Always enable RLS on new tables** — Tables without RLS are publicly accessible
+2. **Test RLS policies with pgTap** — Automated tests catch policy mistakes
+3. **Use the principle of least privilege** — Grant only the permissions necessary
+
+{% link href="/docs/next-supabase-turbo/security/nextjs-best-practices" title="Next.js Best Practices" description="Learn how to properly handle environment variables and prevent data leaks." /%}
+
+## Testing security
+
+Makerkit includes pgTap tests for RLS policies. Run them with:
+
+```bash
+pnpm supabase:web:test
+```
+
+Write tests that verify:
+
+- Authenticated users can access their own data
+- Users cannot access other users' data
+- Permission checks work correctly
+- MFA restrictions apply when expected
+
+Example test structure:
+
+```sql
+-- Create test users
+select tests.create_supabase_user('user1', 'user1@test.com');
+select tests.create_supabase_user('user2', 'user2@test.com');
+
+-- Authenticate as user1
+select tests.authenticate_as('user1');
+
+-- Verify user1 can see their own data
+select isnt_empty(
+    $$ SELECT * FROM documents WHERE user_id = tests.get_supabase_uid('user1') $$,
+    'User should see their own documents'
+);
+
+-- Authenticate as user2
+select tests.authenticate_as('user2');
+
+-- Verify user2 cannot see user1's data
+select is_empty(
+    $$ SELECT * FROM documents WHERE user_id = tests.get_supabase_uid('user1') $$,
+    'User should not see other users documents'
+);
+```
+
+## Security checklist
+
+Before going to production, verify:
+
+- [ ] RLS is enabled on all tables containing user data
+- [ ] All Server Actions use `enhanceAction` with schema validation
+- [ ] All API routes use `enhanceRouteHandler` with schema validation
+- [ ] Environment variables with secrets are not prefixed with `NEXT_PUBLIC_`
+- [ ] CSP is enabled (`ENABLE_STRICT_CSP=true`)
+- [ ] Third-party scripts use nonces
+- [ ] pgTap tests cover critical RLS policies
+- [ ] MFA is available for users handling sensitive data
+
+## Next steps
+
+Dive deeper into each security topic:
+
+- [Row Level Security](/docs/next-supabase-turbo/security/row-level-security) — Write and test RLS policies
+- [Data Validation](/docs/next-supabase-turbo/security/data-validation) — Validate all user input
+- [Content Security Policy](/docs/next-supabase-turbo/security/csp) — Configure CSP headers
+- [Next.js Best Practices](/docs/next-supabase-turbo/security/nextjs-best-practices) — Prevent data leaks

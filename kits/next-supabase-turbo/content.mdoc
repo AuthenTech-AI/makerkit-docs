@@ -1,11 +1,280 @@
 ---
 status: "published"
-title: "Content in Next.js Supabase Turbo"
+title: "Content Management for Next.js Supabase SaaS Applications"
 label: "Content"
 order: 8
-description: "Content in Next.js Supabase Turbo"
+description: "Integrate headless CMS solutions like Keystatic, WordPress, or Supabase to manage blog posts, documentation, and marketing content in your SaaS application."
 collapsible: true
 collapsed: true
 ---
 
-Content in Next.js Supabase Turbo
+Makerkit provides a flexible content management layer that abstracts the CMS implementation, allowing you to switch between different content backends without changing your application code.
+
+## Why a CMS abstraction?
+
+Different projects have different content needs:
+
+- **Solo developers** might prefer file-based content with Keystatic
+- **Content teams** might need a full-featured CMS like WordPress
+- **Dynamic applications** might store content in Supabase
+
+Makerkit's CMS abstraction lets you start simple and scale to a more robust solution as your needs grow—without rewriting your templates.
+
+## Supported CMS providers
+
+| Provider | Storage | Best For | Edge Compatible |
+|----------|---------|----------|-----------------|
+| **Keystatic** | Local JSON / GitHub | Solo developers, simple blogs | With GitHub mode |
+| **WordPress** | External API | Content teams, existing sites | Yes |
+| **Supabase** | Database | Dynamic content, user-generated | Yes |
+
+## Quick start with Keystatic
+
+Keystatic is the default CMS and requires no setup for local development:
+
+```tsx
+import { createCmsClient } from '@kit/cms';
+
+async function BlogPage() {
+  const cms = await createCmsClient();
+  const posts = await cms.getContentItems({
+    collection: 'posts',
+    limit: 10,
+  });
+
+  return (
+    <div>
+      {posts.map(post => (
+        <article key={post.id}>
+          <h2>{post.title}</h2>
+          <p>{post.excerpt}</p>
+        </article>
+      ))}
+    </div>
+  );
+}
+```
+
+### Keystatic storage modes
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| **local** | JSON files in repository | Development, simple sites |
+| **github** | GitHub repository storage | Team collaboration, CI/CD |
+| **cloud** | Keystatic Cloud | Managed hosting |
+
+Configure the mode in your environment:
+
+```bash
+KEYSTATIC_STORAGE_KIND=local  # or 'github' or 'cloud'
+```
+
+{% link href="/docs/next-supabase-turbo/content/keystatic" title="Keystatic Setup" description="Configure Keystatic for local or GitHub-based content management." /%}
+
+## The CMS API
+
+The CMS API provides a unified interface for all content operations:
+
+### Fetching content items
+
+```tsx
+import { createCmsClient } from '@kit/cms';
+
+const cms = await createCmsClient();
+
+// Get all posts
+const posts = await cms.getContentItems({
+  collection: 'posts',
+  limit: 20,
+  offset: 0,
+});
+
+// Get a single post
+const post = await cms.getContentItemBySlug({
+  collection: 'posts',
+  slug: 'getting-started',
+});
+
+// Get posts by category
+const tutorials = await cms.getContentItems({
+  collection: 'posts',
+  where: {
+    categories: { contains: 'tutorials' },
+  },
+});
+```
+
+### Content item structure
+
+Content items follow a consistent structure across all providers:
+
+```typescript
+interface ContentItem {
+  id: string;
+  slug: string;
+  title: string;
+  content: string;        // MDX or HTML
+  excerpt?: string;
+  publishedAt: Date;
+  updatedAt: Date;
+  author?: {
+    name: string;
+    avatar?: string;
+  };
+  image?: {
+    url: string;
+    alt?: string;
+  };
+  categories?: string[];
+  tags?: string[];
+}
+```
+
+{% link href="/docs/next-supabase-turbo/content/cms-api" title="CMS API Reference" description="Complete API reference for content operations." /%}
+
+## Using WordPress
+
+For teams with existing WordPress content or those who need a full-featured CMS:
+
+```bash
+# Set WordPress as the CMS provider
+CMS_CLIENT=wordpress
+WORDPRESS_API_URL=https://your-site.com/wp-json
+```
+
+The WordPress adapter translates WordPress posts to Makerkit's content format:
+
+```tsx
+import { createCmsClient } from '@kit/cms';
+
+async function WordPressBlog() {
+  const cms = await createCmsClient(); // Uses WordPress adapter
+
+  const posts = await cms.getContentItems({
+    collection: 'posts',
+    limit: 10,
+  });
+
+  // Works exactly like Keystatic
+  return <PostList posts={posts} />;
+}
+```
+
+{% link href="/docs/next-supabase-turbo/content/wordpress" title="WordPress Integration" description="Connect your WordPress site as a headless CMS." /%}
+
+## Using Supabase for content
+
+Store content directly in your database for maximum flexibility:
+
+```bash
+CMS_CLIENT=supabase
+```
+
+Create content tables in your database:
+
+```sql
+create table posts (
+  id uuid primary key default gen_random_uuid(),
+  slug text unique not null,
+  title text not null,
+  content text,
+  excerpt text,
+  published_at timestamp with time zone,
+  created_at timestamp with time zone default now(),
+  updated_at timestamp with time zone default now()
+);
+```
+
+{% link href="/docs/next-supabase-turbo/content/supabase" title="Supabase CMS" description="Use your database for content management." /%}
+
+## Creating a custom CMS client
+
+Implement the CMS interface to connect any content source:
+
+```typescript
+import { CmsClient, ContentItem } from '@kit/cms';
+
+export class CustomCmsClient implements CmsClient {
+  async getContentItems(params: GetContentParams): Promise<ContentItem[]> {
+    const response = await fetch(`${API_URL}/posts`);
+    const data = await response.json();
+
+    return data.map(this.transformPost);
+  }
+
+  async getContentItemBySlug(params: GetBySlugParams): Promise<ContentItem | null> {
+    const response = await fetch(`${API_URL}/posts/${params.slug}`);
+
+    if (!response.ok) return null;
+
+    return this.transformPost(await response.json());
+  }
+
+  private transformPost(post: ExternalPost): ContentItem {
+    return {
+      id: post.id,
+      slug: post.slug,
+      title: post.title,
+      content: post.body,
+      publishedAt: new Date(post.date),
+      // ... map other fields
+    };
+  }
+}
+```
+
+{% link href="/docs/next-supabase-turbo/content/creating-your-own-cms-client" title="Custom CMS Client" description="Build adapters for any content source." /%}
+
+## Best practices
+
+### 1. Use consistent slugs
+
+Slugs should be URL-friendly and consistent across environments:
+
+```typescript
+// Good: lowercase, hyphenated
+const slug = 'getting-started-with-makerkit';
+
+// Avoid: spaces, special characters
+const bad = 'Getting Started!';
+```
+
+### 2. Handle missing content gracefully
+
+Always check for null results:
+
+```tsx
+const post = await cms.getContentItemBySlug({ slug });
+
+if (!post) {
+  notFound();
+}
+```
+
+### 3. Cache content appropriately
+
+Use Next.js caching for content that doesn't change frequently:
+
+```tsx
+import { unstable_cache } from 'next/cache';
+
+const getCachedPosts = unstable_cache(
+  async () => {
+    const cms = await createCmsClient();
+    return cms.getContentItems({ collection: 'posts' });
+  },
+  ['blog-posts'],
+  { revalidate: 3600 } // 1 hour
+);
+```
+
+## Content documentation
+
+Explore the detailed documentation for each CMS provider:
+
+- [CMS Overview](/docs/next-supabase-turbo/content/cms) — Understanding the CMS abstraction
+- [CMS API](/docs/next-supabase-turbo/content/cms-api) — Complete API reference
+- [Keystatic](/docs/next-supabase-turbo/content/keystatic) — File-based content management
+- [WordPress](/docs/next-supabase-turbo/content/wordpress) — Headless WordPress integration
+- [Supabase CMS](/docs/next-supabase-turbo/content/supabase) — Database-backed content
+- [Custom CMS Client](/docs/next-supabase-turbo/content/creating-your-own-cms-client) — Build your own adapter

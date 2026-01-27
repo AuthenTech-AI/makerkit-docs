@@ -1,0 +1,62 @@
+---
+status: "published"
+title: "Profile Settings"
+label: "Profile Settings"
+order: 2
+description: "Update user name and profile picture."
+---
+
+Profile settings let users manage their identity across your application - display name, avatar image, and account lifecycle. Changes sync instantly across all contexts where user information appears, including navigation headers, team member lists, and comments.
+
+Profile settings are the user-facing controls for managing personal identity data (name, avatar) and account lifecycle (deletion).
+
+- **Location:** `apps/web/app/[locale]/(internal)/settings/page.tsx`
+- **Route:** `/settings`
+
+## Update Profile Picture
+
+Users can upload a profile picture that appears throughout the application - in the navigation header, team member lists, and anywhere their avatar is displayed.
+
+To update your profile picture, click on the current avatar image to open the file picker, select an image from your device, and the upload happens automatically. Supported formats include JPEG, PNG, and WebP.
+
+{% img src="/images/docs/profile-settings-profile-picture.webp" width="2388" height="1798" /%}
+
+The component that handles the profile picture upload is `UpdateUserImageForm` - which is located in `packages/account-settings/src/components/update-user-image-form.tsx`.
+
+## Update Name
+
+The display name is shown across the application wherever the user's identity appears, such as in comments, team member lists, and the navigation header.
+
+To update your name, enter the new value in the input field and click **Save**. The change takes effect immediately across all contexts.
+
+{% img src="/images/docs/profile-settings-name.webp" width="2388" height="1798" /%}
+
+The component that handles the name update is `UpdateNameForm` - which is located in `packages/account-settings/src/components/update-name-form.tsx`.
+
+## Account Deletion
+
+Users can permanently delete their personal account from this section. This is a destructive action that cannot be undone.
+
+Before deletion is allowed, the system verifies eligibility:
+
+- **No active subscriptions** - Any active billing subscriptions must be cancelled first
+- **No owned organizations** - Organizations where the user is the sole owner must be deleted or transferred first
+
+When these conditions are met, the user can proceed with deletion by confirming their intent. All associated data will be permanently removed.
+
+{% img src="/images/docs/profile-settings-account-deletion.webp" width="2388" height="1798" /%}
+
+The component that handles the account deletion is `DeleteAccountCard` - which is located in `packages/account-settings/src/components/delete-account-card.tsx`.
+
+You can customize these rules or add your own using [Authorization Policies](./authorization-policies).
+
+## Common Pitfalls
+
+- **Large image uploads without compression**: Profile images are stored as-is. Implement client-side compression or configure your storage bucket to resize on upload - a 5MB avatar slows every page load.
+- **Assuming name changes are instant everywhere**: While the database updates immediately, cached UI components (like navigation) may show stale names until revalidation. Use `revalidatePath` after profile updates.
+- **Blocking deletion without clear remediation**: If account deletion fails due to active subscriptions or owned organizations, show users exactly what to do: link to billing settings and organization transfer.
+- **Not testing the cascade**: Account deletion removes all associated data. Test in development to confirm related records (projects, posts, etc.) are handled correctly by your Prisma schema cascades.
+
+---
+
+**Next:** [Security Settings →](./security-settings)

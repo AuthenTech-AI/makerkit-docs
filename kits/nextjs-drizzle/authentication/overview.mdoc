@@ -1,0 +1,212 @@
+---
+status: "published"
+title: "Authentication Overview"
+label: "Authentication"
+order: 0
+description: "Complete authentication system with email/password, magic links, social providers, MFA, and session management. Built on Better Auth with Drizzle ORM."
+---
+
+The kit provides production-ready authentication built on [Better Auth](https://better-auth.com), a TypeScript-first authentication library. All auth state is stored in your Postgres database via Drizzle ORM, giving you full control over user data.
+
+**Authentication** in MakerKit handles user identity (who you are), while **authorization** (what you can do) is managed through [roles and permissions](../members-management/permissions-api).
+
+## Features
+
+| Feature | Status | Environment Variable |
+|---------|--------|---------------------|
+| Email/Password | Enabled by default | `NEXT_PUBLIC_AUTH_PASSWORD=true` |
+| Magic Link | Disabled by default | `NEXT_PUBLIC_AUTH_MAGIC_LINK=true` |
+| Social Providers (Google, GitHub) | Optional | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` |
+| Multi-Factor Authentication | Optional per user | Enabled in user settings |
+| Email Verification | Required by default | Built-in |
+| Session Management | Automatic | Cookie-based |
+
+## Quick Start
+
+### Get the Current Session
+
+Use `getSession()` in any server context:
+
+```typescript
+import { getSession } from '@kit/better-auth/context';
+
+export default async function DashboardPage() {
+  const session = await getSession();
+
+  if (!session) {
+    redirect('/auth/sign-in');
+  }
+
+  return <div>Welcome, {session.user.name}</div>;
+}
+```
+
+The function is cached per request via React's `cache()`, so multiple calls within the same request are efficient.
+
+### Client-Side Session
+
+Use `authClient.useSession()` in client components:
+
+```tsx
+'use client';
+
+import { authClient } from '@kit/better-auth/client';
+
+export function UserAvatar() {
+  const { data: session, isPending } = authClient.useSession();
+
+  if (isPending) return <Skeleton />;
+  if (!session) return null;
+
+  return <Avatar name={session.user.name} />;
+}
+```
+
+## Authentication Routes
+
+| Route | Purpose |
+|-------|---------|
+| `/auth/sign-in` | Sign in with email/password, magic link, or social |
+| `/auth/sign-up` | Create new account |
+| `/auth/password-reset` | Request password reset email |
+| `/auth/verify` | MFA verification (when enabled) |
+| `/reset-password` | Set new password (from email link) |
+
+## Architecture
+
+The authentication system is split across packages:
+
+| Package | Purpose |
+|---------|---------|
+| `@kit/better-auth` | Core auth configuration, session context, plugins |
+| `@kit/auth` | UI components (sign-in forms, OAuth buttons, MFA) |
+| `@kit/action-middleware` | Server action protection |
+
+### Session Data Structure
+
+```typescript
+interface Session {
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    image: string | null;
+    emailVerified: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+    role: string | null;  // 'super-admin' for admins
+  };
+  session: {
+    id: string;
+    userId: string;
+    expiresAt: Date;
+    activeOrganizationId: string | null;
+  };
+}
+```
+
+## Topics
+
+1. **[Sign In](./sign-in)** - Email/password, magic link, and social authentication
+2. **[Sign Up](./sign-up)** - User registration and account creation
+3. **[Password Reset](./password-reset)** - Self-service password recovery
+4. **[Session Handling](./session-handling)** - Protect routes and access session data
+5. **[Multi-Factor Authentication](./mfa)** - TOTP-based two-factor authentication
+
+## Environment Variables
+
+Essential auth configuration:
+
+```bash {% title="apps/web/.env.local" %}
+# Required: 32+ character secret for signing tokens
+BETTER_AUTH_SECRET=your-secret-key-min-32-characters
+
+# Auth methods (enable/disable)
+NEXT_PUBLIC_AUTH_PASSWORD=true
+NEXT_PUBLIC_AUTH_MAGIC_LINK=false
+
+# Google OAuth (optional)
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+
+# Base URL for auth callbacks
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+```
+
+## Common Patterns
+
+### Protect a Server Action
+
+```typescript
+'use server';
+
+import { authenticatedActionClient } from '@kit/action-middleware';
+import { z } from 'zod';
+
+export const updateProfileAction = authenticatedActionClient
+  .inputSchema(z.object({ name: z.string().min(1) }))
+  .action(async ({ parsedInput, ctx }) => {
+    // ctx.user is guaranteed to exist
+    await updateUser(ctx.user.id, parsedInput);
+    return { success: true };
+  });
+```
+
+### Require Organization Context
+
+```typescript
+import { requireActiveOrganizationId } from '@kit/better-auth/context';
+
+export default async function TeamPage() {
+  // Redirects to /dashboard if not in org context
+  const orgId = await requireActiveOrganizationId();
+
+  const members = await loadMembers(orgId);
+  return <MembersList members={members} />;
+}
+```
+
+### Check Admin Status
+
+```typescript
+import { isUserAdmin } from '@kit/auth/require-admin';
+
+export default async function Header() {
+  const isAdmin = await isUserAdmin();
+
+  return (
+    <nav>
+      <Link href="/dashboard">Dashboard</Link>
+      {isAdmin && <Link href="/admin">Admin</Link>}
+    </nav>
+  );
+}
+```
+
+## Common Pitfalls
+
+These issues come up frequently in production deployments:
+
+1. **Missing `BETTER_AUTH_SECRET`**: The secret must be at least 32 characters. A short or missing secret causes cryptic token errors.
+2. **Callback URL mismatch**: Social providers require exact callback URLs. Make sure `NEXT_PUBLIC_SITE_URL` matches your deployment URL, including `https://` in production.
+3. **Cookie issues across subdomains**: If deploying to multiple subdomains, you may need to configure the cookie domain in Better Auth settings.
+4. **Session not found after deploy**: Clear browser cookies after changing `BETTER_AUTH_SECRET`, as old sessions become invalid.
+5. **MFA bypassed via magic link**: By design, magic link and social auth skip MFA. If you require MFA for all users, disable these methods.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Which authentication methods are enabled by default?", "answer": "Email/password authentication is enabled by default. Magic link and social providers are disabled by default and can be enabled via environment variables."},
+     {"question": "Is email verification required?", "answer": "Yes, email verification is required by default. Users must verify their email before they can fully access the application. This is configured in the Better Auth settings."},
+     {"question": "How do I add Google or GitHub sign-in?", "answer": "Set the GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables for Google. For GitHub, set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET. The social provider buttons appear automatically when configured."},
+     {"question": "Where is auth data stored?", "answer": "All authentication data (users, sessions, accounts) is stored in your Postgres database via Drizzle ORM. Better Auth manages the schema and provides type-safe queries."},
+     {"question": "How do sessions work?", "answer": "Sessions are stored in the database and referenced via HTTP-only cookies. The getSession() function retrieves the current session and is cached per request for efficiency."},
+     {"question": "Can users enable MFA?", "answer": "Yes, users can enable TOTP-based MFA from their security settings at /settings/security. Once enabled, they must enter a code from their authenticator app after signing in with email/password."}
+   ]
+/%}
+
+This authentication system is part of the [Next.js Drizzle SaaS Kit](/drizzle).
+
+---
+
+**Next:** [Sign In →](./sign-in)

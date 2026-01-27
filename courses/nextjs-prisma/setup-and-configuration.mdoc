@@ -1,0 +1,270 @@
+---
+status: "published"
+title: "Setup and Configuration for Makerkit Next.js Prisma"
+label: "Setup & Configuration"
+order: 1
+description: "Get Makerkit running locally and configure it for your B2B SaaS. By the end, you'll have a working app ready for customization."
+---
+
+This is the [Prisma SaaS Starter Kit course](./course). Start with the [Architecture & Technologies](./architecture-and-technologies) module to get the fundamentals in place.
+
+---
+
+This module walks you through installing Makerkit, starting the local development environment, and configuring it for a B2B SaaS application.
+
+**What you'll accomplish:**
+- Install and run Makerkit locally
+- Verify the development environment works
+- Configure organizations-only mode for B2B
+- Understand the project structure
+
+---
+
+## Prerequisites
+
+Before starting, ensure you have:
+
+- **Node.js 20.20.0+**  -  Check with `node --version`
+- **pnpm 10+**  -  Install with `npm install -g pnpm@latest`
+- **Docker**  -  For local PostgreSQL and email testing
+- **Git**  -  For version control
+
+For a complete list, see the [Prerequisites Documentation](/docs/nextjs-prisma/installation/prerequisites).
+
+> **Recommended:** Read [Module 0: Architecture & Technologies](./architecture-and-technologies) first to understand the stack.
+
+---
+
+## Step 1: Clone and Install
+
+Clone the repository from GitHub and install the dependencies. You'll need a valid Makerkit license and SSH configured for your GitHub account.
+
+```bash
+# Clone the repository
+git clone git@github.com:makerkit/next-prisma-saas-kit-turbo teampulse
+
+# Move into the project directory
+cd teampulse
+
+# Install all dependencies
+pnpm install
+```
+
+Replace "teampulse" with your project name when creating your own application.
+
+### Initialize the Project
+
+Run the setup script to configure your project:
+
+```bash
+pnpm turbo gen setup
+```
+
+Follow the prompts to complete the initial configuration.
+
+---
+
+## Step 2: Start the Database
+
+Makerkit includes a Docker Compose configuration for PostgreSQL and Mailpit (email testing).
+
+Make sure Docker is installed and running, then start the containers:
+
+```bash
+pnpm dev:compose:up
+```
+
+This starts:
+- **PostgreSQL** on port `54333`
+- **Mailpit** (email viewer) on port `8025`
+
+To shut down the containers:
+
+```bash
+pnpm dev:compose:down
+```
+
+### Running Multiple Projects
+
+If you have multiple Makerkit projects running locally, update the container names in `docker-compose.dev.yml` to avoid conflicts:
+
+```yaml
+services:
+  postgres:
+    image: postgres:17
+    container_name: teampulse-postgres
+  mailpit:
+    image: axllent/mailpit
+    container_name: teampulse-mailpit
+```
+
+---
+
+## Step 3: Understanding Environment Files
+
+Makerkit uses multiple `.env` files with specific precedence (highest to lowest):
+
+| File | Purpose | Git-ignored? |
+|------|---------|--------------|
+| `.env.local` | Your local secrets (auth keys, API keys) | Yes |
+| `.env.development` | Development-specific defaults (database URL, ports) | No |
+| `.env` | Shared defaults used across environments | No |
+
+**Key points:**
+- Add secrets to `.env.local`  -  this file is never committed
+- `.env.development` contains non-sensitive dev defaults
+- Next.js automatically loads the appropriate files based on environment
+
+See the [Environment Variables Documentation](/docs/nextjs-prisma/installation/environment-variables) for more details.
+
+---
+
+## Step 4: Initialize the Database
+
+Generate the Prisma client and apply database migrations:
+
+```bash
+# Generate Prisma client
+pnpm --filter @kit/database prisma:generate
+
+# Apply migrations
+pnpm --filter @kit/database prisma:migrate
+```
+
+This creates all the tables Makerkit needs: users, organizations, sessions, and more.
+
+### Seed Test Data (Optional)
+
+```bash
+pnpm seed
+```
+
+This creates test users you can sign in with:
+
+| User | Email | Password | Notes |
+|------|-------|----------|-------|
+| Super admin | `admin1@makerkit.dev` | `testingpassword` | Can access `/admin` |
+| Regular users | `user1@makerkit.dev` through `user5@makerkit.dev` | `testingpassword` | Standard accounts |
+
+---
+
+## Step 5: Start the Development Server
+
+Start the Next.js development server:
+
+```bash
+pnpm dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) in your browser. You should see the Makerkit landing page.
+
+---
+
+## Checkpoint: Verify Everything Works
+
+Before continuing, verify these endpoints are accessible:
+
+- [ ] Landing page at [http://localhost:3000](http://localhost:3000)
+- [ ] Sign up at [http://localhost:3000/auth/sign-up](http://localhost:3000/auth/sign-up)
+- [ ] Sign in at [http://localhost:3000/auth/sign-in](http://localhost:3000/auth/sign-in)
+- [ ] Mailpit at [http://localhost:8025](http://localhost:8025)
+
+### Test the Full Authentication Flow
+
+1. Go to `/auth/sign-up`
+2. Create an account with your email
+3. Check Mailpit at [http://localhost:8025](http://localhost:8025) for the verification email
+4. Click the verification link
+5. You should land on the dashboard
+
+If you seeded test data, sign in with `user1@makerkit.dev` / `testingpassword`.
+
+---
+
+## Step 6: Configure for B2B
+
+By default, Makerkit runs in "hybrid" mode (personal accounts + organizations). For a B2B SaaS, switch to **organizations-only** mode.
+
+Add this to `apps/web/.env.local`:
+
+```bash
+NEXT_PUBLIC_ACCOUNT_MODE=organizations-only
+```
+
+The dev server picks up environment changes automatically.
+
+**What this changes:**
+
+- Users must belong to an organization
+- An organization is auto-created on sign-up
+- No personal account context
+- Account switcher only shows organizations
+
+**Test it:** Sign up with a new email. You'll be placed in a new organization named after you.
+
+---
+
+## Understanding the Project Structure
+
+### Monorepo Layout
+
+```
+next-postgres-saas-kit-turbo/
+├── apps/
+│   ├── web/                 # Main Next.js app (most of your work)
+│   │   ├── app/            # Pages and routes
+│   │   ├── config/         # Configuration files
+│   │   └── .env.local      # Your local environment
+│   └── e2e/                 # Playwright tests
+├── packages/
+│   ├── database/           # Prisma schema & migrations
+│   ├── better-auth/        # Authentication
+│   ├── ui/                  # UI components (shadcn-based)
+│   ├── rbac/               # Roles & permissions
+│   └── ...                  # 24+ feature packages (billing, email, admin, etc.)
+└── docker-compose.dev.yml   # Local development services
+```
+
+### Key Configuration Files
+
+| File | Purpose |
+|------|---------|
+| `apps/web/.env.local` | Environment variables (secrets, URLs) |
+| `apps/web/config/app.config.ts` | App metadata and settings |
+| `apps/web/config/account-mode.config.ts` | Account mode (B2B/B2C/hybrid) |
+| `apps/web/config/auth.config.ts` | Authentication options |
+| `apps/web/config/feature-flags.config.ts` | Feature toggles |
+| `apps/web/app/[locale]/(internal)/_config/navigation.config.tsx` | Sidebar navigation |
+
+### Account Modes
+
+Makerkit supports three account modes:
+
+| Mode | Use Case | Billing |
+|------|----------|---------|
+| `personal-only` | B2C apps (individual users) | Per user |
+| `organizations-only` | B2B apps (teams) | Per organization |
+| `hybrid` | Both (like Notion, Figma, GitHub) | Both options |
+
+We configured `organizations-only` for our B2B SaaS.
+
+---
+
+## Module Complete
+
+You now have:
+- [x] Makerkit running locally
+- [x] Database connected and initialized
+- [x] Email testing with Mailpit
+- [x] Organizations-only mode configured for B2B
+- [x] Understanding of the project structure
+
+**Next:** In [Module 2: Branding](./branding), you'll customize your application's visual identity - logo, colors, fonts, and metadata.
+
+---
+
+## Learn More
+
+- [Setup Documentation](/docs/nextjs-prisma/installation/overview)
+
+Looking for a Drizzle-based kit? Check out the [Next.js Drizzle SaaS Kit](/drizzle) for a complete foundation.

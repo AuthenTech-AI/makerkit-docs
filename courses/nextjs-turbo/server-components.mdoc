@@ -1,6 +1,6 @@
 ---
-title: "Fetching data with Server Components in Makerkit Next.js Supabase Turbo"
-description: "Learn how to fetch data from Server Components in your Makerkit Next.js Supabase Turbo project."
+title: "Fetching Data with Server Components in Makerkit Next.js Supabase"
+description: "Learn how to fetch data from Server Components in your Makerkit Next.js Supabase project."
 label: "Server Components"
 order: 3
 ---
@@ -479,8 +479,9 @@ export default function TicketsPage(props: TicketsPageProps) {
   const client = getSupabaseServerClient();
   const service = createTicketsService(client);
 
-  const page = Number(props.searchParams.page ?? '1');
-  const query = props.searchParams.query ?? '';
+  const { account } = use(props.params);
+  const { page: pageParam, query = '' } = use(props.searchParams);
+  const page = Number(pageParam ?? '1');
 
   const { data, pageSize, pageCount } = use(
     service.getTickets({
@@ -516,7 +517,7 @@ Therefore, the solution is to create a separate client component named `TicketsD
 
 We also want two reusable components for displaying the status and priority of the support tickets. We will be using the `Badge` component from the Shadcn UI kit to display the status and priority of the support tickets.
 
-Let's create two new files in `apps/web/home/[account]/tickets/_components/ticket-status-badge.tsx` and `apps/web/home/[account]/tickets/_components/ticket-priority-badge.tsx` add the following code:
+Let's create two new files in `apps/web/app/home/[account]/tickets/_components/ticket-status-badge.tsx` and `apps/web/app/home/[account]/tickets/_components/ticket-priority-badge.tsx` and add the following code:
 
 ```tsx title="apps/web/app/home/[account]/tickets/_components/ticket-status-badge.tsx"
 import { Badge } from '@kit/ui/badge';

@@ -1,0 +1,219 @@
+---
+title: "Next.js Course: going to production with Verceel, Supabase and Stripe"
+label: "Going to Production"
+description: "In this lesson, we learn how to configure Vercel, Supabase and Stripe to deploy our application to production and accept payments."
+order: 9
+---
+
+Our app is finally complete, and we're ready to deploy it to production! 🎉
+
+In this lesson, we'll learn how to configure Vercel, Supabase and Stripe to deploy our application to production.
+
+We will deploy our application in three steps:
+
+1. **Vercel**: First, we deploy our Next.js application to Vercel and configure the environment variables to connect to Supabase.
+2. **Supabase**: Then, we create a Supabase Project and deploy our database to Supabase. We will also configure the Supabase environment variables in Vercel.
+3. **Stripe**: Finally, we configure Stripe to accept payments. Then, we add the Stripe environment variables to Vercel.
+
+## Deploying to Vercel
+
+Vercel is likely one of the simplest ways to deploy any application to the cloud. Thanks to its tight integration with Next.js, we can deploy our application to Vercel with just a few clicks.
+
+If you haven't made an account yet, go ahead and [create one](https://vercel.com/signup). Then, we can import our project into Vercel.
+
+### Importing Our Project into Vercel
+
+To import our project into Vercel, we can click on the "Add New" button in our dashboard and select "Project". Alternatively, follow this link to import your project: [https://vercel.com/new](https://vercel.com/new).
+
+If your project is private, we need to give Vercel access to our repository. We can do this by clicking on the "Adjust Github Permissions" button and selecting our repository from the list. Then, we can click on the "Import" button to import our project.
+
+The default values that Vercel provides us with are fine, but we need all the rest of the environment variables for the deployment to work. 
+
+#### Adding the Required Environment Variables
+
+Since we're here, you can add your Open AI API key to Vercel. This is a private key, so it's best to add it to Vercel instead of your `.env` file.
+
+Proceed by adding the following environment variable to Vercel:
+
+```
+OPENAI_API_KEY=***********
+```
+
+#### Hang on, what about the rest of the environment variables?
+
+Since we need to add the rest of the environment variables, the deployment will fail. That's okay, we'll add them in a moment.
+
+Let's keep this page open, as we'll need to come back to it in a moment. Now, let's go create a Supabase project from which we can take the rest of the environment variables.
+
+## Deploying to Supabase
+
+When deploying to Supabase, we need to take the following actions:
+
+1. Create a Supabase Project
+2. Push our database to Supabase
+3. Configure authentication
+4. Copy the Supabase environment variables to our Provider (in our case, Vercel)
+
+This is pretty much all we need to do to deploy our application to Supabase.
+
+If you haven't made an account yet, go ahead and [create one](https://app.supabase.io/). Then, we can create a new project.
+
+### Creating a Supabase Project
+
+After signing in, click on the "New Project" button to create a new project. Give your new Project a very strong password and remember to store it, as we'll need it later.
+
+{% img src="/assets/courses/create-supabase-project.webp" width="1448" height="1264" /%}
+
+### Pushing our Database to Supabase
+
+#### Linking the Supabase CLI to our Project
+
+To push our database to Supabase, we need to link the Supabase CLI to our project. 
+
+You'll need to grab your project's reference ID from the URL: it's the part that comes after `app.supabase.io/` in the URL or the segment that comes before `supabase.co/` in the URL, such as `*******.supabase.co`.
+
+We can do this by running the following command:
+
+```bash
+./node_modules/.bin/supabase link --project-ref **************
+```
+
+When prompted for the database password, enter the password you created when creating your project.
+
+At this point, we can proceed to push our database to Supabase. Run the following command to push our database to Supabase:
+
+```bash
+./node_modules/.bin/supabase db push
+```
+
+The output should look like this:
+
+```bash
+Applying migration 20230705082911_schema.sql...
+Finished supabase db push.
+```
+
+To verify that our database was pushed successfully, navigate to your project's dashboard and verify the tables were created.
+
+### Configuring Authentication
+
+Now we need to add the app's URL to the Supabase Auth settings. To do this, navigate to the "Auth" tab in your project's dashboard and then navigate to the "URL Configuration" tab. 
+
+From here:
+1. **Site URL**: set up the "Site URL" field using your Vercel URL
+2. **Redirect URLs**: set the "Redirect URLs" field using the following URL: `https://<your-url>/auth/callback**`
+
+This is fundamental, as it will allow Supabase to redirect users back to our application after they log in.
+
+{% img src="/assets/courses/supabse-auth-settings.webp" width="1688" height="1132" /%}
+
+### Copying the Supabase Environment Variables to Vercel
+
+Let's retrieve and add the required environment variables to Vercel. Navigate to the "Settings" tab in your project's dashboard and then navigate to the "API" tab. 
+
+You will see three text fields:
+1. Your API URL
+2. The Anonymous Key
+3. The Service Role Key
+
+From here, copy the following environment variables to Vercel:
+
+```
+NEXT_PUBLIC_SUPABASE_URL=https://************.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=***********
+SUPABASE_SERVICE_ROLE_KEY=***********
+```
+
+Since `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are public, you may also choose to add them to your `.env.production` environment.
+
+At this point, your Vercel environment variables should look like this:
+
+{% img src="/assets/courses/environment-variables.webp" width="1866" height="700" /%}
+
+If this is not the first deployment, you will need to redeploy your application to Vercel. To do this, navigate to the "Deployments" tab in your project's dashboard and click on the "Redeploy" button.
+
+## Deploying to Stripe
+
+When deploying to Stripe, we need to take the following actions:
+
+1. **Webhook Setup**: Create a Webhooks Endpoint and point it to our Vercel deployment
+2. **Environment Variables**: Copy the Stripe environment variables to our Provider (in our case, Vercel)
+3. **Going Live**: Toggle off the "Test" mode in our Stripe Dashboard
+
+To get started, we will use the "Development" mode, so you can test the application without having to pay anything. Then, we will switch to "Production" mode to accept payments.
+
+### Creating a Webhooks Endpoint
+
+To create a Webhooks Endpoint, we need to navigate to the "Developers" tab in our Stripe Dashboard and then navigate to the "Webhooks" tab.
+
+From here, we can click on the "Add Endpoint" button to create a new Webhooks Endpoint.
+
+We need to add the following URL to the "Endpoint URL" field:
+
+```
+https://<your-vercel-url>/stripe/webhook
+```
+
+Then, we need to add the following events to the "Events to Send" field:
+
+```
+- checkout.session.completed
+- customer.subscription.deleted
+- customer.subscription.updated
+- invoice.payment_succeeded
+```
+
+{% img src="/assets/courses/webhooks-setup.webp" width="1344" height="1518" /%}
+
+If in the future you need to add more events, you can do so by updating this webhook.
+
+### Copying the Stripe Environment Variables to Vercel
+
+We now have to copy to Vercel two secret keys. To do this, navigate to the "Developers" tab in your Stripe Dashboard and then navigate to the "API Keys" tab.
+
+#### Stripe API Secret Key
+
+First, we copy the **Stripe Secret Key** - which we define as `STRIPE_SECRET_KEY`
+
+{% img src="/assets/courses/stripe-api-keys.webp" width="1772" height="760" /%}
+
+From here, copy the following environment variables to Vercel:
+
+```
+STRIPE_SECRET_KEY=***********          # This is the "Secret Key"
+```
+
+#### Stripe Webhooks Secret (or Signing Secret)
+
+Then, we add the Signing Secret - which we define as `STRIPE_WEBHOOK_SECRET`.
+
+Then, we go back to the "Webhooks" tab and copy the **Signing Secret** to Vercel defined as `STRIPE_WEBHOOK_SECRET`:
+
+```
+STRIPE_WEBHOOK_SECRET=***********      # This is the "Signing Secret"
+```
+
+{% img src="/assets/courses/signing-secret.webp" width="2006" height="392" /%}
+
+### Toggling off the "Test" Mode in our Stripe Dashboard
+
+Once you're ready to accept payments, you can toggle off the "Test" mode in your Stripe Dashboard. To do this, navigate to the "Developers" tab in your Stripe Dashboard and then navigate to the "Webhooks" tab.
+
+## Tokens thresholds environment variables
+
+Lastly, in case you have not yet added them, make sure to add the environment variables for the token thresholds. By default, we use the following values, but feel free to update them:
+
+```
+BASIC_PLAN_TOKENS=500000
+PRO_PLAN_TOKENS=3000000
+```
+
+You can either add them from the Vercel dashboard, or you can create a `.env.production` file and add them there.
+
+## Conclusion
+
+We're finally ready to deploy our application to production! 🎉 
+
+**Redeploy your changes with the Stripe environment variables** and toggle off the "Test" mode in your Stripe Dashboard. 
+
+Your application is now ready to serve your users and accept payments! 🚀

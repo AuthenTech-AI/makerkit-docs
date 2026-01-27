@@ -1,8 +1,8 @@
 ---
 status: "published"
 label: "Billing"
-title: "How Billing works in the Next.js Supabase SaaS kit"
-description: "A quick introduction to billing in Makerkit and how to set it up in the Next.js Supabase SaaS kit"
+title: "Subscription Billing with Stripe, Lemon Squeezy, and Paddle"
+description: "Integrate subscription billing and one-time payments into your SaaS. Supports Stripe, Lemon Squeezy, and Paddle with flat-rate, tiered, and per-seat pricing models."
 order: 7
 collapsible: true
 collapsed: true
@@ -23,7 +23,7 @@ NEXT_PUBLIC_BILLING_PROVIDER=stripe # or lemon-squeezy
 
 Makerkit implements two packages for managing billing:
 
-1. `core`: this package is responsible for exporting the billing service and the schema getFontDefinitionFromNetwork
+1. `core`: this package is responsible for exporting the billing service and the schema
 2. `gateway`: the gateway is a router that handles the billing service and the billing provider (e.g., Stripe, Lemon Squeezy, etc.)
 
 Then, we define a package for each provider:
@@ -62,3 +62,14 @@ Perfect - you can, but you need to customize the pages to display the correct da
 
 
 Depending on the service you use, you will need to set the environment variables accordingly. By default - the billing package uses Stripe. Alternatively, you can use Lemon Squeezy. In the future, we will also add Paddle.
+
+## Related topics
+
+- [Billing Schema](/docs/next-supabase-turbo/billing/billing-schema) — Define your pricing plans and line items
+- [Stripe Integration](/docs/next-supabase-turbo/billing/stripe) — Set up Stripe as your billing provider
+- [Lemon Squeezy Integration](/docs/next-supabase-turbo/billing/lemon-squeezy) — Set up Lemon Squeezy as your billing provider
+- [Paddle Integration](/docs/next-supabase-turbo/billing/paddle) — Set up Paddle as your billing provider
+- [One-off Payments](/docs/next-supabase-turbo/billing/one-off-payments) — Configure lifetime access or single purchases
+- [Metered Usage](/docs/next-supabase-turbo/billing/metered-usage) — Charge based on API usage or consumption
+- [Per-Seat Billing](/docs/next-supabase-turbo/billing/per-seat-billing) — Charge per team member
+- [Credit-based Billing](/docs/next-supabase-turbo/billing/credit-based-billing) — Implement token or credit systems

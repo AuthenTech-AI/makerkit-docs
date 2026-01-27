@@ -1,0 +1,48 @@
+---
+status: "published"
+title: "Documentation Integration"
+label: "Documentation"
+order: 3
+description: "Integrate comprehensive documentation into your SaaS application."
+---
+
+The documentation/help center is a section of the public website that provides comprehensive product documentation for your users to learn how to use your product or solve common issues. It is accessible at `/help`. You can create a new documentation page by creating a new file in the `content/documentation` folder.
+
+The documentation you are currently reading is an example of a documentation page written with this documentation system.
+
+## Documentation Structure
+
+Organize documentation hierarchically:
+
+```
+apps/web/content/documentation/
+├── getting-started/
+│   ├── overview.mdoc
+│   ├── installation.mdoc
+│   └── quickstart.mdoc
+├── guides/
+│   ├── authentication.mdoc
+│   └── organizations.mdoc
+└── api/
+    └── reference.mdoc
+```
+
+## Creating groups
+
+Groups are created automatically based on two conditions:
+1. When the top-level file is named like a folder (e.g. `getting-started/` and `getting-started.mdoc`)
+2. When the file - within a directory - is named like the folder itself (e.`getting-started/getting-started.mdoc`)
+
+When any of these conditions are met, the file is considered the "metadata" for the group.
+
+```mdx {% title="apps/web/content/documentation/getting-started.mdoc" %}
+---
+title: "Getting Started"
+description: "Learn how to get started with our product."
+order: 1
+---
+```
+
+This file will place the "Getting Started" section in the navigation menu, and it will be the first section in the documentation.
+
+**Next:** [Changelog →](./changelog)

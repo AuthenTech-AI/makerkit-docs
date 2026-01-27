@@ -1,0 +1,236 @@
+---
+status: "published"
+title: "Running the Project"
+label: "Running the Project"
+order: 6
+description: "Start the Next.js Prisma SaaS Kit development server and verify everything is working correctly."
+---
+
+Run `pnpm dev` to start the development server. The application will be available at `http://localhost:3000`. Seed the database with `pnpm run seed` to create test users you can sign in with.
+
+This guide is part of the [Next.js Prisma SaaS Kit installation](./overview).
+
+{% sequence title="Running the Project" description="Start the Next.js Prisma SaaS Kit development server and verify everything is working correctly." %}
+[Run the development server](#run-the-development-server)
+
+[Accessing the Application](#accessing-the-application)
+
+[Useful Development Commands](#useful-development-commands)
+
+[Development Workflow](#development-workflow)
+
+[Quick Reference](#quick-reference)
+{% /sequence %}
+
+## Run the development server
+
+To run all the applications in the monorepo, run the following command from the project root:
+
+```bash
+pnpm dev
+```
+
+**Expected output:**
+```
+> turbo run dev
+
+Tasks:    2 successful, 2 total
+Cached:   0 successful, 0 total
+
+web:dev: ▲ Next.js 16.x
+web:dev: - Local: http://localhost:3000
+```
+
+This command starts all applications in the monorepo simultaneously using Turborepo:
+- **Web app** on `http://localhost:3000`
+- **Other services** (if any) on their configured ports
+
+## Accessing the Application
+
+### 1. Open Your Browser
+
+Navigate to the web application at `http://localhost:3000`. You should see the landing page of your application.
+
+#### Seeding the database
+
+If you have not already done so, you can seed data using the command:
+
+```bash
+pnpm run seed
+```
+
+This command output will print out some credentials you can use to sign in.
+
+### 2. Create Your First Account
+
+To test the sign up flow, click on the "Sign Up" button and create an account with the following credentials:
+- **Email:** any@example.com
+- **Password:** YourSecurePassword123!
+
+**What happens:**
+1. Account is created in the database
+2. Default personal account is created
+3. You're redirected to the dashboard
+
+We require email confirmation to access the dashboard, so you will need to either:
+1. **Mailpit**: Check the Mailpit inbox at http://localhost:8025 for the verification email (this needs you to start the Docker compose file)
+2. **Terminal Logs**: Check the terminal logs for the verification token, as we log every email to the terminal if you don't have Mailpit running
+
+### 3. Explore the Dashboard
+
+After signing in, you'll land on your personal dashboard at `http://localhost:3000/dashboard`.
+
+## Useful Development Commands
+
+### Type Checking
+
+Check for TypeScript errors across the entire monorepo:
+
+```bash
+pnpm typecheck
+```
+
+**Output:**
+```
+Tasks:    15 successful, 15 total
+Cached:   0 successful, 0 total
+Time:     12.4s
+```
+
+Run this regularly to catch type errors early.
+
+### Linting
+
+Check for code quality issues using ESLint:
+
+```bash
+pnpm lint:fix
+```
+
+### Code Formatting
+
+Auto-format all files with Prettier for a standard, consistent codebase:
+
+```bash
+pnpm format:fix
+```
+
+To execute all of them at once, run:
+
+```bash
+pnpm healthcheck
+```
+
+### Database Commands
+
+```bash
+# Generate Prisma client (required after schema changes)
+pnpm --filter @kit/database prisma:generate
+pnpm i
+
+# Apply migrations to database
+pnpm --filter @kit/database prisma:migrate
+
+# Open Prisma Studio (database GUI)
+pnpm --filter @kit/database prisma:studio
+
+# Run seeds (add test data)
+pnpm seed
+```
+
+## Development Workflow
+
+### Recommended Daily Workflow
+
+We recommend pulling the latest changes from the upstream repository before starting development to avoid conflicts. The more regularly you pull the latest changes, the less likely you are to have conflicts, and less painful they are going to be to resolve. You can do this by running the following command:
+
+**Pull latest changes:**
+   ```bash
+   git pull upstream main  # If using upstream
+   ```
+
+After pulling the latest changes, you should run the following commands to ensure your project is up to date:
+
+**Install any new dependencies:**
+   ```bash
+   pnpm install
+   ```
+
+If you encounter conflicts in the `pnpm-lock.yaml` file, you should accept either of the two changes (avoid manual edits as it's a waste of time), then run:
+
+```bash
+pnpm install
+```
+
+Your lock file will now reflect both your changes and the updates from the `upstream` repository.
+
+## Common Pitfalls
+
+- **Docker containers not started** - Run `pnpm run compose:dev:up` before `pnpm dev`; the app needs PostgreSQL running
+- **Database not migrated** - The database exists but has no tables; run `pnpm --filter @kit/database prisma:migrate` first
+- **Prisma client not generated** - If you see "Cannot find module '@prisma/client'", run `pnpm --filter @kit/database prisma:generate` then `pnpm i`
+- **Forgot to seed the database** - The app runs but you have no test users; run `pnpm run seed` to create test accounts
+- **Email verification blocking sign-in** - Check Mailpit at `http://localhost:8025` or terminal logs for the verification link
+- **Port 3000 already in use** - Another process is using the port; kill it with `lsof -ti:3000 | xargs kill -9` or use `PORT=3001 pnpm dev`
+
+## Quick Reference
+
+### Most Used Commands
+
+Below are the most used commands you'll need to know to work with the project.
+
+```bash
+# Start development
+pnpm dev
+
+# Starting Local Docker services (DB + Mailpit)
+pnpm run compose:dev:up
+
+# Taking down Local Docker services (DB + Mailpit)
+pnpm run compose:dev:down
+
+# Resetting the development database
+pnpm run db:reset
+
+# Type checking
+pnpm typecheck
+
+# Lint and format
+pnpm lint:fix
+pnpm format:fix
+
+# Starting Stripe webhooks
+pnpm run stripe:listen
+
+# Pull latest changes
+git pull upstream main  # If using upstream
+```
+
+### Resetting the development database
+
+If you're using the provided Docker compose file, by default, it stores data into a local volume. This is useful for development purposes, but sometimes you may want to start fresh (example, you want to revert some changes you made to the database).
+
+To reset the database, you can run the following command:
+
+```bash
+pnpm run db:reset
+```
+
+This will reset the database to the initial state.
+
+### Key URLs
+
+Here are the key URLs you'll need to know:
+
+- **App:** http://localhost:3000
+- **Sign Up:** http://localhost:3000/auth/sign-up
+- **Sign In:** http://localhost:3000/auth/sign-in
+- **Dashboard:** http://localhost:3000/dashboard
+- **Prisma Studio:** http://localhost:5555 (after running `pnpm --filter @kit/database prisma:studio`)
+- **Mailpit:** http://localhost:8025
+
+---
+
+Your development environment is ready. You can now start building your SaaS application.
+
+**Next:** [Updating the Codebase →](./updating-codebase)

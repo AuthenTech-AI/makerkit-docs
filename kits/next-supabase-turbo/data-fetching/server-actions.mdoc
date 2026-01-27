@@ -1,62 +1,380 @@
 ---
 status: "published"
-title: "Using Server Actions in the Next.js Supabase SaaS Kit"
+title: "Server Actions for Data Mutations"
 label: "Server Actions"
-description: "Learn how to write Server Actions to mutate and revalidate your data"
+description: "Use Server Actions to handle form submissions and data mutations in MakerKit. Covers the enhanceAction utility, validation, authentication, revalidation, and captcha protection."
 order: 1
 ---
 
-{% sequence title="How to write Server Actions in the Next.js Supabase SaaS Kit" description="Learn how to write Server Actions to mutate and revalidate your data" %}
+Server Actions are async functions marked with `'use server'` that run on the server but can be called directly from client components. They handle form submissions, data mutations, and any operation that modifies your database. MakerKit's `enhanceAction` utility adds authentication, Zod validation, and optional captcha verification with zero boilerplate. Tested with Next.js 16 and React 19.
 
-[What are Server Actions?](#what-are-server-actions)
+{% callout title="When to use Server Actions" %}
+**Use Server Actions** for any mutation: form submissions, button clicks that create/update/delete data, and operations needing server-side validation. Use Route Handlers only for webhooks and external API access.
+{% /callout %}
 
-[Using the enhanceAction utility](#using-the-enhance-action-utility)
+## Basic Server Action
 
-[Using a Captcha token protection](#using-a-captcha-token-protection)
-
-[Passing the Captcha Token to a Server Action](#passing-the-captcha-token-to-a-server-action)
-
-{% /sequence %}
-
-## What are Server Actions?
-
-Server Actions help us communicate with the server just by creating normal Javascript functions that Next.js converts to server POST endpoints. They are particularly useful to mutate data and revalidate the data that we fetched from Server Components.
-
-Generally speaking, there is nothing special in Makerkit compared to any other Next.js application in how you will use Server Actions. However, I want to introduce you to a nifty utility to make your life easier while writing Server Actions: `enhanceAction`.
-
-Let's first introduce Server Actions.
-
-In the large majority of cases - you will be writing React Server Actions to update data in your DB. Server Actions are used to perform mutations on the server-side - while being called like normal functions.
-
-To create a server action, it's enough to add `use server` at the top of the file and export the function.
+A Server Action is any async function in a file marked with `'use server'`:
 
 ```tsx
 'use server';
 
-// I am now a server action!
-export const myServerAction = async function () {
-  // ... your code here
-  return {
-    success: true,
-  };
-};
+import { getSupabaseServerClient } from '@kit/supabase/server-client';
+
+export async function createTask(formData: FormData) {
+  const supabase = getSupabaseServerClient();
+  const title = formData.get('title') as string;
+
+  const { error } = await supabase.from('tasks').insert({ title });
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  return { success: true };
+}
 ```
 
-The above is a plain POST request that basically does nothing. Let's see how we can make it more useful.
+This works, but lacks validation, authentication, and proper error handling. The `enhanceAction` utility solves these problems.
 
-Makerkit ships with a utility to help you write these actions. The utility is called `enhanceAction` and we import it from `@kit/next/actions`.
+## Using enhanceAction
+
+The `enhanceAction` utility wraps your Server Action with:
+
+1. **Authentication** - Verifies the user is logged in (enabled by default)
+2. **Validation** - Validates input against a Zod schema
+3. **Captcha** - Verifies Cloudflare Turnstile token (optional)
+4. **Monitoring** - Reports errors to your monitoring provider
 
 ```tsx
+'use server';
+
+import { z } from 'zod';
 import { enhanceAction } from '@kit/next/actions';
+import { getSupabaseServerClient } from '@kit/supabase/server-client';
+
+const CreateTaskSchema = z.object({
+  title: z.string().min(1, 'Title is required').max(200),
+  description: z.string().optional(),
+  accountId: z.string().uuid(),
+});
+
+export const createTask = enhanceAction(
+  async (data, user) => {
+    // data is typed and validated
+    // user is the authenticated user (or undefined if auth: false)
+    const supabase = getSupabaseServerClient();
+
+    const { error } = await supabase.from('tasks').insert({
+      title: data.title,
+      description: data.description,
+      account_id: data.accountId,
+      created_by: user.id,
+    });
+
+    if (error) {
+      throw new Error('Failed to create task');
+    }
+
+    return { success: true };
+  },
+  {
+    schema: CreateTaskSchema,
+  }
+);
 ```
 
-This utility helps us with three main things:
-1. checks the user state (if the user is authenticated)
-2. given a Zod schema, it validates the request body
-3. given a captcha site key, it validates the captcha token
-4. if you configured a monitoring provider, it sends the caught exception to the monitoring provider
+### Configuration Options
 
-Fantastic, let's see how we can use it.
+```tsx
+enhanceAction(handler, {
+  // Zod schema for input validation
+  schema: MySchema,
+
+  // Require authentication (default: true)
+  auth: true,
+
+  // Require captcha verification (default: false)
+  captcha: false,
+});
+```
+
+### Disabling Authentication
+
+For public actions (like contact forms), disable auth:
+
+```tsx
+export const submitContactForm = enhanceAction(
+  async (data) => {
+    // user parameter will be undefined
+    await sendEmail(data);
+    return { success: true };
+  },
+  {
+    schema: ContactFormSchema,
+    auth: false, // Allow unauthenticated users
+    captcha: true, // But require captcha for bot protection
+  }
+);
+```
+
+## Calling Server Actions from Components
+
+### With Forms
+
+The simplest approach uses React's form action:
+
+```tsx
+'use client';
+
+import { createTask } from './actions';
+
+export function CreateTaskForm({ accountId }: { accountId: string }) {
+  return (
+    <form action={createTask}>
+      <input type="hidden" name="accountId" value={accountId} />
+      <input
+        type="text"
+        name="title"
+        placeholder="Task title"
+        required
+      />
+      <button type="submit">Create Task</button>
+    </form>
+  );
+}
+```
+
+### With useActionState (React 19)
+
+For better control over loading and error states:
+
+```tsx
+'use client';
+
+import { useActionState } from 'react';
+import { createTask } from './actions';
+
+export function CreateTaskForm({ accountId }: { accountId: string }) {
+  const [state, formAction, isPending] = useActionState(createTask, null);
+
+  return (
+    <form action={formAction}>
+      <input type="hidden" name="accountId" value={accountId} />
+      <input type="text" name="title" placeholder="Task title" />
+
+      {state?.error && (
+        <p className="text-destructive">{state.error}</p>
+      )}
+
+      <button type="submit" disabled={isPending}>
+        {isPending ? 'Creating...' : 'Create Task'}
+      </button>
+    </form>
+  );
+}
+```
+
+### Direct Function Calls
+
+Call Server Actions directly for more complex scenarios:
+
+```tsx
+'use client';
+
+import { useState, useTransition } from 'react';
+import { createTask } from './actions';
+
+export function CreateTaskButton({ accountId }: { accountId: string }) {
+  const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  const handleClick = () => {
+    startTransition(async () => {
+      try {
+        const result = await createTask({
+          title: 'New Task',
+          accountId,
+        });
+
+        if (!result.success) {
+          setError('Failed to create task');
+        }
+      } catch (e) {
+        setError('An unexpected error occurred');
+      }
+    });
+  };
+
+  return (
+    <>
+      <button onClick={handleClick} disabled={isPending}>
+        {isPending ? 'Creating...' : 'Quick Add Task'}
+      </button>
+      {error && <p className="text-destructive">{error}</p>}
+    </>
+  );
+}
+```
+
+## Revalidating Data
+
+After mutations, revalidate cached data so the UI reflects changes:
+
+### Revalidate by Path
+
+```tsx
+'use server';
+
+import { revalidatePath } from 'next/cache';
+
+export const createTask = enhanceAction(
+  async (data, user) => {
+    const supabase = getSupabaseServerClient();
+    await supabase.from('tasks').insert({ /* ... */ });
+
+    // Revalidate the tasks page
+    revalidatePath('/tasks');
+
+    // Or revalidate with layout
+    revalidatePath('/tasks', 'layout');
+
+    return { success: true };
+  },
+  { schema: CreateTaskSchema }
+);
+```
+
+### Revalidate by Tag
+
+For more granular control, use cache tags:
+
+```tsx
+'use server';
+
+import { revalidateTag } from 'next/cache';
+
+export const updateTask = enhanceAction(
+  async (data, user) => {
+    const supabase = getSupabaseServerClient();
+    await supabase.from('tasks').update(data).eq('id', data.id);
+
+    // Revalidate all queries tagged with 'tasks'
+    revalidateTag('tasks');
+
+    // Or revalidate specific task
+    revalidateTag(`task-${data.id}`);
+
+    return { success: true };
+  },
+  { schema: UpdateTaskSchema }
+);
+```
+
+### Redirecting After Mutation
+
+```tsx
+'use server';
+
+import { redirect } from 'next/navigation';
+
+export const createTask = enhanceAction(
+  async (data, user) => {
+    const supabase = getSupabaseServerClient();
+    const { data: task } = await supabase
+      .from('tasks')
+      .insert({ /* ... */ })
+      .select('id')
+      .single();
+
+    // Redirect to the new task
+    redirect(`/tasks/${task.id}`);
+  },
+  { schema: CreateTaskSchema }
+);
+```
+
+## Error Handling
+
+### Returning Errors
+
+Return structured errors for the client to handle:
+
+```tsx
+'use server';
+
+export const createTask = enhanceAction(
+  async (data, user) => {
+    const supabase = getSupabaseServerClient();
+
+    // Check for duplicate title
+    const { data: existing } = await supabase
+      .from('tasks')
+      .select('id')
+      .eq('title', data.title)
+      .eq('account_id', data.accountId)
+      .single();
+
+    if (existing) {
+      return {
+        success: false,
+        error: 'A task with this title already exists',
+      };
+    }
+
+    const { error } = await supabase.from('tasks').insert({ /* ... */ });
+
+    if (error) {
+      // Log for debugging, return user-friendly message
+      console.error('Failed to create task:', error);
+      return {
+        success: false,
+        error: 'Failed to create task. Please try again.',
+      };
+    }
+
+    revalidatePath('/tasks');
+    return { success: true };
+  },
+  { schema: CreateTaskSchema }
+);
+```
+
+### Throwing Errors
+
+For unexpected errors, throw to trigger error boundaries:
+
+```tsx
+'use server';
+
+export const deleteTask = enhanceAction(
+  async (data, user) => {
+    const supabase = getSupabaseServerClient();
+
+    const { error } = await supabase
+      .from('tasks')
+      .delete()
+      .eq('id', data.taskId)
+      .eq('created_by', user.id); // Ensure ownership
+
+    if (error) {
+      // This will be caught by error boundaries
+      // and reported to your monitoring provider
+      throw new Error('Failed to delete task');
+    }
+
+    revalidatePath('/tasks');
+    return { success: true };
+  },
+  { schema: DeleteTaskSchema }
+);
+```
+
+## Captcha Protection
+
+For sensitive actions, add Cloudflare Turnstile captcha verification:
+
+### Server Action Setup
 
 ```tsx
 'use server';
@@ -64,97 +382,268 @@ Fantastic, let's see how we can use it.
 import { z } from 'zod';
 import { enhanceAction } from '@kit/next/actions';
 
-const ZodSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(6),
+const TransferFundsSchema = z.object({
+  amount: z.number().positive(),
+  toAccountId: z.string().uuid(),
+  captchaToken: z.string(), // Required when captcha: true
 });
 
-export const myServerAction = enhanceAction(
-  async function (data, user) {
-    // 1. "data" has been validated against the Zod schema, and it's safe to use
-    // 2. "user" is the authenticated user
-    
-    // ... your code here
-    return {
-      success: true,
-    };
+export const transferFunds = enhanceAction(
+  async (data, user) => {
+    // Captcha is verified before this runs
+    // ... transfer logic
   },
   {
-    schema: ZodSchema,
-  },
+    schema: TransferFundsSchema,
+    captcha: true, // Enables captcha verification
+  }
 );
 ```
 
-### Using a Captcha token protection
-
-If you want to protect your server actions with a captcha token, you can do so by passing the captcha site token to the `enhanceAction` function and setting the `captcha` flag to `true`.
+### Client Component with Captcha
 
 ```tsx
+'use client';
+
+import { useCaptcha } from '@kit/auth/captcha/client';
+import { transferFunds } from './actions';
+
+export function TransferForm({ captchaSiteKey }: { captchaSiteKey: string }) {
+  const captcha = useCaptcha({ siteKey: captchaSiteKey });
+
+  const handleSubmit = async (formData: FormData) => {
+    try {
+      const result = await transferFunds({
+        amount: Number(formData.get('amount')),
+        toAccountId: formData.get('toAccountId') as string,
+        captchaToken: captcha.token,
+      });
+
+      if (result.success) {
+        // Handle success
+      }
+    } finally {
+      // Always reset captcha after submission
+      captcha.reset();
+    }
+  };
+
+  return (
+    <form action={handleSubmit}>
+      <input type="number" name="amount" placeholder="Amount" />
+      <input type="text" name="toAccountId" placeholder="Recipient" />
+
+      {/* Render captcha widget */}
+      {captcha.field}
+
+      <button type="submit">Transfer</button>
+    </form>
+  );
+}
+```
+
+See [Captcha Protection](captcha-protection) for detailed setup instructions.
+
+## Real-World Example: Team Settings
+
+Here's a complete example of Server Actions for team management:
+
+```tsx
+// lib/server/team-actions.ts
 'use server';
 
+import { z } from 'zod';
+import { revalidatePath } from 'next/cache';
 import { enhanceAction } from '@kit/next/actions';
+import { getSupabaseServerClient } from '@kit/supabase/server-client';
+import { getLogger } from '@kit/shared/logger';
 
-export const myServerAction = enhanceAction(
-  async function (data, user) {
-    // ... your code here
-    return {
-      success: true,
-    };
+const UpdateTeamSchema = z.object({
+  teamId: z.string().uuid(),
+  name: z.string().min(2).max(50),
+  slug: z.string().min(2).max(30).regex(/^[a-z0-9-]+$/),
+});
+
+const InviteMemberSchema = z.object({
+  teamId: z.string().uuid(),
+  email: z.string().email(),
+  role: z.enum(['member', 'admin']),
+});
+
+const RemoveMemberSchema = z.object({
+  teamId: z.string().uuid(),
+  userId: z.string().uuid(),
+});
+
+export const updateTeam = enhanceAction(
+  async (data, user) => {
+    const logger = await getLogger();
+    const supabase = getSupabaseServerClient();
+
+    logger.info({ teamId: data.teamId, userId: user.id }, 'Updating team');
+
+    // Check if slug is taken
+    const { data: existing } = await supabase
+      .from('accounts')
+      .select('id')
+      .eq('slug', data.slug)
+      .neq('id', data.teamId)
+      .single();
+
+    if (existing) {
+      return {
+        success: false,
+        error: 'This URL is already taken',
+        field: 'slug',
+      };
+    }
+
+    const { error } = await supabase
+      .from('accounts')
+      .update({ name: data.name, slug: data.slug })
+      .eq('id', data.teamId);
+
+    if (error) {
+      logger.error({ error, teamId: data.teamId }, 'Failed to update team');
+      return { success: false, error: 'Failed to update team' };
+    }
+
+    revalidatePath(`/home/${data.slug}/settings`);
+    return { success: true };
   },
-  {
-    captcha: true,
-    schema: ZodSchema,
+  { schema: UpdateTeamSchema }
+);
+
+export const inviteMember = enhanceAction(
+  async (data, user) => {
+    const supabase = getSupabaseServerClient();
+
+    // Check if already a member
+    const { data: existing } = await supabase
+      .from('account_members')
+      .select('id')
+      .eq('account_id', data.teamId)
+      .eq('user_email', data.email)
+      .single();
+
+    if (existing) {
+      return { success: false, error: 'User is already a member' };
+    }
+
+    // Create invitation
+    const { error } = await supabase.from('invitations').insert({
+      account_id: data.teamId,
+      email: data.email,
+      role: data.role,
+      invited_by: user.id,
+    });
+
+    if (error) {
+      return { success: false, error: 'Failed to send invitation' };
+    }
+
+    revalidatePath(`/home/[account]/settings/members`, 'page');
+    return { success: true };
   },
+  { schema: InviteMemberSchema }
+);
+
+export const removeMember = enhanceAction(
+  async (data, user) => {
+    const supabase = getSupabaseServerClient();
+
+    // Prevent removing yourself
+    if (data.userId === user.id) {
+      return { success: false, error: 'You cannot remove yourself' };
+    }
+
+    const { error } = await supabase
+      .from('account_members')
+      .delete()
+      .eq('account_id', data.teamId)
+      .eq('user_id', data.userId);
+
+    if (error) {
+      return { success: false, error: 'Failed to remove member' };
+    }
+
+    revalidatePath(`/home/[account]/settings/members`, 'page');
+    return { success: true };
+  },
+  { schema: RemoveMemberSchema }
 );
 ```
 
-When calling the server action, we must supply the captcha token in the request body.
+## Common Mistakes
 
-The captcha token can be retrieved from the `useCaptchaToken` hook in the package `@kit/auth/captcha/client`.
-
-```tsx
-import { useCaptchaToken } from '@kit/auth/captcha/client';
-
-function Component() {
-  const captchaToken = useCaptchaToken();
-  
-  // ... your code here
-}
-```
-
-Now, when calling the server action, we can pass the captcha
+### Forgetting to Revalidate
 
 ```tsx
-import { useCaptchaToken } from '@kit/auth/captcha/client';
+// WRONG: Data changes but UI doesn't update
+export const updateTask = enhanceAction(async (data, user) => {
+  await supabase.from('tasks').update(data).eq('id', data.id);
+  return { success: true };
+}, { schema: UpdateTaskSchema });
 
-function Component() {
-  const captchaToken = useCaptchaToken();
-  
-  const onSubmit = async (params: {
-    email: string;
-    password: string;
-  }) => {
-    const response = await myServerAction({
-      ...params,
-      captchaToken,
-    });
-    
-    // ... your code here
-  };
-}
+// RIGHT: Revalidate after mutation
+export const updateTask = enhanceAction(async (data, user) => {
+  await supabase.from('tasks').update(data).eq('id', data.id);
+  revalidatePath('/tasks');
+  return { success: true };
+}, { schema: UpdateTaskSchema });
 ```
 
-NB: to use Captcha protection, you need to set the captcha token in the environment variables.
+### Using try/catch Incorrectly
 
-```bash
-CAPTCHA_SECRET_TOKEN=
-NEXT_PUBLIC_CAPTCHA_SITE_KEY=
+```tsx
+// WRONG: Swallowing errors silently
+export const createTask = enhanceAction(async (data, user) => {
+  try {
+    await supabase.from('tasks').insert(data);
+  } catch (e) {
+    // Error is lost, user sees "success"
+  }
+  return { success: true };
+}, { schema: CreateTaskSchema });
+
+// RIGHT: Return or throw errors
+export const createTask = enhanceAction(async (data, user) => {
+  const { error } = await supabase.from('tasks').insert(data);
+
+  if (error) {
+    return { success: false, error: 'Failed to create task' };
+  }
+
+  return { success: true };
+}, { schema: CreateTaskSchema });
 ```
 
-As a secret environment variable, please do not add it to the `.env` file. Instead, add it to the environment variables of your CI/CD system.
+### Not Validating Ownership
 
-The only captcha provider supported is Cloudflare Turnstile.
+```tsx
+// WRONG: Any user can delete any task
+export const deleteTask = enhanceAction(async (data, user) => {
+  await supabase.from('tasks').delete().eq('id', data.taskId);
+}, { schema: DeleteTaskSchema });
 
-#### Passing the Captcha Token to a Server Action
+// RIGHT: Verify ownership (or use RLS)
+export const deleteTask = enhanceAction(async (data, user) => {
+  const { error } = await supabase
+    .from('tasks')
+    .delete()
+    .eq('id', data.taskId)
+    .eq('created_by', user.id); // User can only delete their own tasks
 
-NB: you must pass the captcha token in the request body when calling the server action. The function's type checker will ensure that you pass the captcha token as it will error out if the token is not defined in the Zod schema as `captchaToken`.
+  if (error) {
+    return { success: false, error: 'Task not found or access denied' };
+  }
+
+  return { success: true };
+}, { schema: DeleteTaskSchema });
+```
+
+## Next Steps
+
+- [Route Handlers](route-handlers) - For webhooks and external APIs
+- [Captcha Protection](captcha-protection) - Protect sensitive actions
+- [React Query](react-query) - Combine with optimistic updates

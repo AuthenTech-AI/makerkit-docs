@@ -1,0 +1,127 @@
+---
+status: "published"
+title: "Package Architecture"
+label: "Packages"
+order: 2
+description: "Understand the monorepo package structure and how to use @kit packages effectively."
+---
+
+This kit uses a monorepo architecture with shared packages in the `packages/` directory. Some packages are "meta-packages" containing multiple sub-packages. Understanding this structure is crucial for effective development.
+
+## Package Overview
+
+### Core Packages
+
+**Foundation Layer**
+- `@kit/database` - Drizzle ORM, schema definitions, migrations
+- `@kit/rbac` - Pure role/permission utilities (NO dependencies on other @kit packages)
+- `@kit/shared` - Shared utilities and types
+- `@kit/policies` - Authorization policies
+- `@kit/action-middleware` - Server action middleware utilities
+
+**Authentication & Authorization**
+- `@kit/better-auth` - Better Auth configuration, auth utilities, server-side functions
+- `@kit/auth` - Auth components and client-side utilities
+- `@kit/otp` - One-time password generation and validation
+
+**Organization Management** (nested packages in `packages/organization/`)
+- `@kit/organization-core` - Organization lifecycle and helpers
+- `@kit/organization-hooks` - Organization lifecycle hooks
+- `@kit/organization-ui` - Organization settings UI components
+- `@kit/organization-policies` - Organization authorization policies
+
+**Account Management** (nested packages in `packages/account/`)
+- `@kit/account-core` - Account management and switching
+- `@kit/account-hooks` - Account lifecycle hooks
+- `@kit/account-ui` - Account settings UI components
+
+**UI & Styling**
+- `@kit/ui` - Shadcn UI components, reusable UI primitives
+- `@kit/i18n` - Internationalization and translations
+
+**Billing** (nested packages in `packages/billing/`)
+- `@kit/billing-api` - Billing API utilities
+- `@kit/billing-core` - Billing provider abstraction
+- `@kit/billing-ui` - Billing UI components
+- `@kit/billing-stripe` - Stripe integration
+
+**Features**
+- `@kit/storage` - File upload and storage providers
+- `@kit/analytics` - Analytics integration
+- `@kit/admin` - Admin dashboard and user management
+
+**Monitoring** (nested packages in `packages/monitoring/`)
+- `@kit/monitoring-api` - Monitoring API utilities
+- `@kit/monitoring-core` - Monitoring core functions
+- `@kit/sentry` - Sentry error tracking
+
+**CMS** (nested packages in `packages/cms/`)
+- `@kit/cms-core` - CMS client abstraction
+- `@kit/keystatic` - Keystatic integration
+- `@kit/wordpress` - WordPress integration
+
+**Email** (nested packages in `packages/mailers/`)
+- `@kit/mailers-core` - Email sending core utilities
+- `@kit/nodemailer` - Nodemailer integration
+- `@kit/resend` - Resend integration
+- `@kit/email-templates` - React Email templates
+
+## Package Dependency Flow
+
+Understanding dependencies helps avoid circular dependency errors:
+
+```
+┌─────────────────────────────────────────┐
+│     Pure Utilities (No Dependencies)   │
+├─────────────────────────────────────────┤
+│  @kit/rbac                             │
+│  @kit/shared                           │
+└──────────────┬──────────────────────────┘
+               │
+               ↓
+┌─────────────────────────────────────────┐
+│     Organization Layer                  │
+├─────────────────────────────────────────┤
+│  @kit/organizations                    │
+│  @kit/accounts                         │
+│  (imports from @kit/rbac)              │
+└──────────────┬──────────────────────────┘
+               │
+               ↓
+┌─────────────────────────────────────────┐
+│     Auth Layer                          │
+├─────────────────────────────────────────┤
+│  @kit/better-auth                      │
+│  (imports from @kit/rbac,              │
+│   @kit/organizations)                  │
+└──────────────┬──────────────────────────┘
+               │
+               ↓
+┌─────────────────────────────────────────┐
+│     Feature Layer                       │
+├─────────────────────────────────────────┤
+│  @kit/billing-stripe                   │
+│  @kit/storage                          │
+│  @kit/policies                         │
+└─────────────────────────────────────────┘
+```
+
+**Key Principle:** Lower layers cannot import from higher layers.
+
+## Should you create a new package?
+
+When you should create a new package? Ask yourself:
+- Is this functionality used by multiple apps?
+- Does it have clear boundaries and responsibilities?
+- Could other developers benefit from this code?
+
+If yes to these questions, it might be time to split your feature into a package - but it's not really required and may just be simpler to place your code in the main app directory in `apps/web/`.
+
+**Next Steps:**
+- Explore [Database](../database/overview)
+- Learn about [Authentication](../authentication/overview)
+- See [Adding Features](../development-guide/adding-features)
+
+---
+
+**Next:** [Configuration →](../configuration/overview)

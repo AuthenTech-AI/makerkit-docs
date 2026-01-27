@@ -1,19 +1,384 @@
 ---
 status: "published"
-title: "Adding a language selector to your application | Next.js Supabase SaaS Kit"
+title: "Language Selector Component | Next.js Supabase SaaS Kit"
 label: "Language Selector"
-description: "Learn how to use the Language selector in your application."
+description: "Learn how to add and customize the language selector component to let users switch languages in your application."
 order: 2
 ---
 
-You can import and use the `LanguageSelector` component and drop it anywhere in your application to allow users to change the language of the application.
+The `LanguageSelector` component lets users switch between available languages. It automatically displays all languages registered in your i18n settings.
+
+## Using the Language Selector
+
+Import and render the component anywhere in your application:
 
 ```tsx
 import { LanguageSelector } from '@kit/ui/language-selector';
 
-<LanguageSelector />
+export function SettingsPage() {
+  return (
+    <div>
+      <h2>Language Settings</h2>
+      <LanguageSelector />
+    </div>
+  );
+}
 ```
 
-This component is automatically populated with the languages that you have defined in the `i18n` configuration. When a user selects a language, the application will automatically change the language and update the UI.
+The component:
+- Reads available languages from your i18n configuration
+- Displays language names in the user's current language using `Intl.DisplayNames`
+- Saves the selection to a cookie (`lang`)
+- Refreshes the page to apply the new language
 
-It is already part of the Account settings when more than one language is defined in the `i18n` configuration. If you want, add it to any other part of your application.
+## Default Placement
+
+The language selector is already included in the personal account settings page when more than one language is configured. You'll find it at:
+
+```
+/home/settings → Account Settings → Language
+```
+
+If only one language is registered in `i18n.settings.ts`, the selector is hidden automatically.
+
+## Adding to Other Locations
+
+### Marketing Header
+
+Add the selector to your marketing site header:
+
+```tsx title="apps/web/app/(marketing)/_components/site-header.tsx"
+import { LanguageSelector } from '@kit/ui/language-selector';
+
+import { languages } from '~/lib/i18n/i18n.settings';
+
+export function SiteHeader() {
+  const showLanguageSelector = languages.length > 1;
+
+  return (
+    <header>
+      <nav>
+        {/* Navigation items */}
+      </nav>
+
+      {showLanguageSelector && (
+        <LanguageSelector />
+      )}
+    </header>
+  );
+}
+```
+
+### Footer
+
+Add language selection to your footer:
+
+```tsx title="apps/web/app/(marketing)/_components/site-footer.tsx"
+import { LanguageSelector } from '@kit/ui/language-selector';
+
+import { languages } from '~/lib/i18n/i18n.settings';
+
+export function SiteFooter() {
+  return (
+    <footer>
+      <div>
+        {/* Footer content */}
+      </div>
+
+      {languages.length > 1 && (
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Language:</span>
+          <LanguageSelector />
+        </div>
+      )}
+    </footer>
+  );
+}
+```
+
+### Dashboard Sidebar
+
+Include in the application sidebar:
+
+```tsx title="apps/web/components/sidebar.tsx"
+import { LanguageSelector } from '@kit/ui/language-selector';
+
+import { languages } from '~/lib/i18n/i18n.settings';
+
+export function Sidebar() {
+  return (
+    <aside>
+      {/* Sidebar navigation */}
+
+      <div className="mt-auto p-4">
+        {languages.length > 1 && (
+          <LanguageSelector />
+        )}
+      </div>
+    </aside>
+  );
+}
+```
+
+## Handling Language Changes
+
+The `onChange` prop lets you run custom logic when the language changes:
+
+```tsx
+import { LanguageSelector } from '@kit/ui/language-selector';
+
+export function LanguageSettings() {
+  const handleLanguageChange = (locale: string) => {
+    // Track analytics
+    analytics.track('language_changed', { locale });
+
+    // Update user preferences in database
+    updateUserPreferences({ language: locale });
+  };
+
+  return (
+    <LanguageSelector onChange={handleLanguageChange} />
+  );
+}
+```
+
+The `onChange` callback fires before the page refresh, so keep it synchronous or use a fire-and-forget pattern for async operations.
+
+## How Language Detection Works
+
+The system determines the user's language through this priority chain:
+
+### 1. Cookie Check
+
+First, the system checks for a `lang` cookie:
+
+```tsx title="apps/web/lib/i18n/i18n.server.ts"
+const langCookieValue = cookieStore.get(I18N_COOKIE_NAME)?.value;
+```
+
+This cookie is set when users select a language via the `LanguageSelector`.
+
+### 2. Browser Preference (Optional)
+
+If `NEXT_PUBLIC_LANGUAGE_PRIORITY=user` and no cookie exists, the system reads the browser's `Accept-Language` header:
+
+```tsx
+const userPreferredLanguage = await getPreferredLanguageFromBrowser();
+```
+
+This respects the user's system/browser language settings.
+
+### 3. Default Fallback
+
+If no preference is detected, the system uses `NEXT_PUBLIC_DEFAULT_LOCALE`:
+
+```bash title=".env"
+NEXT_PUBLIC_DEFAULT_LOCALE=en
+```
+
+## Configuration Options
+
+### Language Priority
+
+Control whether to respect browser preferences:
+
+```bash title=".env"
+# 'application' - Always use default locale (recommended for most apps)
+# 'user' - Respect browser Accept-Language header
+NEXT_PUBLIC_LANGUAGE_PRIORITY=application
+```
+
+When set to `user`:
+- New visitors see content in their browser language (if supported)
+- After selecting a language, their choice is saved to the cookie
+- The cookie takes precedence over browser preference
+
+When set to `application`:
+- All users start with the default language
+- Users must manually select their preferred language
+- Provides a consistent experience for all visitors
+
+### Cookie Settings
+
+The language cookie is configured in the client-side initialization:
+
+```tsx title="packages/i18n/src/i18n.client.ts"
+detection: {
+  order: ['cookie', 'htmlTag', 'navigator'],
+  caches: ['cookie'],
+  lookupCookie: 'lang',
+  cookieMinutes: 60 * 24 * 365, // 1 year
+  cookieOptions: {
+    sameSite: 'lax',
+    secure: window.location.protocol === 'https:',
+    path: '/',
+  },
+}
+```
+
+The cookie persists for one year and is accessible site-wide.
+
+## Styling the Selector
+
+The `LanguageSelector` uses Shadcn UI's `Select` component. Customize it through your Tailwind configuration or by wrapping it:
+
+```tsx title="components/custom-language-selector.tsx"
+import { LanguageSelector } from '@kit/ui/language-selector';
+
+export function CustomLanguageSelector() {
+  return (
+    <div className="[&_button]:w-[180px] [&_button]:bg-muted">
+      <LanguageSelector />
+    </div>
+  );
+}
+```
+
+For deeper customization, you can create your own selector using the same underlying logic:
+
+```tsx title="components/language-dropdown.tsx"
+'use client';
+
+import { useCallback, useMemo } from 'react';
+
+import { useTranslation } from 'react-i18next';
+import { Globe } from 'lucide-react';
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@kit/ui/dropdown-menu';
+import { Button } from '@kit/ui/button';
+
+export function LanguageDropdown() {
+  const { i18n } = useTranslation();
+  const { language: currentLanguage, options } = i18n;
+
+  const locales = (options.supportedLngs as string[]).filter(
+    (locale) => locale.toLowerCase() !== 'cimode',
+  );
+
+  const languageNames = useMemo(() => {
+    return new Intl.DisplayNames([currentLanguage], { type: 'language' });
+  }, [currentLanguage]);
+
+  const handleLanguageChange = useCallback(
+    async (locale: string) => {
+      await i18n.changeLanguage(locale);
+      window.location.reload();
+    },
+    [i18n],
+  );
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon">
+          <Globe className="h-4 w-4" />
+        </Button>
+      </DropdownMenuTrigger>
+
+      <DropdownMenuContent align="end">
+        {locales.map((locale) => {
+          const label = languageNames.of(locale) ?? locale;
+          const isActive = locale === currentLanguage;
+
+          return (
+            <DropdownMenuItem
+              key={locale}
+              onClick={() => handleLanguageChange(locale)}
+              className={isActive ? 'bg-accent' : ''}
+            >
+              {label}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+```
+
+## SEO Considerations
+
+For multi-language sites, consider adding `hreflang` tags to help search engines understand your language variants:
+
+```tsx title="apps/web/app/layout.tsx"
+import { languages } from '~/lib/i18n/i18n.settings';
+
+export function generateMetadata() {
+  const baseUrl = 'https://yoursite.com';
+
+  return {
+    alternates: {
+      languages: Object.fromEntries(
+        languages.map((lang) => [lang, `${baseUrl}/${lang}`])
+      ),
+    },
+  };
+}
+```
+
+For URL-based language routing (e.g., `/en/about`, `/es/about`), you would need to implement additional routing logic beyond what Makerkit provides by default.
+
+## Testing Language Switching
+
+To test language switching during development:
+
+1. **Browser DevTools method**:
+    - Open DevTools > Application > Cookies
+    - Find your domain
+    - Add or modify the `lang` cookie value
+    - Refresh the page
+2. **Component method**:
+    - Navigate to account settings or wherever you placed the selector
+    - Select a different language
+    - Verify the page refreshes with new translations
+
+## Accessibility Considerations
+
+The default `LanguageSelector` uses Shadcn UI's `Select` component which provides:
+
+- Keyboard navigation (arrow keys, Enter, Escape)
+- Screen reader announcements
+- Focus management
+
+When creating custom language selectors, ensure you include:
+
+```tsx
+<DropdownMenu>
+  <DropdownMenuTrigger asChild>
+    <Button
+      variant="ghost"
+      size="icon"
+      aria-label="Change language"
+      aria-haspopup="listbox"
+    >
+      <Globe className="h-4 w-4" />
+      <span className="sr-only">
+        Current language: {languageNames.of(currentLanguage)}
+      </span>
+    </Button>
+  </DropdownMenuTrigger>
+  {/* ... */}
+</DropdownMenu>
+```
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Why does the page reload when I change the language?", "answer": "The page reloads to ensure all Server Components re-render with the new language. Translation data is cached per-request on the server, so a fresh request is needed to load the new language's translations."},
+     {"question": "Can I change the language without a page reload?", "answer": "Partially. Client Components update immediately via i18n.changeLanguage(), but Server Components require a reload. For a fully SPA experience, you would need to convert all translated content to Client Components, which has performance trade-offs."},
+     {"question": "How do I hide the language selector for single-language apps?", "answer": "The selector automatically hides when only one language is in the languages array. You can also conditionally render it: {languages.length > 1 && <LanguageSelector />}"},
+     {"question": "Can I save language preference to the user's profile?", "answer": "Yes. Use the onChange prop to save to your database when the language changes. On page load, you can set the initial language from the user profile by setting the lang cookie server-side."},
+     {"question": "Does the language selector work with URL-based routing?", "answer": "Makerkit uses cookie-based language persistence by default. For URL-based routing (/en/about, /es/about), you would need to implement custom Next.js middleware and update the routing structure."}
+   ]
+/%}
+
+## Related Documentation
+
+- [Using Translations](/docs/next-supabase-turbo/translations/using-translations) - Learn how to use translations
+- [Adding Translations](/docs/next-supabase-turbo/translations/adding-translations) - Add new languages
+- [Email Translations](/docs/next-supabase-turbo/translations/email-translations) - Translate email templates

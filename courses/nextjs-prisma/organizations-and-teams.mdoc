@@ -1,0 +1,527 @@
+---
+status: "published"
+title: "Implement RBAC with Prisma and Better Auth in Next.js"
+label: "Organizations & Teams"
+order: 7
+description: "Build role-based access control in your Prisma-powered SaaS. Gate server actions by role, implement author-based permissions, and create role-aware React components."
+---
+
+Role-based access control determines what users can do based on their team membership. In TeamPulse, members submit feedback while admins manage boards and statuses.
+
+**What you'll build:**
+- Permission checks in server actions
+- Role-aware UI that hides unauthorized actions
+- Author-based permissions (users can edit their own content)
+- Graceful error handling for denied actions
+
+**Prerequisites:** Complete [Module 6: Authentication](./authentication) first.
+
+---
+
+## TeamPulse Permission Matrix
+
+| Action | Member | Admin | Owner |
+|--------|--------|-------|-------|
+| **Boards** ||||
+| View boards | Yes | Yes | Yes |
+| Create/Edit/Delete boards | No | Yes | Yes |
+| **Feedback** ||||
+| View/Submit feedback | Yes | Yes | Yes |
+| Edit/Delete any feedback | No | Yes | Yes |
+
+Members can view and submit feedback. Admins and owners manage boards and moderate all feedback.
+
+**Note:** Organization-level permissions (inviting members, billing, roles) use Makerkit's built-in settings - no custom RBAC needed.
+
+---
+
+## Role Hierarchy
+
+Makerkit uses a hierarchical role system:
+
+| Role | Level | Description |
+|------|-------|-------------|
+| **Owner** | 100 | Full control including billing and org deletion |
+| **Admin** | 50 | Team management and feature configuration |
+| **Member** | 10 | Standard access to features |
+
+Users can only manage members with a **lower** hierarchy level than their own.
+
+Customize the hierarchy in `packages/rbac/src/rbac.config.ts`. See the [Roles and Permissions Documentation](/docs/nextjs-prisma/members-management/roles-permissions) for details.
+
+---
+
+## Server vs Client Permission Checks
+
+Permission checks happen in two places:
+
+- **Server-side:** Enforces permissions in server actions. This is the source of truth - always check here before mutations.
+- **Client-side:** Hides UI elements from unauthorized users. Purely for UX; doesn't prevent determined users from attempting actions.
+
+### Server-Side Middleware
+
+Protect server actions with middleware from `@kit/action-middleware`:
+
+- `withMinRole('admin')` - Requires minimum role level
+- `withFeaturePermission({ board: ['create'] })` - Checks resource-based RBAC permissions
+
+```typescript
+import { authenticatedActionClient, withMinRole } from '@kit/action-middleware';
+
+export const createBoardAction = authenticatedActionClient
+  .use(withMinRole('admin'))
+  .inputSchema(createBoardSchema)
+  .action(async ({ parsedInput: data, ctx }) => {
+    // Only admins/owners reach this point
+    // ctx.role and ctx.organizationId are available
+  });
+```
+
+**Note**: these checks do not control the access/permissions to the entity itself, only that the user has the minimum role to perform the action. To control the access to the organization - you need to make sure the user has the necessary permissions to access the organization.
+
+### Client-Side Checks
+
+Pass the role from server components as a prop, then use simple comparisons:
+
+```typescript
+const canManage = role === 'admin' || role === 'owner';
+```
+
+For checking if a user can manage another member, use `canTargetRole` from `@kit/rbac`.
+
+---
+
+## Protecting Server Actions
+
+### Board Actions
+
+Restrict board creation to admins and owners using `withMinRole`:
+
+```typescript {% title="apps/web/lib/boards/boards-server-actions.ts" %}
+import { authenticatedActionClient, withMinRole } from '@kit/action-middleware';
+
+export const createBoardAction = authenticatedActionClient
+  .use(withMinRole('admin'))
+  .inputSchema(createBoardSchema)
+  .action(async ({ parsedInput: data, ctx }) => {
+    const logger = await getLogger();
+
+    logger.info(
+      { userId: ctx.user.id, organizationId: ctx.organizationId, name: data.name },
+      'Creating board',
+    );
+
+    // ... create board logic
+  });
+```
+
+If a member attempts this action, the middleware throws `"Unauthorized: admin role required"`.
+
+### Author-Based Permissions
+
+Some actions allow users to edit their own content while admins can edit anyone's. Use `organizationActionClient` which provides `ctx.organizationId` and `ctx.role`:
+
+```typescript {% title="apps/web/lib/feedback/feedback-server-actions.ts" %}
+import { organizationActionClient } from '@kit/action-middleware';
+
+export const updateFeedbackAction = organizationActionClient
+  .inputSchema(updateFeedbackSchema)
+  .action(async ({ parsedInput: data, ctx }) => {
+    const existing = await verifyFeedbackAccess(data.id, ctx.organizationId);
+
+    if (!existing) {
+      throw new Error('Feedback not found');
+    }
+
+    const isAuthor = existing.authorId === ctx.user.id;
+    const isAdmin = ctx.role === 'admin' || ctx.role === 'owner';
+
+    if (!isAuthor && !isAdmin) {
+      throw new Error('You can only edit your own feedback');
+    }
+
+    // ... update feedback logic
+  });
+```
+
+**Note**: we are using the `verifyFeedbackAccess` function to check if the user has access to the feedback item. This function is not part of the Makerkit framework, but it is a custom function that you can use to check if the user has access to the feedback item that we defined in the [Feedback Items Module](./feedback-items).
+
+In general, you should always make sure to check the permissions of the entity itself before performing any action on it.
+
+---
+
+## Role-Aware UI Components
+
+Pass the role from server components to client components as a prop.
+
+### Load Role in Server Component
+
+```typescript {% title="apps/web/app/[locale]/(internal)/boards/page.tsx" %}
+import { loadCurrentUserRole } from '@kit/better-auth/context';
+
+export default async function BoardsPage() {
+  const boards = await loadBoards();
+  const role = await loadCurrentUserRole();
+
+  return (
+    <PageBody>
+      <BoardsHeader role={role} />
+      <BoardsList boards={boards} role={role} />
+    </PageBody>
+  );
+}
+```
+
+### Conditionally Render UI
+
+Let's go back to the boards page, and notice how we are using the `auth.api.hasPermission` function to check if the user has the permission to create a board:
+
+```typescript
+export default async function BoardsPage() {
+  const [boards, { success: hasPermission }, billingLimit] = await Promise.all([
+    loadBoards(),
+    auth.api.hasPermission({
+      headers: await headers(),
+      body: {
+        permissions: {
+          board: ['create'],
+        },
+      },
+    }),
+    checkBoardsLimit(),
+  ]);
+
+  // User can create if they have RBAC permission AND billing limit allows
+  const canCreateBoard = hasPermission && billingLimit.allowed;
+```
+
+We use `canCreateBoard` to conditionally render the create board button. This is a common pattern in Makerkit applications to conditionally render UI based on permissions.
+
+**Note**: this is only useful as a UX improvement, as the server action will still enforce the permissions - and that's where it's important to enforce the permissions.
+
+---
+
+## Custom RBAC Permissions
+
+`withMinRole` handles simple hierarchy checks ("admins and above"). For granular control, define resource-based permissions in `packages/rbac/src/rbac.config.ts`:
+
+### Configure Resources and Permissions
+
+The `defineRBACConfig` function is used to define the RBAC configuration for the application. 
+
+It is located in the `packages/rbac/src/rbac.config.ts` file. This file is the only file you need to edit for all RBAC customizations.
+
+If you have followed the [Data Model and First Feature Module](./data-model-and-first-feature), you will have defined the resources and actions for the boards feature. 
+
+Let's take a look at the RBAC configuration for the boards feature:
+
+```typescript {% title="packages/rbac/src/rbac.config.ts" %}
+import { defineRBACConfig } from './core/factory';
+
+export default defineRBACConfig({
+  resources: {
+    BOARD: 'board',
+    FEEDBACK: 'feedback',
+  },
+
+  accessController: {
+    board: ['create', 'read', 'update', 'delete'],
+    feedback: ['create', 'read', 'update', 'delete'],
+  },
+
+  permissions: {
+    owner: {
+      board: ['create', 'read', 'update', 'delete'],
+      feedback: ['create', 'read', 'update', 'delete'],
+    },
+    admin: {
+      board: ['create', 'read', 'update', 'delete'],
+      feedback: ['create', 'read', 'update', 'delete'],
+    },
+    member: {
+      board: ['read'],
+      feedback: ['create', 'read'],
+    },
+  },
+});
+```
+
+Back there we did not explain well the `defineRBACConfig` function, so let's do it now. The `defineRBACConfig` function is used to define the RBAC configuration for the application. It takes an object with the following properties:
+
+- `resources`: the resources that are available in the application
+- `accessController`: the actions that are available for each resource
+- `permissions`: the permissions that are available for each role
+
+Let's take a look at an example to understand how it works:
+
+- The `resources` property is an object with the resources that are available in the application
+- The `accessController` property is an object with the actions that are available for each resource
+- The `permissions` property is an object with the permissions that are available for each role
+
+Let's assume you are building a platform for a company that allows users to create and manage their own projects. You will have the following resources:
+- Project
+- Task
+
+You may want to have the following actions:
+- Create a project (create)
+- Update a project (update)
+- Delete a project (delete)
+- Create a task (create)
+- Update a task (update)
+- Delete a task (delete)
+
+And you may want to have the following roles:
+- Owner
+- Admin
+- Member
+
+You can then define the RBAC configuration for the application as follows:
+
+```typescript
+
+export default defineRBACConfig({
+  resources: {
+    PROJECT: 'project',
+    TASK: 'task',
+  },
+  accessController: {
+    project: ['create', 'read', 'update', 'delete'],
+    task: ['create', 'read', 'update', 'delete'],
+  },
+  permissions: {
+    owner: { 
+      project: ['create', 'read', 'update', 'delete'], 
+      task: ['create', 'read', 'update', 'delete'] 
+    },
+    admin: { 
+      project: ['create', 'read', 'update'], 
+      task: ['create', 'read', 'update'] 
+    },
+    member: { 
+      project: ['read'], 
+      task: ['read'] 
+    },
+  },
+});
+```
+
+This will give:
+- the **owner** the ability to create, read, update and delete projects and tasks. 
+- the **admin** the ability to create, read and update projects and tasks, but not delete them. 
+- the **member** the ability to read projects and tasks, but not create or update them.
+
+## Use in Server Actions
+
+To apply the permissions to a server action, you can use the `withFeaturePermission` middleware. This middleware will check if the user has the necessary permissions to perform the action:
+
+```typescript {% title="apps/web/lib/boards/boards-server-actions.ts" %}
+import { authenticatedActionClient, withFeaturePermission } from '@kit/action-middleware';
+
+export const createBoardAction = authenticatedActionClient
+  .use(withFeaturePermission({ board: ['create'] }))
+  .inputSchema(createBoardSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    // Only roles with board:create permission reach here
+  });
+```
+
+Unauthorized requests throw `"Unauthorized: board:create"`.
+
+Let's continue to add permissions to the server actions for the feedback feature.
+
+```typescript {% title="apps/web/lib/feedback/feedback-server-actions.ts" %}
+import { authenticatedActionClient, withFeaturePermission } from '@kit/action-middleware';
+
+export const createFeedbackAction = authenticatedActionClient
+  .use(withFeaturePermission({ feedback: ['create'] }))
+  .inputSchema(createFeedbackSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    // Only roles with feedback:create permission reach here
+  });
+```
+
+And the same for the update feedback action:
+
+```typescript {% title="apps/web/lib/feedback/feedback-server-actions.ts" %}
+export const updateFeedbackAction = authenticatedActionClient
+  .use(withFeaturePermission({ feedback: ['update'] }))
+  .inputSchema(updateFeedbackSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    // Only roles with feedback:update permission reach here
+  });
+```
+
+And the same for the delete feedback action:
+
+```typescript {% title="apps/web/lib/feedback/feedback-server-actions.ts" %}
+export const deleteFeedbackAction = authenticatedActionClient
+  .use(withFeaturePermission({ feedback: ['delete'] }))
+  .inputSchema(deleteFeedbackSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    // Only roles with feedback:delete permission reach here
+  });
+```
+
+### Check Permissions in Server Components
+
+To check if the user has the necessary permissions to perform the action in a server component, you can use the `auth.api.hasPermission` function. This function will check if the user has the necessary permissions to perform the action:
+
+```tsx
+import { auth } from '@kit/better-auth';
+
+const { success } = await auth.api.hasPermission({
+  headers: await headers(),
+  body: {
+    permissions: {
+      board: ['create'],
+    },
+  },
+});
+```
+
+We used the same API to check the permissions in the server component to conditionally render the create board button.
+
+See the [Better Auth Documentation](https://www.better-auth.com/docs/plugins/organization#permissions) for more options.
+
+---
+
+## Handling Permission Errors
+
+Handle denied permissions gracefully with toast notifications in the client component:
+
+```typescript
+'use client';
+
+import { useAction } from 'next-safe-action/hooks';
+import { toast } from '@kit/ui/sonner';
+import { Button } from '@kit/ui/button';
+import { createBoardAction } from '@lib/boards/boards-server-actions';
+
+export function CreateBoardButton() {
+  const { execute, status } = useAction(createBoardAction, {
+    onSuccess: () => {
+      toast.success('Board created')
+    },
+    onError: ({ error }) => {
+      toast.error(error.serverError ?? 'Failed to create board');
+    },
+  });
+
+  return (
+    <Button
+      onClick={() => execute({ name: 'New Board' })}
+      disabled={status === 'executing'}
+    >
+      Create Board
+    </Button>
+  );
+}
+```
+
+Permission errors appear in `error.serverError` with messages like `"Unauthorized: admin role required"`.
+
+Better yet, define errors at `apps/web/i18n/messages/en/errors.json` to handle the errors gracefully in the client component:
+
+```json
+{
+  "CANNOT_CREATE_BOARD": "You are not authorized to create boards"
+}
+```
+
+Then, you can use the `t` function to translate the error message in the server component:
+
+```typescript
+import { getTranslations } from 'next-intl';
+
+const t = await getTranslations('errors');
+
+toast.error(t('CANNOT_CREATE_BOARD'));
+```
+
+Alternatively, you can use the `Trans` component to translate the error message in both server and client components:
+
+```typescript
+import { Trans } from '@kit/ui/trans';
+
+toast.error(<Trans i18nKey="errors.CANNOT_CREATE_BOARD" />);
+```
+
+---
+
+## Testing Permissions
+
+Test the invitation flow to verify permissions work correctly.
+
+### Invite a Member
+
+1. Go to `/settings/members`
+2. Click **Invite Member**
+3. Enter an email and select **Member** role
+4. Click **Send Invitation**
+
+### Accept the Invitation
+
+1. Open Mailpit at http://localhost:8025
+2. Click the invitation link
+3. Sign up and accept the invitation
+
+### Verify Member Restrictions
+
+Sign in as the new member:
+
+- **Can view boards** - Boards list page loads
+- **Cannot create boards** - Button is hidden
+- **Can submit feedback** - "Add Feedback" works
+- **Can edit own feedback** - Actions menu shows Edit
+- **Cannot edit others' feedback** - No actions menu on others' items
+
+---
+
+## Checkpoint
+
+Test each role:
+
+| Action | Owner | Admin | Member |
+|--------|-------|-------|--------|
+| Create/edit/delete boards | ✓ | ✓ | ✗ |
+| Edit/delete any feedback | ✓ | ✓ | Own only |
+| Change feedback status | ✓ | ✓ | ✗ |
+| Invite members | ✓ | ✓ (not owners) | ✗ |
+
+Run quality checks:
+
+```bash
+pnpm typecheck
+pnpm lint:fix
+pnpm format:fix
+```
+
+---
+
+## Summary
+
+TeamPulse now has role-based access control: server actions enforce permissions, UI hides unauthorized actions, and users can edit their own content.
+
+**Next:** [Module 8: Billing & Subscriptions](./billing-and-subscriptions) adds Stripe integration with plan-based feature limits.
+
+---
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "What roles are available in Makerkit by default?", "answer": "Makerkit includes three default roles with a hierarchical structure: Owner (level 100) has full control including billing and org deletion, Admin (level 50) can manage teams and features, and Member (level 10) has standard feature access. Users can only manage members with lower hierarchy levels."},
+     {"question": "How do I protect server actions with role checks?", "answer": "Use withMinRole('admin') middleware for simple hierarchy checks, or withFeaturePermission({ resource: ['action'] }) for granular RBAC. Both are imported from @kit/action-middleware and chained before the action handler."},
+     {"question": "Where do I configure custom RBAC permissions?", "answer": "All RBAC customization happens in packages/rbac/src/rbac.config.ts. Define resources, accessController actions, and permissions per role using the defineRBACConfig function."},
+     {"question": "How do I check permissions in React Server Components?", "answer": "Use auth.api.hasPermission() with the request headers and a permissions object specifying the resource and actions to check. This returns { success: boolean } to conditionally render UI elements."},
+     {"question": "Can users edit their own content regardless of role?", "answer": "Yes. Implement author-based permissions by checking if existing.authorId === ctx.user.id alongside role checks. This pattern allows users to edit their own content while admins can edit everything."}
+   ]
+/%}
+
+---
+
+## Learn More
+
+- [Organizations Documentation](/docs/nextjs-prisma/organizations/overview)
+- [RBAC Documentation](/docs/nextjs-prisma/members-management/overview)
+- [Better Auth Organizations Plugin](https://www.better-auth.com/docs/plugins/organizations)
+- [Better Auth Access Control](https://www.better-auth.com/docs/plugins/access)

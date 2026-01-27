@@ -1,0 +1,490 @@
+---
+status: "published"
+title: "Using the Drizzle Client"
+label: "Client"
+order: 5
+description: "Learn how to use the Drizzle client for queries, inserts, updates, transactions, and relational queries in the Next.js Drizzle SaaS Kit."
+---
+
+The Drizzle client provides two APIs for querying data: the **Select API** (SQL-like) and the **Query API** (relational). Both are fully type-safe, meaning TypeScript catches errors at compile time rather than runtime.
+
+## Importing
+
+Import the client and schema from `@kit/database`:
+
+```typescript
+import { db, user, organization, member } from '@kit/database';
+```
+
+The `db` object is the Drizzle client. The table exports (`user`, `organization`, etc.) are used in queries to reference columns and build conditions.
+
+## Select API (SQL-like)
+
+The Select API maps closely to SQL. If you know SQL, this feels familiar. The queries you write look like the SQL they generate.
+
+### Basic Select
+
+```typescript
+import { eq, and, desc, like } from 'drizzle-orm';
+import { db, user } from '@kit/database';
+
+// Select all users
+const allUsers = await db.select().from(user);
+
+// Select with filter
+const activeUsers = await db
+  .select()
+  .from(user)
+  .where(eq(user.banned, false));
+
+// Select specific columns
+const userEmails = await db
+  .select({ id: user.id, email: user.email })
+  .from(user);
+
+// Order and limit
+const recentUsers = await db
+  .select()
+  .from(user)
+  .orderBy(desc(user.createdAt))
+  .limit(10);
+```
+
+### Filters
+
+```typescript
+import { eq, ne, gt, gte, lt, lte, like, ilike, and, or, isNull, inArray } from 'drizzle-orm';
+
+// Equality
+.where(eq(user.email, 'test@example.com'))
+
+// Not equal
+.where(ne(user.role, 'admin'))
+
+// Comparisons
+.where(gt(user.createdAt, new Date('2024-01-01')))
+
+// Pattern matching (case-insensitive)
+.where(ilike(user.name, '%john%'))
+
+// Null checks
+.where(isNull(user.image))
+
+// In array
+.where(inArray(user.role, ['admin', 'owner']))
+
+// Multiple conditions (AND)
+.where(and(
+  eq(user.banned, false),
+  isNull(user.banExpires)
+))
+
+// Multiple conditions (OR)
+.where(or(
+  eq(user.role, 'admin'),
+  eq(user.role, 'owner')
+))
+```
+
+### Joins
+
+```typescript
+import { eq } from 'drizzle-orm';
+import { db, user, member, organization } from '@kit/database';
+
+// Inner join
+const memberships = await db
+  .select({
+    userName: user.name,
+    orgName: organization.name,
+    role: member.role,
+  })
+  .from(member)
+  .innerJoin(user, eq(member.userId, user.id))
+  .innerJoin(organization, eq(member.organizationId, organization.id));
+
+// Left join (nullable results)
+const usersWithOrgs = await db
+  .select()
+  .from(user)
+  .leftJoin(member, eq(user.id, member.userId));
+```
+
+### Insert
+
+```typescript
+import { db, user, organization } from '@kit/database';
+
+// Single insert with returning
+const [newUser] = await db
+  .insert(user)
+  .values({
+    id: crypto.randomUUID(),
+    name: 'John Doe',
+    email: 'john@example.com',
+    emailVerified: false,
+  })
+  .returning();
+
+// Insert with returning specific columns
+const [{ id }] = await db
+  .insert(organization)
+  .values({
+    id: crypto.randomUUID(),
+    name: 'Acme Corp',
+    slug: 'acme-corp',
+    createdAt: new Date(),
+  })
+  .returning({ id: organization.id });
+
+// Bulk insert
+await db.insert(member).values([
+  { id: crypto.randomUUID(), userId: 'user1', organizationId: 'org1', role: 'owner', createdAt: new Date() },
+  { id: crypto.randomUUID(), userId: 'user2', organizationId: 'org1', role: 'member', createdAt: new Date() },
+]);
+```
+
+### Update
+
+```typescript
+import { eq } from 'drizzle-orm';
+import { db, user } from '@kit/database';
+
+// Update with filter
+await db
+  .update(user)
+  .set({ name: 'Jane Doe' })
+  .where(eq(user.id, userId));
+
+// Update with returning
+const [updated] = await db
+  .update(user)
+  .set({ emailVerified: true })
+  .where(eq(user.id, userId))
+  .returning();
+```
+
+{% callout type="warning" title="Always include a WHERE clause" %}
+Updates without a `where()` clause update all rows in the table. Drizzle doesn't warn you about this at compile time.
+{% /callout %}
+
+### Delete
+
+```typescript
+import { eq, lt } from 'drizzle-orm';
+import { db, session } from '@kit/database';
+
+// Delete by ID
+await db.delete(session).where(eq(session.id, sessionId));
+
+// Delete expired sessions
+await db.delete(session).where(lt(session.expiresAt, new Date()));
+```
+
+### Upsert (Insert or Update)
+
+```typescript
+import { db, subscription } from '@kit/database';
+
+await db
+  .insert(subscription)
+  .values({
+    id: subscriptionId,
+    plan: 'pro',
+    referenceId: organizationId,
+    status: 'active',
+  })
+  .onConflictDoUpdate({
+    target: subscription.id,
+    set: {
+      plan: 'pro',
+      status: 'active',
+    },
+  });
+```
+
+## Query API (Relational)
+
+The Query API provides a higher-level interface for fetching related data without writing joins. It requires relations to be defined in your schema (the kit's `core.ts` includes these).
+
+### Basic Query
+
+```typescript
+import { eq } from 'drizzle-orm';
+import { db } from '@kit/database';
+
+// Find one
+const foundUser = await db.query.user.findFirst({
+  where: (user, { eq }) => eq(user.email, 'test@example.com'),
+});
+
+// Find many
+const allOrgs = await db.query.organization.findMany({
+  limit: 10,
+  orderBy: (org, { desc }) => desc(org.createdAt),
+});
+```
+
+### With Relations
+
+```typescript
+// User with their organization memberships
+const userWithMemberships = await db.query.user.findFirst({
+  where: (user, { eq }) => eq(user.id, userId),
+  with: {
+    members: {
+      with: {
+        organization: true,
+      },
+    },
+  },
+});
+
+// Organization with members and their user profiles
+const orgWithMembers = await db.query.organization.findFirst({
+  where: (org, { eq }) => eq(org.id, orgId),
+  with: {
+    members: {
+      with: {
+        user: {
+          columns: {
+            id: true,
+            name: true,
+            email: true,
+            image: true,
+          },
+        },
+      },
+    },
+  },
+});
+```
+
+### Selecting Columns
+
+```typescript
+const users = await db.query.user.findMany({
+  columns: {
+    id: true,
+    name: true,
+    email: true,
+    // Omit sensitive fields like password hash
+  },
+});
+```
+
+### Filtering Relations
+
+```typescript
+const orgWithActiveMembers = await db.query.organization.findFirst({
+  where: (org, { eq }) => eq(org.id, orgId),
+  with: {
+    members: {
+      where: (member, { eq }) => eq(member.role, 'admin'),
+      orderBy: (member, { desc }) => desc(member.createdAt),
+      limit: 5,
+    },
+  },
+});
+```
+
+## Transactions
+
+Use transactions for operations that must succeed or fail together:
+
+```typescript
+import { db, user, organization, member } from '@kit/database';
+
+const result = await db.transaction(async (tx) => {
+  // Create organization
+  const [org] = await tx
+    .insert(organization)
+    .values({
+      id: crypto.randomUUID(),
+      name: 'New Org',
+      slug: 'new-org',
+      createdAt: new Date(),
+    })
+    .returning();
+
+  // Add creator as owner
+  await tx.insert(member).values({
+    id: crypto.randomUUID(),
+    organizationId: org.id,
+    userId: userId,
+    role: 'owner',
+    createdAt: new Date(),
+  });
+
+  return org;
+});
+```
+
+If any operation in the transaction fails, all changes are rolled back.
+
+### Nested Transactions (Savepoints)
+
+```typescript
+await db.transaction(async (tx) => {
+  await tx.insert(user).values({ /* ... */ });
+
+  try {
+    await tx.transaction(async (nestedTx) => {
+      await nestedTx.insert(member).values({ /* ... */ });
+      throw new Error('Something went wrong');
+    });
+  } catch (e) {
+    // Nested transaction rolled back, outer continues
+    console.log('Nested operation failed, continuing...');
+  }
+
+  // This still commits
+  await tx.insert(organization).values({ /* ... */ });
+});
+```
+
+## Auth Context Pattern
+
+Use auth context utilities for multi-tenant queries. This prevents accidentally querying data from other organizations:
+
+```typescript
+import { createOrgAuthContext } from '@kit/database';
+import { db, projects } from '@kit/database';
+
+async function getProjects(userId: string, organizationId: string, role: string) {
+  const ctx = createOrgAuthContext(userId, organizationId, role);
+
+  // ctx.org() generates eq(projects.organizationId, organizationId)
+  const orgProjects = await db
+    .select()
+    .from(projects)
+    .where(ctx.org(projects));
+
+  return orgProjects;
+}
+
+async function createProject(
+  userId: string,
+  organizationId: string,
+  role: string,
+  data: { name: string },
+) {
+  const ctx = createOrgAuthContext(userId, organizationId, role);
+
+  // ctx.values() automatically adds organizationId to the insert
+  const [project] = await db
+    .insert(projects)
+    .values(ctx.values(projects, {
+      id: crypto.randomUUID(),
+      name: data.name,
+      createdAt: new Date(),
+    }))
+    .returning();
+
+  return project;
+}
+```
+
+## Common Patterns
+
+### Pagination
+
+```typescript
+async function getPaginatedUsers(page: number, pageSize: number = 20) {
+  const offset = page * pageSize;
+
+  const users = await db
+    .select()
+    .from(user)
+    .orderBy(desc(user.createdAt))
+    .limit(pageSize)
+    .offset(offset);
+
+  return users;
+}
+```
+
+### Cursor-based Pagination
+
+```typescript
+async function getUsersAfter(cursor: Date, limit: number = 20) {
+  return db
+    .select()
+    .from(user)
+    .where(lt(user.createdAt, cursor))
+    .orderBy(desc(user.createdAt))
+    .limit(limit);
+}
+```
+
+### Counting
+
+```typescript
+import { count } from 'drizzle-orm';
+
+const [{ total }] = await db
+  .select({ total: count() })
+  .from(user)
+  .where(eq(user.banned, false));
+```
+
+### Aggregations
+
+```typescript
+import { count, sum, avg } from 'drizzle-orm';
+
+const stats = await db
+  .select({
+    totalMembers: count(),
+  })
+  .from(member)
+  .where(eq(member.organizationId, orgId));
+```
+
+## Common Mistakes to Avoid
+
+**Forgetting organizationId filter**: Every query on tenant data must include an organization filter. Use `createOrgAuthContext()` to make this automatic and prevent cross-tenant data leaks.
+
+**N+1 queries in loops**: Don't fetch related data in a loop. Use the Query API with `with` to load relations in a single query:
+
+```typescript
+// Bad: N+1 queries
+const users = await db.select().from(user);
+for (const u of users) {
+  const members = await db.select().from(member).where(eq(member.userId, u.id));
+}
+
+// Good: Single query with relations
+const users = await db.query.user.findMany({
+  with: { members: true },
+});
+```
+
+**Update/delete without WHERE**: Always include a `where()` clause. Drizzle doesn't prevent you from updating or deleting all rows.
+
+**Using db instead of tx in transactions**: When inside a transaction callback, always use the `tx` parameter, not the global `db`. Using `db` bypasses the transaction.
+
+## Performance Tips
+
+1. **Select only needed columns** to reduce data transfer
+2. **Add indexes** on columns used in `WHERE`, `JOIN`, `ORDER BY`
+3. **Use `limit`** for large result sets
+4. **Avoid N+1 queries** by using `with` for relations instead of loops
+5. **Use transactions** for multiple related writes
+
+For the full Drizzle ORM documentation, see [orm.drizzle.team](https://orm.drizzle.team/docs/overview).
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "When should I use the Select API vs the Query API?", "answer": "Use the Select API for simple queries, complex joins, aggregations, and when you need precise control over the generated SQL. Use the Query API when fetching entities with their relations, as it handles joins automatically and provides a cleaner syntax."},
+     {"question": "How do I avoid N+1 queries?", "answer": "Use the Query API with the 'with' option to fetch related data in a single query instead of looping. For example, db.query.user.findMany({ with: { members: true } }) is one query, while fetching members in a loop would be N+1."},
+     {"question": "Do transactions work with serverless deployments?", "answer": "Yes, but keep transactions short. Serverless functions have execution time limits, and long-running transactions can cause connection pool exhaustion. For complex operations, consider breaking them into smaller transactions with idempotency keys."},
+     {"question": "How do I handle optimistic locking?", "answer": "Add an updatedAt timestamp column and include it in your WHERE clause when updating. If the row was modified since you read it, the update affects zero rows and you know there was a conflict."},
+     {"question": "Why does my Query API call return undefined?", "answer": "The Query API (db.query.table) requires relations to be defined in your schema and the schema to be passed when creating the Drizzle client. Check that you have relations defined in schema.ts and that the client is created with drizzle(connection, { schema })."}
+   ]
+/%}
+
+---
+
+**Next:** [Migrating to SQLite](./sqlite)

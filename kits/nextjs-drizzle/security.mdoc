@@ -1,0 +1,408 @@
+---
+status: "published"
+title: "Security Best Practices for Next.js Drizzle SaaS Applications"
+label: "Security"
+order: 14
+description: "Learn how to secure your multi-tenant SaaS application with application-level authorization, Content Security Policy, data validation, and authentication best practices in the Next.js Drizzle kit."
+collapsible: true
+collapsed: true
+---
+
+Security is fundamental to building a trustworthy SaaS application. Makerkit provides multiple layers of protection out of the box, from application-level authorization to data validation and Content Security Policy headers.
+
+This section covers the security architecture and best practices you need to understand to build and maintain a secure application.
+
+## Security architecture overview
+
+Makerkit implements a defense-in-depth security model with three primary layers:
+
+| Layer | Purpose | Implementation |
+|-------|---------|----------------|
+| **Application** | Data access control & validation | Authorization middleware + Zod schemas |
+| **Transport** | Request protection | Content Security Policy (CSP) headers |
+| **Authentication** | Identity verification | Better Auth with optional MFA |
+
+Each layer provides independent protection, so a failure in one layer doesn't compromise the entire system.
+
+## Why security matters for multi-tenant applications
+
+In a multi-tenant SaaS application like Makerkit, multiple customers share the same database and application infrastructure. This architecture requires careful security design to ensure:
+
+1. **Data isolation**: One team's data must never be accessible to another team
+2. **Permission enforcement**: Users can only perform actions their role allows
+3. **Input sanitization**: Malicious input cannot compromise the system
+4. **Session security**: Authentication tokens are protected and properly scoped
+
+Makerkit addresses each of these concerns through its security architecture.
+
+## Application-level authorization
+
+Since the Next.js Drizzle kit does not use Row Level Security (RLS), all authorization happens at the application layer. This means every data access function must include explicit authorization checks.
+
+Makerkit provides `next-safe-action` middleware for implementing authorization:
+
+### Authenticated Server Actions
+
+Use `authenticatedActionClient` to ensure the user is authenticated and validate input:
+
+```typescript
+'use server';
+
+import { authenticatedActionClient } from '@kit/action-middleware';
+import { z } from 'zod';
+
+const CreateDocumentSchema = z.object({
+  title: z.string().min(1).max(200),
+  content: z.string(),
+});
+
+export const createDocumentAction = authenticatedActionClient
+  .inputSchema(CreateDocumentSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    // parsedInput is validated against CreateDocumentSchema
+    // ctx.user contains the authenticated user
+    const { user } = ctx;
+
+    return createDocument({
+      ...parsedInput,
+      userId: user.id,
+    });
+  });
+```
+
+### Organization-scoped actions
+
+Use `organizationActionClient` for actions that require organization context:
+
+```typescript
+'use server';
+
+import { organizationActionClient } from '@kit/action-middleware';
+import { z } from 'zod';
+
+const DeleteDocumentSchema = z.object({
+  documentId: z.string().uuid(),
+});
+
+export const deleteDocumentAction = organizationActionClient
+  .inputSchema(DeleteDocumentSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    // ctx includes user, organizationId, and role
+    const { user, organizationId, role } = ctx;
+
+    // Verify user has permission to delete
+    if (role === 'member') {
+      throw new Error('Insufficient permissions');
+    }
+
+    return deleteDocument(parsedInput.documentId, organizationId);
+  });
+```
+
+### Role-protected actions
+
+Use `withMinRole` middleware for role-based access control:
+
+```typescript
+'use server';
+
+import { authenticatedActionClient, withMinRole } from '@kit/action-middleware';
+
+export const ownerOnlyAction = authenticatedActionClient
+  .use(withMinRole('owner'))
+  .inputSchema(Schema)
+  .action(async ({ parsedInput, ctx }) => {
+    // Only organization owners can reach here
+  });
+```
+
+### Permission-protected actions
+
+Use `withFeaturePermission` middleware for granular RBAC:
+
+```typescript
+'use server';
+
+import { authenticatedActionClient, withFeaturePermission } from '@kit/action-middleware';
+
+export const billingAction = authenticatedActionClient
+  .use(withFeaturePermission({ billing: ['update'] }))
+  .inputSchema(Schema)
+  .action(async ({ ctx }) => {
+    // Only users with billing:update permission
+  });
+```
+
+### Organization membership verification
+
+For server actions, use `organizationActionClient` which automatically verifies organization membership and provides the organization context:
+
+```typescript
+'use server';
+
+import { organizationActionClient } from '@kit/action-middleware';
+
+export const getDocumentsAction = organizationActionClient
+  .action(async ({ ctx }) => {
+    // ctx.organizationId is verified - user is a member
+    // ctx.role contains the user's role in the organization
+    return getDocuments(ctx.organizationId);
+  });
+```
+
+For data access functions outside of actions, use `requireActiveOrganizationId`:
+
+```typescript
+import 'server-only';
+
+import { eq } from 'drizzle-orm';
+
+import { db, documents } from '@kit/database';
+import { requireActiveOrganizationId } from '@kit/better-auth/context';
+
+export async function getDocuments() {
+  // Redirects to dashboard if user is not in an active organization
+  const organizationId = await requireActiveOrganizationId();
+
+  return db.query.documents.findMany({
+    where: eq(documents.organizationId, organizationId),
+  });
+}
+```
+
+### Resource-level authorization checks
+
+Without Row Level Security, you must verify the user has access to specific resources before performing operations. Always check resource ownership or organization membership:
+
+```typescript
+'use server';
+
+import { and, eq } from 'drizzle-orm';
+
+import { organizationActionClient } from '@kit/action-middleware';
+import { db, documents } from '@kit/database';
+import { z } from 'zod';
+
+const UpdateDocumentSchema = z.object({
+  documentId: z.string().uuid(),
+  title: z.string().min(1).max(200),
+});
+
+export const updateDocumentAction = organizationActionClient
+  .inputSchema(UpdateDocumentSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    const { documentId, title } = parsedInput;
+    const { organizationId } = ctx;
+
+    // Verify the document belongs to the user's organization
+    const document = await db.query.documents.findFirst({
+      where: and(
+        eq(documents.id, documentId),
+        eq(documents.organizationId, organizationId)
+      ),
+    });
+
+    if (!document) {
+      throw new Error('Document not found');
+    }
+
+    // Safe to update - ownership verified
+    return db
+      .update(documents)
+      .set({ title })
+      .where(eq(documents.id, documentId));
+  });
+```
+
+For delete operations, combine ownership checks with role verification:
+
+```typescript
+'use server';
+
+import { and, eq } from 'drizzle-orm';
+
+import { organizationActionClient, withMinRole } from '@kit/action-middleware';
+import { db, documents } from '@kit/database';
+import { z } from 'zod';
+
+const DeleteDocumentSchema = z.object({
+  documentId: z.string().uuid(),
+});
+
+export const deleteDocumentAction = organizationActionClient
+  .use(withMinRole('admin'))
+  .inputSchema(DeleteDocumentSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    const { documentId } = parsedInput;
+    const { organizationId } = ctx;
+
+    // Verify the document belongs to the organization
+    const document = await db.query.documents.findFirst({
+      where: and(
+        eq(documents.id, documentId),
+        eq(documents.organizationId, organizationId)
+      ),
+    });
+
+    if (!document) {
+      throw new Error('Document not found');
+    }
+
+    // Safe to delete - user is admin and document belongs to org
+    return db.delete(documents).where(eq(documents.id, documentId));
+  });
+```
+
+**Key principle:** Always filter queries by `organizationId` to ensure users can only access data belonging to their organization. Never trust client-provided IDs without verification.
+
+## Application-level data validation
+
+Never trust client input. Makerkit uses Zod schemas with `next-safe-action` to validate all data entering the system through Server Actions.
+
+The `inputSchema` method automatically validates input against your schema before your handler executes:
+
+```typescript
+'use server';
+
+import { authenticatedActionClient } from '@kit/action-middleware';
+import { z } from 'zod';
+
+const CreateDocumentSchema = z.object({
+  title: z.string().min(1).max(200),
+  content: z.string(),
+  organizationId: z.string().uuid(),
+});
+
+export const createDocumentAction = authenticatedActionClient
+  .inputSchema(CreateDocumentSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    // parsedInput is already validated against CreateDocumentSchema
+    // ctx.user is the authenticated user
+    return createDocument(parsedInput);
+  });
+```
+
+{% link href="/docs/nextjs-drizzle/security/data-validation" title="Data Validation" description="Learn how to validate cookies, URL parameters, and form data." /%}
+
+## Content Security Policy
+
+Content Security Policy (CSP) headers protect against cross-site scripting (XSS) and other injection attacks by controlling which resources the browser can load.
+
+Enable strict CSP in your environment:
+
+```bash
+ENABLE_STRICT_CSP=true
+```
+
+When enabled, Makerkit automatically:
+
+- Adds CSP headers via Next.js middleware
+- Generates nonces for inline scripts
+- Restricts connections to your allowed origins
+
+For third-party scripts, retrieve the nonce from headers:
+
+```tsx
+import { headers } from 'next/headers';
+
+async function Component() {
+  const headersStore = await headers();
+  const nonce = headersStore.get('x-nonce');
+
+  return <script nonce={nonce} src="https://analytics.example.com/script.js" />;
+}
+```
+
+## Multi-Factor Authentication
+
+Makerkit supports TOTP-based multi-factor authentication through Better Auth. When users enable MFA, they must complete the second factor to access their account.
+
+Better Auth handles MFA verification at the authentication layer, ensuring users cannot bypass the second factor requirement.
+
+To enable MFA for your application, ensure the TOTP plugin is configured in your Better Auth setup. Users can then enable MFA from their account settings.
+
+## Role-based permissions
+
+Makerkit includes a hierarchical role system with three default roles:
+
+| Role | Hierarchy Level | Typical Permissions |
+|------|-----------------|---------------------|
+| Owner | 1 (highest) | Full account control, billing, delete account |
+| Admin | 2 | Manage members, settings, most operations |
+| Member | 3 | Read access, limited write operations |
+
+Permissions are granted to roles, and you can check them using the middleware:
+
+```typescript
+'use server';
+
+import { authenticatedActionClient, withMinRole, withFeaturePermission } from '@kit/action-middleware';
+
+// Role-based check
+export const adminAction = authenticatedActionClient
+  .use(withMinRole('admin'))
+  .action(async ({ ctx }) => {
+    // Only admins and owners
+  });
+
+// Permission-based check
+export const deleteAction = authenticatedActionClient
+  .use(withFeaturePermission({ documents: ['delete'] }))
+  .action(async ({ ctx }) => {
+    // Only users with documents:delete permission
+  });
+```
+
+## Security best practices
+
+Follow these practices to maintain a secure application:
+
+### Server-side data handling
+
+1. **Never pass secrets to client components** — API keys and tokens must stay server-side
+2. **Use `import 'server-only'`** — Prevents server code from accidentally bundling to the client
+3. **Separate client and server exports** — Use different entry points in package.json
+
+```typescript
+// packages/my-feature/package.json
+{
+  "exports": {
+    "./server": "./src/server/index.ts",
+    "./client": "./src/client/index.tsx"
+  }
+}
+```
+
+### Environment variables
+
+1. **Never prefix secrets with `NEXT_PUBLIC_`** — These are embedded in client bundles
+2. **Use `.env.local` for secrets** — This file is gitignored by default
+3. **Validate environment variables at startup** — Fail fast if required variables are missing
+
+### Authorization checks
+
+1. **Always verify permissions in data access functions** — Never assume the caller is authorized
+2. **Check organization membership before returning data** — Verify the user belongs to the organization
+3. **Use the principle of least privilege** — Grant only the permissions necessary
+
+{% link href="/docs/nextjs-drizzle/security/nextjs-best-practices" title="Next.js Best Practices" description="Learn how to properly handle environment variables and prevent data leaks." /%}
+
+## Security checklist
+
+Before going to production, verify:
+
+- [ ] All Server Actions use `authenticatedActionClient` with schema validation
+- [ ] Authorization middleware (`withMinRole`, `withFeaturePermission`) used where needed
+- [ ] Authorization checks in all data-access functions
+- [ ] Organization membership verified before returning team data
+- [ ] Environment variables with secrets are not prefixed with `NEXT_PUBLIC_`
+- [ ] CSP is enabled (`ENABLE_STRICT_CSP=true`)
+- [ ] Third-party scripts use nonces
+- [ ] MFA is available for users handling sensitive data
+
+## Next steps
+
+Dive deeper into each security topic:
+
+- [Data Validation](/docs/nextjs-drizzle/security/data-validation) — Validate all user input
+- [Next.js Best Practices](/docs/nextjs-drizzle/security/nextjs-best-practices) — Prevent data leaks

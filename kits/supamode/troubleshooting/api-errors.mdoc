@@ -1,0 +1,251 @@
+---
+status: "published"
+title: "API Connection Errors"
+label: "API Errors"
+order: 2
+description: "Troubleshoot API connection errors, CORS issues, and authentication failures in Supamode."
+---
+
+API errors typically manifest as failed requests in the browser console, "Network Error" messages, or unexpected behavior in the UI. This guide covers the most common API-related issues.
+
+## "Network Error" or "Failed to Fetch"
+
+### Cause
+
+The frontend cannot reach the API server.
+
+### Diagnosis
+
+Open browser DevTools (F12) → Network tab. Look for failed requests to `/api/*` endpoints.
+
+### Fixes
+
+**1. Verify API is running**
+
+Check the API server is accessible:
+
+```bash
+curl http://localhost:3000/api/v1/health
+# Expected: {"status":"ok"}
+```
+
+**2. Check environment variables**
+
+In `apps/app/.env`, ensure `VITE_SITE_URL` is correct:
+
+```bash
+VITE_SITE_URL=http://localhost:5173
+```
+
+**3. Verify proxy configuration**
+
+Vite proxies `/api/*` requests. If this isn't working, check `apps/app/vite.config.ts` has the proxy configured:
+
+```typescript
+server: {
+  proxy: {
+    '/api': {
+      target: 'http://localhost:3000',
+      changeOrigin: true,
+      rewrite: (path) => path.replace(/^\/api/, '')
+    }
+  }
+}
+```
+
+## CORS Errors
+
+### Symptoms
+
+Browser console shows: `Access to fetch has been blocked by CORS policy`
+
+### Cause
+
+The API is rejecting requests from the frontend's origin.
+
+### Fixes
+
+**1. Set APP_URL correctly**
+
+In `apps/api/.env`:
+
+```bash
+APP_URL=http://localhost:5173
+```
+
+This must match exactly where your frontend runs, including protocol and port.
+
+**2. Production domains**
+
+For production, use the full domain:
+
+```bash
+APP_URL=https://admin.yourdomain.com
+```
+
+## "Unauthorized" or 401 Errors
+
+### Symptoms
+
+API requests return 401 status or "Unauthorized" messages.
+
+### Causes and Fixes
+
+**1. Session expired**
+
+Sign out and sign back in to refresh your JWT token.
+
+**2. Missing or invalid Supabase keys**
+
+Verify keys in `apps/api/.env`:
+
+```bash
+SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
+SERVICE_ROLE_KEY=your-service-role-key
+```
+
+**3. User lacks Supamode account**
+
+A Supabase Auth user exists but doesn't have a corresponding Supamode account. Check **Settings > Members** to verify the user has an account with a role.
+
+**4. Check JWT in request**
+
+In DevTools → Network, click a failed request and check the Authorization header. It should contain a Bearer token.
+
+## "Invalid API Key" Errors
+
+### Cause
+
+The Supabase anon key or service role key is incorrect.
+
+### Fixes
+
+1. Go to Supabase Dashboard → Settings → API
+2. Copy the correct keys
+3. Update `apps/api/.env` and `apps/app/.env`
+4. Restart both servers
+
+## Database Connection Errors
+
+### Symptoms
+
+API logs show: `Connection refused` or `ECONNREFUSED`
+
+### Fixes
+
+**1. Check database URL**
+
+In `apps/api/.env`:
+
+```bash
+SUPABASE_DATABASE_URL=postgresql://postgres:PASSWORD@db.YOUR_PROJECT.supabase.co:5432/postgres
+```
+
+**2. For local development**
+
+```bash
+SUPABASE_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54332/postgres
+```
+
+**3. Verify Supabase is running**
+
+For local development:
+
+```bash
+pnpm supabase:web:start
+```
+
+Check the database is accessible:
+
+```bash
+psql $SUPABASE_DATABASE_URL -c "SELECT 1"
+```
+
+## 500 Internal Server Errors
+
+### Diagnosis
+
+Check API server logs for the actual error. The logs will show the stack trace.
+
+### Common Causes
+
+**1. Missing environment variables**
+
+Ensure all required variables are set. The API logs which variables are missing on startup.
+
+**2. Database schema mismatch**
+
+If you see "relation does not exist" errors, run migrations:
+
+```bash
+pnpm supabase:web:reset
+```
+
+**3. Permission denied on RLS**
+
+Check the database user has necessary permissions and RLS policies are correct.
+
+## Timeout Errors
+
+### Symptoms
+
+Requests hang and eventually fail with timeout errors.
+
+### Fixes
+
+**1. Check for slow queries**
+
+Enable performance logging in `apps/api/.env`:
+
+```bash
+PERF_LOG_LEVEL=basic
+```
+
+**2. Add database indexes**
+
+For frequently queried columns, add indexes in your Supabase migrations.
+
+**3. Reduce data volume**
+
+Use filters to limit the data returned. Add time-based filters for large tables.
+
+## Debugging Tips
+
+### Enable Verbose Logging
+
+Set in `apps/api/.env`:
+
+```bash
+PERF_LOG_LEVEL=detailed
+```
+
+### Check API Health
+
+```bash
+curl -v http://localhost:3000/api/v1/health
+```
+
+### View Request/Response Details
+
+In browser DevTools → Network:
+1. Click the failed request
+2. Check Headers tab for request details
+3. Check Response tab for error messages
+4. Check Timing tab for slow requests
+
+## Related Documentation
+
+- **[Environment Variables](../configuration/environment-variables)** - Complete reference for all configuration options
+- **[Running Supamode](../installation/running-project)** - Local development setup
+- **[Performance Issues](./performance)** - Optimizing slow queries and large datasets
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "How do I check if my API is running?", "answer": "Run curl http://localhost:3000/api/v1/health from your terminal. A healthy API returns {\"status\":\"ok\"}. If it fails, check that pnpm dev is running and the API started without errors."},
+     {"question": "Why do I get CORS errors only in production?", "answer": "CORS is configured via APP_URL in the API environment. Ensure APP_URL exactly matches your production frontend URL including protocol (https://) and any subdomain."},
+     {"question": "Can I debug API requests without browser DevTools?", "answer": "Yes. Set PERF_LOG_LEVEL=detailed in apps/api/.env to log all requests with timing. You can also use curl or Postman to test endpoints directly."},
+     {"question": "Why does my session expire unexpectedly?", "answer": "Supabase JWT tokens have a configurable expiry (default 1 hour). Check your Supabase project settings under Authentication > JWT Settings. Supamode automatically refreshes tokens, but network issues can interrupt this."}
+   ]
+/%}

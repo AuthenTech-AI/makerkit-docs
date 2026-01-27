@@ -77,7 +77,7 @@ Makerkit's database consists of 17 core tables organized across several function
 #### Authentication & Security
 | Table | Purpose | Key Features |
 |-------|---------|--------------|
-| `one_time_tokens` | OTP for sensitive operations | Purpose-based, auto-expiring |
+| `nonces` | OTP for sensitive operations | Purpose-based, auto-expiring |
 | `invitations` | Team invitation system | Token-based with role assignment |
 
 #### Billing & Commerce
@@ -167,7 +167,7 @@ INSERT INTO role_permissions (role, permission) VALUES
 
 Makerkit implements multiple layers of security through specialized tables that handle authentication, authorization, and administrative access.
 
-#### The `one_time_tokens` Table: Secure Operations Gateway
+#### The `nonces` Table: Secure Operations Gateway
 
 One-time tokens provide an additional security layer for sensitive operations that go beyond regular authentication. This table manages short-lived, purpose-specific codes that verify user intent for critical actions.
 
@@ -175,19 +175,9 @@ One-time tokens provide an additional security layer for sensitive operations th
 
 **Implementation strategies**: Tokens automatically expire and are limited to specific scopes. When a user requests a new token for the same purpose, previous tokens are invalidated. This prevents accumulation of valid tokens and reduces security risks.
 
-```sql
--- Example: Validating an OTP for account deletion
-SELECT EXISTS(
-  SELECT 1 FROM one_time_tokens 
-  WHERE token = '123456' 
-    AND purpose = 'account-deletion'
-    AND target_id = 'user-uuid'
-    AND expires_at > now()
-    AND used_at IS NULL
-);
-```
-
 **Security considerations**: Always validate the IP address and user agent when possible. The table tracks these for audit purposes and can help detect suspicious activity.
+
+Please refer to the [One-Time Tokens](../api/otp-api) documentation for more details.
 
 #### The `invitations` Table: Secure Team Building
 
@@ -692,21 +682,6 @@ public.invitations (
 
 Generally speaking, you don't need to use this internally unless you are customizing the invitation system.
 
-### One-Time Passwords (OTP)
-
-Purpose-based authentication tokens:
-
-```sql
-public.one_time_tokens (
-  token      -- 6-digit code
-  target_id  -- User/resource ID
-  purpose    -- Token purpose
-  scope      -- Additional context
-  ip_address -- Request origin
-  expires_at -- Auto-expiration
-)
-```
-
 **Use Cases**:
 - Email verification
 - Password reset
@@ -799,13 +774,13 @@ Always use security invoker set to true for views.
 CREATE TRIGGER update_your_table_updated_at
   BEFORE UPDATE ON public.your_table
   FOR EACH ROW
-  EXECUTE FUNCTION kit.update_updated_at();
+  EXECUTE FUNCTION kit.trigger_set_timestamps();
 
 -- Audit trigger
 CREATE TRIGGER track_your_table_changes
   BEFORE INSERT OR UPDATE ON public.your_table
   FOR EACH ROW
-  EXECUTE FUNCTION kit.track_user_changes();
+  EXECUTE FUNCTION kit.trigger_set_user_tracking();
 ```
 
 ### 5. Storage Security
@@ -827,7 +802,7 @@ FOR ALL USING (
 );
 ```
 
-NB: The above assumes that `(storage.foldername(name))[1]::uuid` is the account id. 
+**Note:** The above assumes that `(storage.foldername(name))[1]::uuid` is the account id. 
 
 You can scope the account's files with the ID of the account, so that this RLS can protect the files from other accounts.
 

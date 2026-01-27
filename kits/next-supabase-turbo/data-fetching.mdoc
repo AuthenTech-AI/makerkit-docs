@@ -1,35 +1,219 @@
 ---
 status: "published"
-title: "Data Fetching in Next.js Supabase Turbo"
+title: "Data Fetching in Next.js Supabase Applications"
 label: "Data Fetching"
 order: 5
-description: "Data Fetching in Next.js Supabase Turbo"
+description: "Complete guide to data fetching patterns in MakerKit: Server Components, Server Actions, Route Handlers, and React Query. Learn when to use each pattern with Supabase."
 collapsible: true
 collapsed: true
 ---
 
-Here's a draft of the Data Fetching pillar page for Makerkit:
+MakerKit provides four data fetching patterns for Next.js Supabase applications: Server Components for page loads, Server Actions for mutations, Route Handlers for webhooks and APIs, and React Query for real-time client state. Server Components are the default choice for most data loading. Use Server Actions for any operation that creates, updates, or deletes data. This guide covers when to use each pattern, with practical examples tested on Next.js 16 and React 19.
 
-# Data Fetching in Makerkit
+{% callout title="Quick Answer" %}
+**Start with Server Components** for loading data. Use **Server Actions** for mutations (forms, button clicks). Only reach for **Route Handlers** when you need webhooks or external API access. Add **React Query** when you need real-time updates or optimistic UI.
+{% /callout %}
 
-Makerkit provides a robust approach to fetching and managing data in your Next.js Supabase application. Whether you're building server components, handling real-time updates, or managing client-side state, Makerkit offers patterns and utilities to make data fetching clean and efficient.
+## Quick Decision Guide
 
-## Data Loading Patterns
+Use this table to quickly identify the right pattern for your use case:
 
-Common patterns for loading data include:
+| Pattern | Best For | Runs On |
+|---------|----------|---------|
+| **Server Components** | Initial page loads, SEO content, data that doesn't change often | Server only |
+| **Server Actions** | Form submissions, mutations, data updates | Server (called from client) |
+| **Route Handlers** | Webhooks, external APIs, complex request/response handling | Server |
+| **React Query** | Real-time updates, client-side state, optimistic UI | Client |
 
-- Server Component data fetching for initial page loads
-- React Query for client-side data management
-- Server Actions for mutations
-- CSRF and Captcha protection for API Routes
+## When to Use Each Pattern
+
+### Server Components (Default Choice)
+
+Start here for data fetching. Server Components run on the server, stream HTML to the client, and never expose your database queries to the browser.
+
+**Use Server Components when:**
+- Loading data for page renders
+- Data is the same for all users (or personalized via cookies)
+- You need SEO-friendly content
+- Data doesn't need real-time updates
+
+```tsx
+// This runs ONLY on the server
+export default async function TasksPage() {
+  const supabase = getSupabaseServerClient();
+  const { data: tasks } = await supabase.from('tasks').select('*');
+
+  return <TasksList tasks={tasks} />;
+}
+```
+
+[Learn more about Server Components](data-fetching/server-components)
+
+### Server Actions (For Mutations)
+
+Server Actions are the standard way to handle form submissions and data mutations. They're type-safe, automatically handle CSRF protection, and integrate cleanly with React's form handling.
+
+**Use Server Actions when:**
+- Submitting forms
+- Creating, updating, or deleting records
+- Any mutation that needs server-side validation
+- You want automatic error handling and loading states
+
+```tsx
+'use server';
+
+export const createTask = enhanceAction(
+  async (data, user) => {
+    const supabase = getSupabaseServerClient();
+    await supabase.from('tasks').insert({ ...data, user_id: user.id });
+    revalidatePath('/tasks');
+    return { success: true };
+  },
+  { schema: CreateTaskSchema }
+);
+```
+
+[Learn more about Server Actions](data-fetching/server-actions)
+
+### Route Handlers (For APIs)
+
+Route Handlers create traditional HTTP endpoints. They're necessary when you need fine-grained control over requests and responses, or when external services need to call your API.
+
+**Use Route Handlers when:**
+- Building webhook endpoints (Stripe, Lemon Squeezy, etc.)
+- External services need to call your API
+- You need custom headers, status codes, or streaming responses
+- Building public APIs for third-party consumption
+
+```tsx
+// app/api/webhooks/stripe/route.ts
+export async function POST(request: Request) {
+  const payload = await request.text();
+  const sig = request.headers.get('stripe-signature');
+
+  // Verify and process webhook
+  return new Response('OK', { status: 200 });
+}
+```
+
+[Learn more about Route Handlers](data-fetching/route-handlers)
+
+### React Query (For Client State)
+
+React Query manages client-side data fetching with caching, background updates, and optimistic mutations. Use it when you need reactive data that updates without full page reloads.
+
+**Use React Query when:**
+- Building real-time dashboards
+- Implementing infinite scroll or pagination
+- Data changes frequently and needs background refresh
+- You want optimistic updates for better UX
+- Multiple components share the same data
+
+```tsx
+'use client';
+
+const { data: tasks, isLoading } = useQuery({
+  queryKey: ['tasks', accountId],
+  queryFn: () => fetchTasks(accountId),
+  staleTime: 30_000, // Consider fresh for 30 seconds
+});
+```
+
+[Learn more about React Query](data-fetching/react-query)
+
+## Common Patterns
+
+### Combining Server Components with Client Interactivity
+
+The most common pattern: load data with Server Components, then pass it to client components for interactivity.
+
+```tsx
+// page.tsx (Server Component)
+export default async function DashboardPage() {
+  const tasks = await loadTasks();
+
+  // TasksTable is a client component with sorting, filtering
+  return <TasksTable initialData={tasks} />;
+}
+```
+
+```tsx
+// tasks-table.tsx (Client Component)
+'use client';
+
+export function TasksTable({ initialData }) {
+  const { data: tasks } = useQuery({
+    queryKey: ['tasks'],
+    queryFn: fetchTasks,
+    initialData, // Use server data, refresh in background
+  });
+
+  return <DataTable data={tasks} />;
+}
+```
+
+### Mutations with Optimistic Updates
+
+For the best user experience, combine Server Actions with React Query's optimistic updates:
+
+```tsx
+const mutation = useMutation({
+  mutationFn: updateTask,
+  onMutate: async (newTask) => {
+    await queryClient.cancelQueries({ queryKey: ['tasks'] });
+    const previous = queryClient.getQueryData(['tasks']);
+    queryClient.setQueryData(['tasks'], (old) =>
+      old.map(t => t.id === newTask.id ? { ...t, ...newTask } : t)
+    );
+    return { previous };
+  },
+  onError: (err, newTask, context) => {
+    queryClient.setQueryData(['tasks'], context.previous);
+  },
+  onSettled: () => {
+    queryClient.invalidateQueries({ queryKey: ['tasks'] });
+  },
+});
+```
+
+## Security Considerations
+
+All data fetching patterns in MakerKit include security measures:
+
+- **Server Components**: Run entirely on the server; queries never reach the client
+- **Server Actions**: Automatically protected against CSRF when using `enhanceAction`
+- **Route Handlers**: Use `enhanceRouteHandler` for auth and validation
+- **React Query**: Fetches through Supabase client with Row Level Security (RLS)
+
+For sensitive operations, add captcha protection:
+
+```tsx
+export const sensitiveAction = enhanceAction(
+  async (data, user) => { /* ... */ },
+  { schema: MySchema, captcha: true }
+);
+```
+
+[Learn about CSRF Protection](data-fetching/csrf-protection) | [Captcha Protection](data-fetching/captcha-protection)
+
+## Common Pitfalls
+
+Avoid these mistakes when implementing data fetching:
+
+1. **Using the wrong Supabase client** - `useSupabase()` is for Client Components only. Server Components and Server Actions need `getSupabaseServerClient()`. Webhooks need `getSupabaseServerAdminClient()`.
+2. **Forgetting to revalidate after mutations** - After Server Actions modify data, call `revalidatePath()` or `revalidateTag()` so Server Components show fresh data.
+3. **Mixing server and client imports** - Importing `getSupabaseServerClient` in a Client Component will break your build. Keep server utilities in Server Components and Server Actions only.
+4. **Using Route Handlers for internal mutations** - If the mutation is triggered from your own app, use Server Actions instead. Route Handlers are for external callers.
+5. **Not handling loading and error states** - Use Suspense boundaries for Server Components, `isLoading`/`isError` from React Query, and `useActionState` for Server Actions.
 
 ## Navigation
 
-In the section below, you'll find detailed information on each of these patterns:
+Detailed documentation for each pattern:
 
-- [Supabase Clients](data-fetching/supabase-clients)
-- [Server Components](data-fetching/server-components)
-- [Server Actions](data-fetching/server-actions)
-- [Route Handlers](data-fetching/route-handlers)
-- [CSRF Protection](data-fetching/csrf-protection)
-- [Captcha Protection](data-fetching/captcha-protection)
+- [Supabase Clients](data-fetching/supabase-clients) - Browser and server client setup
+- [Server Components](data-fetching/server-components) - Data loading for pages
+- [Server Actions](data-fetching/server-actions) - Mutations and form handling
+- [Route Handlers](data-fetching/route-handlers) - HTTP API endpoints
+- [React Query](data-fetching/react-query) - Client-side data management
+- [CSRF Protection](data-fetching/csrf-protection) - Protecting mutations
+- [Captcha Protection](data-fetching/captcha-protection) - Bot protection with Cloudflare Turnstile

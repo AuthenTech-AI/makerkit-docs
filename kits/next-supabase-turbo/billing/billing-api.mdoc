@@ -1,176 +1,459 @@
 ---
 status: "published"
 label: "Billing API"
-title: "The Billing service API allows you to communicate with the billing service in Makerkit"
+title: "Billing API Reference for Next.js Supabase SaaS Kit"
 order: 10
-description: "Learn how to use the Billing service API in Makerkit to manage billing for your preferred payment gateway"
+description: "Complete API reference for Makerkit's billing service. Create checkouts, manage subscriptions, report usage, and handle billing operations programmatically."
 ---
 
-The Billing service API allows you to communicate with the billing service in Makerkit. You can use the API to manage billing for your preferred payment gateway.
+The Billing Gateway Service provides a unified API for all billing operations, regardless of which payment provider you use (Stripe, Lemon Squeezy, or Paddle). This abstraction lets you switch providers without changing your application code.
 
-{% sequence title="Steps to use the Billing service API" description="Learn how to use the Billing service API in Makerkit to manage billing for your preferred payment gateway." %}
-
-[Instantiating the billing service](#instantiating-the-billing-service)
-
-[Creating a checkout session](#creating-a-checkout-session)
-
-[Retrieving a checkout session](#retrieving-a-checkout-session)
-
-[Creating a billing portal session](#creating-a-billing-portal-session)
-
-[Cancelling a subscription](#cancelling-a-subscription)
-
-[Reporting metered usage](#reporting-metered-usage)
-
-[Querying metered usage](#querying-metered-usage)
-
-[Updating a subscription](#updating-a-subscription)
-
-
-{% /sequence %}
-
-## Instantiating the billing service
-
-To instantiate the billing service, you need to import the `createBillingGatewayService` function from the `@kit/billing-gateway` package. You can then use this service to manage subscriptions, one-off payments, and more.
+## Getting the Billing Service
 
 ```tsx
 import { createBillingGatewayService } from '@kit/billing-gateway';
 
-const service = createBillingGatewayService('stripe');
-```
-
-Of course - it's best to get the billing provider from the `subscriptions` record. This way, you can switch between providers without changing the code.
-
-The `createBillingGatewayService` instantiates a class that provides a set of methods for managing billing operations. The provider is determined by the `BillingProviderSchema` passed to the constructor. The `BillingGatewayService` class is a TypeScript class that provides a set of methods for managing billing operations. 
-
-It uses the Strategy design pattern to delegate the actual implementation of these operations to a provider-specific strategy. The provider is determined by the BillingProviderSchema passed to the constructor.
-
-The class provides methods for creating and retrieving checkout sessions, creating a billing portal session, cancelling a subscription, reporting and querying usage, and updating a subscription. Each of these methods accepts a parameter object that is validated and parsed using the corresponding Zod schema.
-
-## Methods
-
-### Creating a checkout session
-
-The `createCheckoutSession` method creates a checkout session for billing. It takes an object of type CreateBillingCheckoutSchema as a parameter, which contains the necessary information for creating a checkout session.
-
-Below is the Zod schema accepted by the `createCheckoutSession` method:
-
-```tsx
-returnUrl: z.string().url(),
-accountId: z.string().uuid(),
-plan: PlanSchema,
-customerId: z.string().optional(),
-customerEmail: z.string().email().optional(),
-enableDiscountField: z.boolean().optional(),
-variantQuantities: z.array(
-  z.object({
-    variantId: z.string().min(1),
-    quantity: z.number(),
-  }),
-)
-```
-
-### Retrieving a checkout session
-
-The `retrieveCheckoutSession` method retrieves the checkout session from the specified provider. It takes an object of type RetrieveCheckoutSessionSchema as a parameter, which contains the necessary information to retrieve the checkout session.
-
-The method accepts the following Zod schema:
-
-```tsx
-sessionId: z.string(),
-```
-
-### Creating a billing portal session
-
-The `createBillingPortalSession` method creates a billing portal session. It takes an object of type CreateBillingPortalSessionSchema as a parameter, which contains the necessary information to create a billing portal session.
-
-```tsx
-returnUrl: z.string().url(),
-customerId: z.string().min(1),
-```
-
-### Cancelling a subscription
-
-The `cancelSubscription` method cancels a subscription. It takes an object of type CancelSubscriptionParamsSchema as a parameter, which contains the necessary information to cancel a subscription.
-
-The method accepts the Zod schema:
-
-```tsx
-subscriptionId: z.string(),
-invoiceNow: z.boolean().optional(),
-```
-
-### Reporting metered usage
-
-The `reportUsage` method reports the usage of the billing to the provider. It takes an object of type ReportBillingUsageSchema as a parameter, which contains the necessary information to report the usage.
-
-The method accepts the following Zod schema:
-
-```tsx
-id: z.string({
-  description:
-    'The id of the usage record. For Stripe a customer ID, for LS a subscription item ID.',
-}),
-eventName: z
-  .string({
-    description: 'The name of the event that triggered the usage',
-  })
-  .optional(),
-usage: z.object({
-  quantity: z.number(),
-  action: z.enum(['increment', 'set']).optional(),
-}),
-```
-
-### Querying metered usage
-
-The `queryUsage` method queries the usage of the metered billing. It takes an object of type QueryBillingUsageSchema as a parameter, which contains the necessary information to query the usage.
-
-To query usage, please provide the following Zod schema:
-
-```tsx
-
-const TimeFilter = z.object(
-  {
-    startTime: z.number(),
-    endTime: z.number(),
-  },
-  {
-    description: `The time range to filter the usage records. Used for Stripe`,
-  },
+// Get service for the configured provider
+const service = await createBillingGatewayService(
+  process.env.NEXT_PUBLIC_BILLING_PROVIDER
 );
 
-const PageFilter = z.object(
-  {
-    page: z.number(),
-    size: z.number(),
-  },
-  {
-    description: `The page and size to filter the usage records. Used for LS`,
-  },
-);
+// Or specify a provider explicitly
+const stripeService = await createBillingGatewayService('stripe');
+```
 
-export const QueryBillingUsageSchema = z.object({
-  id: z.string({
-    description:
-      'The id of the usage record. For Stripe a meter ID, for LS a subscription item ID.',
-  }),
-  customerId: z.string({
-    description: 'The id of the customer in the billing system',
-  }),
-  filter: z.union([TimeFilter, PageFilter]),
+For most operations, get the provider from the user's subscription record:
+
+```tsx
+import { createAccountsApi } from '@kit/accounts/api';
+
+const accountsApi = createAccountsApi(supabaseClient);
+const subscription = await accountsApi.getSubscription(accountId);
+const provider = subscription?.billing_provider ?? 'stripe';
+
+const service = await createBillingGatewayService(provider);
+```
+
+## Create Checkout Session
+
+Start a new subscription or one-off purchase.
+
+```tsx
+const { checkoutToken } = await service.createCheckoutSession({
+  accountId: 'uuid-of-account',
+  plan: billingConfig.products[0].plans[0],  // From billing.config.ts
+  returnUrl: 'https://yourapp.com/billing/return',
+  customerEmail: 'user@example.com',  // Optional
+  customerId: 'cus_xxx',  // Optional, if customer already exists
+  enableDiscountField: true,  // Optional, show coupon input
+  variantQuantities: [  // Optional, for per-seat billing
+    { variantId: 'price_xxx', quantity: 5 }
+  ],
+});
+```
+
+**Parameters:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `accountId` | `string` | Yes | UUID of the account making the purchase |
+| `plan` | `Plan` | Yes | Plan object from your billing config |
+| `returnUrl` | `string` | Yes | URL to redirect after checkout |
+| `customerEmail` | `string` | No | Pre-fill customer email |
+| `customerId` | `string` | No | Existing customer ID (skips customer creation) |
+| `enableDiscountField` | `boolean` | No | Show coupon/discount input |
+| `variantQuantities` | `array` | No | Override quantities for line items |
+
+**Returns:**
+
+```tsx
+{
+  checkoutToken: string  // Token to open checkout UI
+}
+```
+
+**Example: Server Action**
+
+```tsx
+'use server';
+
+import { createBillingGatewayService } from '@kit/billing-gateway';
+import { getSupabaseServerClient } from '@kit/supabase/server-client';
+import billingConfig from '~/config/billing.config';
+
+export async function createCheckout(planId: string, accountId: string) {
+  const supabase = getSupabaseServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    throw new Error('Not authenticated');
+  }
+
+  const plan = billingConfig.products
+    .flatMap(p => p.plans)
+    .find(p => p.id === planId);
+
+  if (!plan) {
+    throw new Error('Plan not found');
+  }
+
+  const service = await createBillingGatewayService(billingConfig.provider);
+
+  const { checkoutToken } = await service.createCheckoutSession({
+    accountId,
+    plan,
+    returnUrl: `${process.env.NEXT_PUBLIC_SITE_URL}/billing/return`,
+    customerEmail: user.email,
+  });
+
+  return { checkoutToken };
+}
+```
+
+## Retrieve Checkout Session
+
+Check the status of a checkout session after redirect.
+
+```tsx
+const session = await service.retrieveCheckoutSession({
+  sessionId: 'cs_xxx',  // From URL params after redirect
+});
+```
+
+**Returns:**
+
+```tsx
+{
+  checkoutToken: string | null,
+  status: 'complete' | 'expired' | 'open',
+  isSessionOpen: boolean,
+  customer: {
+    email: string | null
+  }
+}
+```
+
+**Example: Return page handler**
+
+```tsx
+// app/billing/return/page.tsx
+import { createBillingGatewayService } from '@kit/billing-gateway';
+
+export default async function BillingReturnPage({
+  searchParams,
+}: {
+  searchParams: { session_id?: string }
+}) {
+  if (!searchParams.session_id) {
+    return <div>Invalid session</div>;
+  }
+
+  const service = await createBillingGatewayService('stripe');
+  const session = await service.retrieveCheckoutSession({
+    sessionId: searchParams.session_id,
+  });
+
+  if (session.status === 'complete') {
+    return <div>Payment successful!</div>;
+  }
+
+  return <div>Payment pending or failed</div>;
+}
+```
+
+## Create Billing Portal Session
+
+Open the customer portal for subscription management.
+
+```tsx
+const { url } = await service.createBillingPortalSession({
+  customerId: 'cus_xxx',  // From billing_customers table
+  returnUrl: 'https://yourapp.com/billing',
 });
 
+// Redirect user to the portal URL
 ```
 
-### Updating a subscription
+**Parameters:**
 
-The `updateSubscriptionItem` method updates a subscription with the specified parameters. It takes an object of type UpdateSubscriptionParamsSchema as a parameter, which contains the necessary information to update a subscription.
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `customerId` | `string` | Yes | Customer ID from billing provider |
+| `returnUrl` | `string` | Yes | URL to redirect after portal session |
 
-The method acceps the following Zod schema:
+**Example: Server Action**
 
 ```tsx
-subscriptionId: z.string().min(1),
-subscriptionItemId: z.string().min(1),
-quantity: z.number().min(1),
+'use server';
+
+import { redirect } from 'next/navigation';
+import { createBillingGatewayService } from '@kit/billing-gateway';
+import { createAccountsApi } from '@kit/accounts/api';
+import { getSupabaseServerClient } from '@kit/supabase/server-client';
+
+export async function openBillingPortal(accountId: string) {
+  const supabase = getSupabaseServerClient();
+  const api = createAccountsApi(supabase);
+
+  const customerId = await api.getCustomerId(accountId);
+
+  if (!customerId) {
+    throw new Error('No billing customer found');
+  }
+
+  const service = await createBillingGatewayService('stripe');
+
+  const { url } = await service.createBillingPortalSession({
+    customerId,
+    returnUrl: `${process.env.NEXT_PUBLIC_SITE_URL}/billing`,
+  });
+
+  redirect(url);
+}
 ```
+
+## Cancel Subscription
+
+Cancel a subscription immediately or at period end.
+
+```tsx
+const { success } = await service.cancelSubscription({
+  subscriptionId: 'sub_xxx',
+  invoiceNow: false,  // Optional: charge immediately for usage
+});
+```
+
+**Parameters:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `subscriptionId` | `string` | Yes | Subscription ID from provider |
+| `invoiceNow` | `boolean` | No | Invoice outstanding usage immediately |
+
+**Example: Cancel at period end**
+
+```tsx
+'use server';
+
+import { createBillingGatewayService } from '@kit/billing-gateway';
+import { createAccountsApi } from '@kit/accounts/api';
+import { getSupabaseServerClient } from '@kit/supabase/server-client';
+
+export async function cancelSubscription(accountId: string) {
+  const supabase = getSupabaseServerClient();
+  const api = createAccountsApi(supabase);
+
+  const subscription = await api.getSubscription(accountId);
+
+  if (!subscription) {
+    throw new Error('No subscription found');
+  }
+
+  const service = await createBillingGatewayService(subscription.billing_provider);
+
+  await service.cancelSubscription({
+    subscriptionId: subscription.id,
+  });
+
+  return { success: true };
+}
+```
+
+## Report Usage (Metered Billing)
+
+Report usage for metered billing subscriptions.
+
+### Stripe
+
+Stripe uses customer ID and a meter event name:
+
+```tsx
+await service.reportUsage({
+  id: 'cus_xxx',  // Customer ID
+  eventName: 'api_requests',  // Meter name in Stripe
+  usage: {
+    quantity: 100,
+  },
+});
+```
+
+### Lemon Squeezy
+
+Lemon Squeezy uses subscription item ID:
+
+```tsx
+await service.reportUsage({
+  id: 'sub_item_xxx',  // Subscription item ID
+  usage: {
+    quantity: 100,
+    action: 'increment',  // or 'set'
+  },
+});
+```
+
+**Parameters:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | `string` | Yes | Customer ID (Stripe) or subscription item ID (LS) |
+| `eventName` | `string` | Stripe only | Meter event name |
+| `usage.quantity` | `number` | Yes | Usage amount |
+| `usage.action` | `'increment' \| 'set'` | No | How to apply usage (LS only) |
+
+**Example: Track API usage**
+
+```tsx
+import { createBillingGatewayService } from '@kit/billing-gateway';
+import { createAccountsApi } from '@kit/accounts/api';
+import { getSupabaseServerClient } from '@kit/supabase/server-client';
+
+export async function trackApiUsage(accountId: string, requestCount: number) {
+  const supabase = getSupabaseServerClient();
+  const api = createAccountsApi(supabase);
+
+  const subscription = await api.getSubscription(accountId);
+
+  if (!subscription || subscription.status !== 'active') {
+    return;  // No active subscription
+  }
+
+  const service = await createBillingGatewayService(subscription.billing_provider);
+  const customerId = await api.getCustomerId(accountId);
+
+  if (subscription.billing_provider === 'stripe') {
+    await service.reportUsage({
+      id: customerId!,
+      eventName: 'api_requests',
+      usage: { quantity: requestCount },
+    });
+  } else {
+    // Lemon Squeezy: need subscription item ID
+    const { data: item } = await supabase
+      .from('subscription_items')
+      .select('id')
+      .eq('subscription_id', subscription.id)
+      .eq('type', 'metered')
+      .single();
+
+    if (item) {
+      await service.reportUsage({
+        id: item.id,
+        usage: { quantity: requestCount, action: 'increment' },
+      });
+    }
+  }
+}
+```
+
+## Query Usage
+
+Retrieve usage data for a metered subscription.
+
+### Stripe
+
+```tsx
+const usage = await service.queryUsage({
+  id: 'meter_xxx',  // Stripe Meter ID
+  customerId: 'cus_xxx',
+  filter: {
+    startTime: Math.floor(Date.now() / 1000) - 86400 * 30,  // 30 days ago
+    endTime: Math.floor(Date.now() / 1000),
+  },
+});
+```
+
+### Lemon Squeezy
+
+```tsx
+const usage = await service.queryUsage({
+  id: 'sub_item_xxx',  // Subscription item ID
+  customerId: 'cus_xxx',
+  filter: {
+    page: 1,
+    size: 100,
+  },
+});
+```
+
+**Returns:**
+
+```tsx
+{
+  value: number  // Total usage in period
+}
+```
+
+## Update Subscription Item
+
+Update the quantity of a subscription item (e.g., seat count).
+
+```tsx
+const { success } = await service.updateSubscriptionItem({
+  subscriptionId: 'sub_xxx',
+  subscriptionItemId: 'si_xxx',
+  quantity: 10,
+});
+```
+
+**Parameters:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `subscriptionId` | `string` | Yes | Subscription ID |
+| `subscriptionItemId` | `string` | Yes | Line item ID within subscription |
+| `quantity` | `number` | Yes | New quantity (minimum 1) |
+
+{% alert type="default" title="Automatic seat updates" %}
+For per-seat billing, Makerkit automatically updates seat counts when team members are added or removed. You typically don't need to call this directly.
+{% /alert %}
+
+## Get Subscription Details
+
+Retrieve subscription details from the provider.
+
+```tsx
+const subscription = await service.getSubscription('sub_xxx');
+```
+
+**Returns:** Provider-specific subscription object.
+
+## Get Plan Details
+
+Retrieve plan/price details from the provider.
+
+```tsx
+const plan = await service.getPlanById('price_xxx');
+```
+
+**Returns:** Provider-specific plan/price object.
+
+## Error Handling
+
+All methods can throw errors. Wrap calls in try-catch:
+
+```tsx
+try {
+  const { checkoutToken } = await service.createCheckoutSession({
+    // ...
+  });
+} catch (error) {
+  if (error instanceof Error) {
+    console.error('Billing error:', error.message);
+  }
+  // Handle error appropriately
+}
+```
+
+Common errors:
+- Invalid API keys
+- Invalid price/plan IDs
+- Customer not found
+- Subscription not found
+- Network/provider errors
+
+## Related Documentation
+
+- [Billing Overview](/docs/next-supabase-turbo/billing/overview) - Architecture and concepts
+- [Webhooks](/docs/next-supabase-turbo/billing/billing-webhooks) - Handle billing events
+- [Metered Usage](/docs/next-supabase-turbo/billing/metered-usage) - Usage-based billing guide
+- [Per-Seat Billing](/docs/next-supabase-turbo/billing/per-seat-billing) - Team-based pricing

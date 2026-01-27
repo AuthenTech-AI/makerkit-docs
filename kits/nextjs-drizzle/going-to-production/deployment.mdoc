@@ -1,0 +1,108 @@
+---
+status: "published"
+title: "Deployment"
+label: "Deployment"
+order: 1
+description: "Deploy your SaaS application to any hosting platform."
+---
+
+This guide covers the general steps to deploy your application to any hosting platform that supports Next.js.
+
+## Deployment Overview
+
+Deploying your application involves these key steps:
+
+1. **Provision infrastructure** - Database, storage, and hosting
+2. **Configure environment variables** - Set production credentials
+3. **Deploy the application** - Push code to your hosting platform
+4. **Run database migrations** - Set up your database schema
+5. **Configure webhooks** - Connect your billing provider
+
+## Infrastructure Requirements
+
+Your production environment needs:
+
+| Component | Purpose | Options |
+|-----------|---------|---------|
+| **Hosting** | Run your Next.js app | Vercel, Railway, AWS, Cloudflare |
+| **Database** | PostgreSQL database | Neon, PlanetScale, Supabase, Railway |
+| **Storage** | File uploads | AWS S3, Cloudflare R2, Railway Storage |
+| **Email** | Transactional emails | Resend, Postmark, SendGrid |
+
+## Environment Variables
+
+Every hosting platform requires you to set environment variables. Copy these from your [Environment Setup](./environment-setup):
+
+### Core Variables
+
+```bash
+DATABASE_URL=postgresql://...
+NEXT_PUBLIC_SITE_URL=https://your-domain.com
+NEXT_PUBLIC_BILLING_PROVIDER=stripe
+```
+
+### Storage Variables
+
+```bash
+STORAGE_BASE_URL=https://...
+STORAGE_S3_ACCESS_KEY_ID=...
+STORAGE_S3_SECRET_ACCESS_KEY=...
+STORAGE_S3_BUCKET=...
+STORAGE_S3_REGION=...
+```
+
+### Billing Variables
+
+**For Stripe:**
+```bash
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+```
+
+**For Polar:**
+```bash
+POLAR_ACCESS_TOKEN=...
+```
+
+{% alert type="default" title="Additional Environment Variables" %}
+If you configured additional settings using the Dev Tools during development (OAuth providers, email, feature flags, etc.), make sure to add those environment variables to your production environment as well. Refer to the [Environment Setup](./environment-setup) guide for the complete list.
+{% /alert %}
+
+## Build Configuration
+
+For the monorepo structure, configure your hosting platform:
+
+- **Root Directory**: `apps/web`
+- **Build Command**: `pnpm build`
+- **Output Directory**: `.next`
+- **Install Command**: `pnpm install`
+
+## Database Migrations
+
+After your first deployment, run [Drizzle](/drizzle) migrations to create the database schema:
+
+```bash
+read -s DATABASE_URL && export DATABASE_URL && pnpm --filter "@kit/database" drizzle:migrate
+```
+
+This command:
+1. Prompts for your `DATABASE_URL` (hidden input)
+2. Exports it as an environment variable
+3. Runs the Drizzle migration
+
+## Post-Deployment Checklist
+
+After deploying:
+
+- [ ] Application loads without errors
+- [ ] Database connection works
+- [ ] Authentication flows work (sign up, sign in)
+- [ ] Billing webhooks receive events
+- [ ] File uploads work
+- [ ] Emails send successfully
+
+## Platform Guides
+
+For step-by-step instructions on specific platforms:
+
+- **[Railway](./railway)** - All-in-one platform with built-in database and storage

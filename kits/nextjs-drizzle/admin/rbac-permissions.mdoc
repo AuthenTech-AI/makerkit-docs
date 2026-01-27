@@ -1,0 +1,383 @@
+---
+status: "published"
+title: "RBAC Permissions"
+label: "RBAC Permissions"
+order: 4
+description: "Configure role-based access control for admin panel features and actions."
+---
+
+Admin permissions are managed through a type-safe RBAC (Role-Based Access Control) system. Configure it in `packages/rbac/src/admin-rbac.config.ts`.
+
+## Default Configuration
+
+Out of the box, MakerKit provides a single `admin` role with full permissions:
+
+```typescript
+import { defineAdminRBACConfig } from './admin/factory';
+
+export default defineAdminRBACConfig({
+  resources: {
+    SUBSCRIPTIONS: 'subscriptions',
+  },
+  accessController: {
+    subscriptions: ['list'],
+  },
+  // Default: admin role with ALL permissions
+});
+```
+
+## Resources and Actions
+
+### Built-in Resources
+
+These resources are controlled by Better Auth and must use exact names:
+
+| Resource | Actions | Description |
+|----------|---------|-------------|
+| `user` | create, list, get, update, set-role, set-password, ban, impersonate, delete | User management |
+| `session` | list, revoke, delete | Session management |
+
+### Custom Resources
+
+These resources are MakerKit-specific:
+
+| Resource | Actions | Description |
+|----------|---------|-------------|
+| `organizations` | list, view | Organization oversight |
+| `dashboard` | view | Admin dashboard access |
+| `subscriptions` | list | Subscription viewing |
+
+## Adding Custom Roles
+
+Create restricted admin roles for support staff, moderators, or other team members:
+
+```typescript
+import { defineAdminRBACConfig } from './admin/factory';
+
+export default defineAdminRBACConfig({
+  // Role hierarchy: higher number = more authority
+  roles: {
+    support: 50,     // Customer support staff
+    moderator: 30,   // Community moderators
+  },
+
+  // Define permissions for each custom role
+  // Note: 'admin' automatically gets ALL permissions
+  permissions: {
+    support: {
+      user: ['list', 'get', 'ban'],
+      session: ['list', 'revoke'],
+      organizations: ['list', 'view'],
+      dashboard: ['view'],
+      subscriptions: ['list'],
+    },
+    moderator: {
+      user: ['list', 'get', 'ban'],
+      dashboard: ['view'],
+    },
+  },
+});
+```
+
+### Role Hierarchy
+
+Roles are assigned numeric values indicating authority level:
+
+| Role | Value | Access Level |
+|------|-------|--------------|
+| `admin` | 100 | Full access (built-in, cannot be changed) |
+| `support` | 50 | Mid-level access |
+| `moderator` | 30 | Basic access |
+
+Higher values indicate more authority. This is useful for permission inheritance patterns if you extend the system.
+
+## Adding Custom Resources
+
+Extend the RBAC system with your own resources:
+
+```typescript
+export default defineAdminRBACConfig({
+  // Add custom resources
+  resources: {
+    REPORTS: 'reports',
+    CONTENT: 'content',
+    SUBSCRIPTIONS: 'subscriptions',
+  },
+
+  // Add custom actions
+  actions: {
+    EXPORT: 'export',
+    PUBLISH: 'publish',
+    MODERATE: 'moderate',
+  },
+
+  // Define which actions are valid for each resource
+  accessController: {
+    reports: ['list', 'view', 'export'],
+    content: ['list', 'view', 'publish', 'moderate'],
+    subscriptions: ['list'],
+  },
+
+  // Assign permissions to roles
+  permissions: {
+    support: {
+      reports: ['list', 'view'],
+      content: ['list', 'view'],
+      subscriptions: ['list'],
+    },
+    moderator: {
+      content: ['list', 'view', 'moderate'],
+    },
+  },
+});
+```
+
+## Server-Side Protection
+
+### Protecting Server Actions
+
+Use `withAdminPermission` middleware to enforce permissions:
+
+```typescript
+'use server';
+
+import { adminActionClient, withAdminPermission } from '@kit/action-middleware';
+
+// Require specific permission
+export const banUserAction = adminActionClient
+  .use(withAdminPermission({ user: ['ban'] }))
+  .inputSchema(banUserSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    // Only admins with 'user:ban' permission reach here
+    await banUser(parsedInput.userId);
+  });
+
+// Require multiple permissions
+export const manageUserAction = adminActionClient
+  .use(withAdminPermission({
+    user: ['get', 'ban'],
+    session: ['revoke'],
+  }))
+  .inputSchema(manageUserSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    // Requires ALL specified permissions
+  });
+```
+
+### How Permission Checking Works
+
+The `withAdminPermission` middleware:
+
+1. Extracts the user's role from the context
+2. Looks up the role's permissions from the RBAC config
+3. Checks if the role has all required permissions
+4. Returns a 403 Forbidden response if any permission is missing
+
+```typescript
+// Internal implementation (simplified)
+export function withAdminPermission(requirements: AdminPermissionRequirement) {
+  return createMiddleware().define(async ({ next, ctx }) => {
+    const { user } = ctx;
+    const role = user.role;
+
+    if (!role) {
+      return forbidden();
+    }
+
+    const rolePerms = getRolePermissions(role);
+
+    for (const [resource, requiredActions] of Object.entries(requirements)) {
+      const allowed = rolePerms[resource];
+
+      if (!allowed || !requiredActions.every((a) => allowed.includes(a))) {
+        return forbidden();
+      }
+    }
+
+    return next({ ctx: { user, permission: { requirements, granted: true } } });
+  });
+}
+```
+
+### Protecting Data Loaders
+
+Use `requireAdmin` for server components and data loaders:
+
+```typescript
+import 'server-only';
+import { cache } from 'react';
+import { requireAdmin } from '@kit/auth/require-admin';
+
+export const loadReportsData = cache(async () => {
+  await requireAdmin(); // Redirects if not admin
+
+  return await reportsService.getAll();
+});
+```
+
+## Client-Side Permission Checks
+
+### useAdminPermissions Hook
+
+Conditionally render UI based on permissions:
+
+```typescript
+'use client';
+
+import { useAdminPermissions } from '@kit/admin/hooks/use-admin-permissions';
+
+function UserActions({ userId }: { userId: string }) {
+  const { hasPermission, isLoading } = useAdminPermissions();
+
+  if (isLoading) return <Spinner />;
+
+  return (
+    <div>
+      {hasPermission({ user: ['get'] }) && (
+        <Button>View User</Button>
+      )}
+
+      {hasPermission({ user: ['ban'] }) && (
+        <Button>Ban User</Button>
+      )}
+
+      {hasPermission({ user: ['delete'] }) && (
+        <Button variant="destructive">Delete User</Button>
+      )}
+    </div>
+  );
+}
+```
+
+### Hook API Reference
+
+```typescript
+const {
+  role,            // Current user's admin role (or null)
+  isAdmin,         // Whether user has any admin role
+  isLoading,       // Whether session is loading
+  hasPermission,   // Check specific permission(s)
+  hasAnyPermission,// Check if user has any permission on resource
+  permissions,     // All permissions for current role
+  getActionsFor,   // Get all actions user can perform on resource
+} = useAdminPermissions();
+
+// Check single permission
+hasPermission({ user: ['ban'] });
+
+// Check multiple permissions (all required)
+hasPermission({ user: ['ban', 'delete'] });
+
+// Check any permission on resource
+hasAnyPermission('user'); // true if user has any user permission
+
+// Get all available actions
+getActionsFor('user'); // ['list', 'get', 'ban', ...]
+```
+
+### Role Checking Utilities
+
+For simple admin role checks without permission granularity:
+
+```typescript
+// Client-side
+import { isAdminRole } from '@kit/auth/is-admin-role';
+
+function showAdminLink(userRole: string | null) {
+  return isAdminRole(userRole);
+}
+
+// Server-side (non-redirecting)
+import { isUserAdmin } from '@kit/auth/require-admin';
+
+export async function getPageData() {
+  const isAdmin = await isUserAdmin();
+  return { showAdminFeatures: isAdmin };
+}
+```
+
+## Permission Matrix
+
+Default permissions for the built-in `admin` role:
+
+| Resource | Actions |
+|----------|---------|
+| `user` | create, list, get, update, set-role, set-password, ban, impersonate, delete |
+| `session` | list, revoke, delete |
+| `organizations` | list, view |
+| `dashboard` | view |
+| `subscriptions` | list |
+
+## Better Auth Integration
+
+The RBAC system integrates with Better Auth's admin plugin. Important naming conventions:
+
+### Resource Names
+
+Resources must be singular to match Better Auth's internal names:
+
+| Correct | Incorrect |
+|---------|-----------|
+| `user` | `users` |
+| `session` | `sessions` |
+
+### Action Names
+
+Actions must match Better Auth's expected names:
+
+| Better Auth Action | Description |
+|-------------------|-------------|
+| `set-role` | Change user role (not `change-role`) |
+| `set-password` | Reset user password |
+| `ban` | Ban or unban user (same permission for both) |
+| `impersonate` | Sign in as user |
+
+This ensures server actions work correctly with Better Auth's internal permission checks.
+
+## Example: Support Role
+
+A complete example of a support role with read-only user access and limited actions:
+
+```typescript
+// packages/rbac/src/admin-rbac.config.ts
+import { defineAdminRBACConfig } from './admin/factory';
+
+export default defineAdminRBACConfig({
+  resources: {
+    SUBSCRIPTIONS: 'subscriptions',
+  },
+  accessController: {
+    subscriptions: ['list'],
+  },
+  roles: {
+    support: 50,
+  },
+  permissions: {
+    support: {
+      // Can view users and ban/unban, but not delete or change roles
+      user: ['list', 'get', 'ban'],
+      // Can view and revoke sessions
+      session: ['list', 'revoke'],
+      // Can view organizations
+      organizations: ['list', 'view'],
+      // Can access dashboard
+      dashboard: ['view'],
+      // Can view subscription info
+      subscriptions: ['list'],
+    },
+  },
+});
+```
+
+To use this role:
+
+1. Set a user's `role` to `support` in the database
+2. The user can access `/admin` with restricted permissions
+3. UI elements are hidden based on `hasPermission` checks
+4. Server actions reject unauthorized requests with 403
+
+---
+
+**Previous:** [Organization Management](./organization-management)
+
+**Next:** [Extending Admin](./extending-admin)

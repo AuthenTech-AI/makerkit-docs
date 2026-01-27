@@ -1,33 +1,68 @@
 ---
 status: "published"
 label: "Tailwind CSS"
-title: "Updating the Tailwind CSS Shadcn theme | Next.js Supabase SaaS Kit"
+title: "Tailwind CSS Configuration | Next.js Supabase SaaS Kit"
 order: -1
-description: "How to update the Tailwind CSS theme in your Makerkit application"
+description: "Configure Tailwind CSS 4, extend the design system, and customize styles across your Makerkit monorepo application."
 ---
 
-Makerkit uses [Tailwind CSS](https://tailwindcss.com) to style the application.
+Makerkit uses Tailwind CSS 4 with Shadcn UI for styling. All style configuration lives in `apps/web/styles/`, with the main entry point at `globals.css`. This guide covers how to customize Tailwind, add new packages to the content paths, and extend the design system.
 
-### Tailwind CSS (v4) Configuration
+## Style File Structure
 
-If you are using Tailwind CSS v4, you can update the configuration in the `apps/web/styles/global.css` file.
+The styling system uses these files in `apps/web/styles/`:
 
-This file imports the following Tailwind CSS configuration files:
-- `apps/web/styles/global.css`: - the main global styles for the application (imports the other files)
-- `apps/web/styles/theme.css` - this is where we store the Shadcn UI theme for Tailwind CSS v4
-- `apps/web/styles/shadcn-ui.css` - where you can override the default style, either define your own colors or pick a theme from the [Shadcn UI Themes page](https://ui.shadcn.com/themes).
-- `apps/web/styles/markdoc.css` - for markdoc content
-- `apps/web/styles/makerkit.css` - for makerkit-specific styles
-- `apps/web/styles/theme.utilities.css` - for utility classes
+```
+apps/web/styles/
+├── globals.css         # Main entry point, imports everything
+├── shadcn-ui.css       # Theme colors (light/dark mode variables)
+├── theme.css           # Maps CSS variables to Tailwind's @theme
+├── theme.utilities.css # Custom utility classes
+├── makerkit.css        # Makerkit-specific component styles
+└── markdoc.css         # Content/documentation styles
+```
 
-### Tailwind CSS (v3) Configuration
+## Tailwind CSS 4 Configuration
 
-The older default configuration is at `tooling/tailwind/index.ts` - where you can set the default colors, fonts, and more.
+Tailwind CSS 4 uses CSS-based configuration instead of JavaScript. The `@theme` directive in `theme.css` defines your design tokens:
 
-Whenever you add a new package, please remember to update the Tailwind configuration file and add the path to the `content` glob
+```css title="apps/web/styles/theme.css"
+@theme {
+  /* Colors mapped from shadcn-ui.css variables */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
 
-```tsx
+  /* Border radius */
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+
+  /* Font families */
+  --font-sans: -apple-system, var(--font-sans);
+  --font-heading: var(--font-heading);
+
+  /* Custom animations */
+  --animate-fade-up: fade-up 0.5s;
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+}
+```
+
+These tokens become available as Tailwind utilities: `bg-primary`, `text-foreground`, `rounded-lg`, etc.
+
+## Adding Content Paths for New Packages
+
+When you create a new package in the monorepo, Tailwind needs to know where to scan for class names. Update `apps/web/tailwind.config.ts`:
+
+```tsx title="apps/web/tailwind.config.ts"
+import type { Config } from 'tailwindcss';
+
+export default {
   content: [
+    './app/**/*.{ts,tsx}',
+    './components/**/*.{ts,tsx}',
+    // Existing packages
     '../../packages/ui/src/**/*.tsx',
     '../../packages/billing/gateway/src/**/*.tsx',
     '../../packages/features/auth/src/**/*.tsx',
@@ -35,42 +70,232 @@ Whenever you add a new package, please remember to update the Tailwind configura
     '../../packages/features/admin/src/**/*.tsx',
     '../../packages/features/accounts/src/**/*.tsx',
     '../../packages/features/team-accounts/src/**/*.tsx',
-    '../../packages/plugins/testimonial/src/**/*.tsx',
-    '../../packages/plugins/roadmap/src/**/*.tsx',
-    '../../packages/plugins/kanban/src/**/*.tsx',
-    // add the path to the content glob
+    // Add your new package here
+    '../../packages/features/your-feature/src/**/*.tsx',
+    // Exclude node_modules
     '!**/node_modules',
   ],
+} satisfies Config;
 ```
 
-### Shadcn UI Theme
-
-Makerkit uses [Shadcn UI](https://ui.shadcn.com) and it defines the theme according to its guidelines.
-
-You can find the default theme inside the application at `apps/web/styles/global.css`.
-
-If you want to override the default style, either define your own colors or pick a theme from the [Shadcn UI Themes page](https://ui.shadcn.com/themes), and copy/paste the theme into this file.
-
-### Using JSX files
-
-If you plan on using JSX files, please update the global paths in the `content` glob in the Tailwind configuration file.
-
-For targeting both TSX and JSX files, update the `content` glob paths `{tsx|jsx}`. For example:
+For packages using JSX (not TSX), update the glob pattern:
 
 ```tsx
-  content: [
-    '../../packages/ui/src/**/*.{tsx,jsx}',
-    '../../packages/billing/gateway/src/**/*.{tsx,jsx}',
-    '../../packages/features/auth/src/**/*.{tsx,jsx}',
-    '../../packages/features/notifications/src/**/*.{tsx,jsx}',
-    '../../packages/features/admin/src/**/*.{tsx,jsx}',
-    '../../packages/features/accounts/src/**/*.{tsx,jsx}',
-    '../../packages/features/team-accounts/src/**/*.{tsx,jsx}',
-    '../../packages/plugins/testimonial/src/**/*.{tsx,jsx}',
-    '../../packages/plugins/roadmap/src/**/*.{tsx,jsx}',
-    '../../packages/plugins/kanban/src/**/*.{tsx,jsx}',
-    '!**/node_modules',
-  ],
+'../../packages/features/your-feature/src/**/*.{tsx,jsx}',
 ```
 
-You will need to do the same in `apps/web/tailwind.config.ts`.
+## Custom Utility Classes
+
+Add custom utilities in `theme.utilities.css`:
+
+```css title="apps/web/styles/theme.utilities.css"
+@layer utilities {
+  /* Text balance for headings */
+  .text-balance {
+    text-wrap: balance;
+  }
+
+  /* Hide scrollbar but allow scrolling */
+  .scrollbar-hidden {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Gradient text */
+  .text-gradient {
+    background: linear-gradient(to right, var(--primary), var(--accent));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+}
+```
+
+## Extending the Theme
+
+Add custom design tokens in `theme.css`:
+
+```css title="apps/web/styles/theme.css"
+@theme {
+  /* Custom spacing */
+  --spacing-18: 4.5rem;
+  --spacing-22: 5.5rem;
+
+  /* Custom colors */
+  --color-brand: oklch(65% 0.2 250);
+  --color-brand-light: oklch(85% 0.1 250);
+
+  /* Custom font sizes */
+  --font-size-xxs: 0.625rem;
+
+  /* Custom shadows */
+  --shadow-glow: 0 0 20px rgba(var(--primary), 0.3);
+
+  /* Custom transitions */
+  --transition-bounce: cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+```
+
+Use these in your components:
+
+```tsx
+<div className="p-18 bg-brand shadow-glow transition-all duration-300 ease-bounce">
+  Content
+</div>
+```
+
+## Component-Level Styles
+
+For complex component styles, use `@layer components` in `makerkit.css`:
+
+```css title="apps/web/styles/makerkit.css"
+@layer components {
+  .card-hover {
+    @apply transition-all duration-200;
+    @apply hover:shadow-lg hover:-translate-y-0.5;
+  }
+
+  .btn-gradient {
+    @apply bg-gradient-to-r from-primary to-accent;
+    @apply text-primary-foreground;
+    @apply hover:opacity-90 transition-opacity;
+  }
+
+  .input-focus {
+    @apply focus:ring-2 focus:ring-ring focus:ring-offset-2;
+    @apply focus:outline-none;
+  }
+}
+```
+
+## Shadcn UI Component Customization
+
+Override Shadcn component styles by targeting their classes. Common customizations:
+
+```css title="apps/web/styles/shadcn-ui.css"
+@layer base {
+  :root {
+    /* Make buttons more rounded */
+    --radius: 0.75rem;
+
+    /* Stronger focus rings */
+    --ring: var(--color-blue-500);
+  }
+}
+
+@layer components {
+  /* Custom button variants */
+  .btn-primary-gradient {
+    @apply bg-gradient-to-r from-blue-600 to-indigo-600;
+    @apply hover:from-blue-700 hover:to-indigo-700;
+  }
+
+  /* Card with subtle border */
+  .card-outlined {
+    @apply border border-border/50;
+    @apply hover:border-border transition-colors;
+  }
+}
+```
+
+## Dark Mode Utilities
+
+Create dark-mode-aware utilities:
+
+```css title="apps/web/styles/theme.utilities.css"
+@layer utilities {
+  .glass {
+    @apply bg-white/80 backdrop-blur-sm;
+    @apply dark:bg-neutral-900/80;
+  }
+
+  .surface-elevated {
+    @apply bg-white shadow-sm;
+    @apply dark:bg-neutral-800 dark:shadow-none;
+  }
+
+  .border-subtle {
+    @apply border-gray-200;
+    @apply dark:border-neutral-700;
+  }
+}
+```
+
+## Legacy Tailwind v3 Support
+
+If you need to support Tailwind v3 (not recommended for new projects), the configuration file is at `tooling/tailwind/index.ts`. This approach uses JavaScript configuration:
+
+```tsx title="tooling/tailwind/index.ts"
+import type { Config } from 'tailwindcss';
+
+export default {
+  content: [
+    '../../packages/ui/src/**/*.tsx',
+    // ... other paths
+  ],
+  theme: {
+    extend: {
+      colors: {
+        border: 'hsl(var(--border))',
+        input: 'hsl(var(--input))',
+        ring: 'hsl(var(--ring))',
+        background: 'hsl(var(--background))',
+        foreground: 'hsl(var(--foreground))',
+        primary: {
+          DEFAULT: 'hsl(var(--primary))',
+          foreground: 'hsl(var(--primary-foreground))',
+        },
+      },
+    },
+  },
+} satisfies Config;
+```
+
+We recommend migrating to Tailwind CSS 4. See the [Tailwind CSS 4 migration guide](/docs/next-supabase-turbo/installation/update-tailwindcss-v4) for instructions.
+
+## Common Mistakes
+
+**Missing content paths**: New packages won't have their Tailwind classes compiled if you forget to add them to the `content` array. Styles will appear missing in production even if they work in development.
+
+**Using `@apply` excessively**: Reserve `@apply` for reusable component patterns. For one-off styles, use utility classes directly in JSX. Excessive `@apply` increases CSS bundle size.
+
+**Forgetting `@layer` directives**: Custom styles without `@layer` can have specificity issues. Always wrap custom styles in `@layer base`, `@layer components`, or `@layer utilities`.
+
+**Hardcoding colors**: Use theme variables (`bg-primary`, `text-foreground`) instead of hardcoded colors (`bg-blue-500`). This ensures consistency and makes theme changes easier.
+
+## Verification
+
+After modifying Tailwind configuration:
+
+1. Restart the dev server (Tailwind config changes require a restart)
+2. Run `pnpm build` to verify all classes compile correctly
+3. Check production build for missing styles: `pnpm build && pnpm start`
+4. Verify dark mode works for any new utilities
+
+```bash
+# Quick verification commands
+pnpm dev          # Development server
+pnpm build        # Production build (catches missing content paths)
+pnpm typecheck    # Type checking
+```
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Why are my Tailwind classes not working in production?", "answer": "The most common cause is missing content paths in tailwind.config.ts. Add your package path to the content array and rebuild. Classes must exist in scanned files to be included in the production CSS bundle."},
+     {"question": "How do I add a completely custom color?", "answer": "Define it in theme.css using the @theme directive: --color-brand: oklch(65% 0.2 250). Then use it as bg-brand or text-brand in your components."},
+     {"question": "Should I use @apply or inline utilities?", "answer": "Prefer inline utilities for most cases. Use @apply only for frequently repeated patterns that need to stay in sync. Inline utilities are more explicit and easier to maintain."},
+     {"question": "How do I override Shadcn component styles?", "answer": "Add overrides in shadcn-ui.css within @layer components. Target the specific component classes or create variant classes. You can also pass className props to override individual instances."}
+   ]
+/%}
+
+## Next Steps
+
+- Back to [Customization Overview](/docs/next-supabase-turbo/customization)
+- Configure your [theme colors](/docs/next-supabase-turbo/customization/theme) for brand consistency
+- Set up [custom fonts](/docs/next-supabase-turbo/customization/fonts) for typography
+- Choose your [layout style](/docs/next-supabase-turbo/customization/layout-style) for navigation

@@ -1,0 +1,206 @@
+---
+status: "published"
+title: "Organization Management"
+label: "Organization Management"
+order: 3
+description: "Oversee organizations, view members, and manage team subscriptions from the admin panel."
+---
+
+The Organization Management section at `/admin/organizations` provides oversight of all teams on your platform.
+
+## Organization List
+
+### Search
+
+Use the search input to find organizations by name. Results update as you type and are paginated at 25 organizations per page.
+
+{% img src="/images/docs/admin-organizations-table.webp" width="2844" height="1938" alt="Admin Organizations Table" /%}
+
+### Table Columns
+
+Each organization row displays:
+
+| Column | Description |
+|--------|-------------|
+| **Logo** | Organization avatar or default icon |
+| **Name** | Organization display name |
+| **Slug** | URL-friendly identifier |
+| **Members** | Total member count |
+| **Created** | Organization creation date |
+| **Actions** | View details button |
+
+## Organization Details
+
+Click "View Details" to open a side panel with comprehensive organization information.
+
+{% img src="/images/docs/admin-organization-detail.webp" width="2844" height="1938" alt="Organization Details Sheet" /%}
+
+### Overview Section
+
+- **Logo and Name**: Organization branding
+- **Slug**: URL identifier for the organization
+- **Member Count**: Total team members
+- **Created Date**: When the organization was created
+
+### Subscription Information
+
+When billing is enabled and the admin has `subscriptions:list` permission, the panel shows:
+
+- **Plan Name**: Current subscription tier
+- **Status**: Active, canceled, past due, trialing, etc.
+- **Billing Period**: Monthly or yearly
+- **Next Billing Date**: Upcoming renewal
+
+Organizations inherit billing based on your account mode configuration:
+
+- **Team Mode**: Billing attached to organizations
+- **Personal Mode**: Billing attached to individual users
+
+```typescript
+// Fetching subscription data for an organization
+export const getSubscriptionsByReferenceIdAction = adminActionClient
+  .use(withAdminPermission({ subscriptions: ['list'] }))
+  .inputSchema(getSubscriptionsByReferenceIdSchema)
+  .action(async ({ parsedInput }) => {
+    const { referenceId, customerType } = parsedInput;
+    const billing = await getBilling(auth);
+
+    const result = await billing.listSubscriptions({
+      referenceId,
+      customerType,
+    });
+
+    return {
+      subscriptions: result.subscriptions,
+    };
+  });
+```
+
+### Member List
+
+All organization members are displayed with:
+
+- **Avatar**: Member's profile picture
+- **Name**: Display name
+- **Email**: Member's email address
+- **Role**: Organization role (owner, admin, member)
+- **Status**: Active or banned indicator
+
+Click any member to open their [User Details](./user-management#view-details) panel. This allows quick access to user management actions without leaving the organization view.
+
+```typescript
+// Fetching organization members
+export const getOrganizationMembersAction = adminActionClient
+  .use(withAdminPermission({ organizations: ['view'] }))
+  .inputSchema(getOrganizationMembersSchema)
+  .action(async ({ parsedInput }) => {
+    const { organizationId } = parsedInput;
+    const service = createAdminDashboardService();
+
+    return await service.getOrganizationMembers(organizationId);
+  });
+```
+
+## Permission Requirements
+
+Organization management requires these RBAC permissions:
+
+| Action | Required Permission |
+|--------|-------------------|
+| List organizations | `organizations:list` |
+| View organization details | `organizations:view` |
+| View organization subscriptions | `subscriptions:list` |
+| View/manage members | `user:get` (for member details) |
+
+The default `admin` role has all permissions. For custom roles:
+
+```typescript
+export default defineAdminRBACConfig({
+  roles: {
+    support: 50,
+  },
+  permissions: {
+    support: {
+      organizations: ['list', 'view'],
+      subscriptions: ['list'],
+      user: ['list', 'get'],
+    },
+  },
+});
+```
+
+## Data Loading
+
+Organization data is loaded server-side with admin protection:
+
+```typescript
+// packages/admin/src/organizations/lib/loaders/organizations-page.loader.ts
+import 'server-only';
+import { cache } from 'react';
+import { requireAdmin } from '@kit/auth/require-admin';
+
+export const loadOrganizationsPageData = cache(async (params) => {
+  await requireAdmin(); // Ensures admin access
+
+  const service = createOrganizationsAdminService();
+  return service.listOrganizations({
+    searchValue: params.search,
+    limit: 25,
+    offset: (params.page - 1) * 25,
+    sortBy: params.sortBy,
+    sortDirection: params.sortDirection,
+  });
+});
+```
+
+Member data is fetched on-demand when viewing organization details:
+
+```typescript
+// Fetched via React Query when details panel opens
+const { data: members = [], isLoading } = useQuery({
+  queryKey: ['admin', 'organization-members', organizationId],
+  queryFn: () =>
+    getOrganizationMembersAction({ organizationId }).then(
+      (result) => result.data?.members || []
+    ),
+});
+```
+
+## Read-Only Access
+
+The current admin panel provides read-only access to organizations. For modifying organizations (updating settings, managing members, deleting), users should access the organization directly through the standard team interface.
+
+This design separates concerns:
+- **Admin Panel**: Platform-wide oversight and user management
+- **Team Interface**: Day-to-day organization management by team owners
+
+If you need admin actions for organizations (e.g., force delete, transfer ownership), see [Extending Admin](./extending-admin) for adding custom functionality.
+
+## Common Workflows
+
+### Finding a User's Organizations
+
+1. Go to `/admin/users`
+2. Find and click on the user
+3. In the user details panel, view their organization memberships
+4. Click on any organization to see full details
+
+### Checking Subscription Status
+
+1. Go to `/admin/organizations`
+2. Search for the organization
+3. Click "View Details"
+4. Subscription information appears in the details panel
+
+### Investigating Member Issues
+
+1. Find the organization at `/admin/organizations`
+2. Click "View Details"
+3. Browse the member list
+4. Click on any member to access their user details and actions
+
+---
+
+**Previous:** [User Management](./user-management)
+
+**Next:** [RBAC Permissions](./rbac-permissions)

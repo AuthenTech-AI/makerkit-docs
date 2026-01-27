@@ -1,94 +1,293 @@
 ---
 status: "published"
 label: "Per Seat Billing"
-title: "How to configure per seat billing in Makerkit"
+title: "Configure Per-Seat Billing for Team Subscriptions"
 order: 6
-description: "Learn how to setup per seat billing in Makerkit to charge customers for additional seats (users) in your application."
+description: "Implement per-seat pricing for your SaaS. Makerkit automatically tracks team members and updates seat counts with your billing provider when members join or leave."
 ---
 
-{% sequence title="How to configure per seat billing in Makerkit" description="Learn how to setup per seat billing in Makerkit to charge customers for additional seats (users) in your application." %}
+Per-seat billing charges customers based on the number of users (seats) in their team. Makerkit handles this automatically: when team members are added or removed, the subscription is updated with the new seat count.
 
-[What the kit does for you](#what-the-kit-does-for-you)
+## How It Works
 
-[Define a per-seat billing schema](#define-a-per-seat-billing-schema)
+1. You define a `per_seat` line item in your billing schema
+2. When a team subscribes, Makerkit counts current members and sets the initial quantity
+3. When members join or leave, Makerkit updates the subscription quantity
+4. Your billing provider (Stripe, Lemon Squeezy, Paddle) handles proration
 
-[Report the number of seats](#report-the-number-of-seats)
+No custom code required for basic per-seat billing.
 
-{% /sequence %}
+## Schema Configuration
 
-Per Seat billing is a common pricing model for SaaS applications where customers are charged based on the number of seats (users) they have in the application. In this guide, we'll show you how to configure per seat billing in Makerkit.
+Define a per-seat line item in your billing schema:
 
-## What the kit does for you
+```tsx {% title="apps/web/config/billing.config.ts" %}
+import { createBillingSchema } from '@kit/billing';
 
-Makerkit will automatically:
-1. understand if your pricing model depends on the number of seats (using the `per_seat` line item type in your pricing model)
-2. calculate the number of seats based on the members count in a Team account
-3. report the number of seats to your billing system when subscribing
-4. report the number of seats to your billing system when adding or removing members
-
-## Define a per-seat billing schema
-
-Per-seat billing is defined by the following fields:
-
-```tsx
 export default createBillingSchema({
-  provider,
+  provider: process.env.NEXT_PUBLIC_BILLING_PROVIDER,
   products: [
     {
-      id: 'starter',
-      name: 'Starter',
-      description: 'The perfect plan to get started',
+      id: 'team',
+      name: 'Team',
+      description: 'For growing teams',
       currency: 'USD',
-      badge: `Value`,
+      features: [
+        'Unlimited projects',
+        'Team collaboration',
+        'Priority support',
+      ],
       plans: [
         {
-          name: 'Starter Monthly',
-          id: 'starter-monthly',
-          trialDays: 7,
+          id: 'team-monthly',
+          name: 'Team Monthly',
           paymentType: 'recurring',
           interval: 'month',
           lineItems: [
             {
-              id: 'price_1NNwYHI1i3VnbZTqI2UzaHIe',
-              name: 'Addon 2',
-              cost: 0,
+              id: 'price_team_monthly',  // Your Stripe Price ID
+              name: 'Team Seats',
+              cost: 0,  // Base cost (calculated from tiers)
               type: 'per_seat',
               tiers: [
-                {
-                    upTo: 3,
-                    cost: 0,
-                },
-                {
-                    upTo: 5,
-                    cost: 7.99,
-                },
-                {
-                    upTo: 'unlimited',
-                    cost: 5.99,
-                }
-              ]
+                { upTo: 3, cost: 0 },         // First 3 seats free
+                { upTo: 10, cost: 15 },       // $15/seat for seats 4-10
+                { upTo: 'unlimited', cost: 12 }, // Volume discount
+              ],
             },
           ],
-        }
+        },
       ],
-    }
-  ]
+    },
+  ],
 });
 ```
 
-Let's break down the fields:
-- **id**: The unique identifier for the line item. **This must match the price ID in the billing provider**. The schema will validate this, but please remember to set it correctly.
-- **name**: The name of the line item
-- **cost**: The cost of the line item. This can be set to `0` as the cost is calculated based on the tiers.
-- **type**: The type of the line item (e.g., `flat`, `metered`, `per-seat`). In this case, it's `per-seat`.
-- **tiers**: The tiers of the line item. Each tier is defined by the following fields:
-- **upTo**: The upper limit of the tier. If the usage is below this limit, the cost is calculated based on this tier.
-- **cost**: The cost of the tier. This is the cost per unit.
+## Pricing Tier Patterns
 
-If you set the first tier to `0`, it basically means that the first `n` seats are free. This is a common practice in per-seat billing.
+### Free Tier + Per-Seat
 
-Please remember that the cost is set for UI purposes. **The billing provider will handle the actual billing** - therefore, **please make sure the cost is correctly set in the billing provider**.
+Include free seats for small teams:
 
-## Report the number of seats
+```tsx
+tiers: [
+  { upTo: 5, cost: 0 },        // 5 free seats
+  { upTo: 'unlimited', cost: 10 }, // $10/seat after
+]
+```
 
-This is done automatically for you. Makerkit will report the number of seats to your billing provider when subscribing, and when adding or removing members.
+### Flat Per-Seat (No Tiers)
+
+Simple per-seat pricing:
+
+```tsx
+tiers: [
+  { upTo: 'unlimited', cost: 15 }, // $15/seat for all seats
+]
+```
+
+### Volume Discounts
+
+Reward larger teams:
+
+```tsx
+tiers: [
+  { upTo: 10, cost: 20 },      // $20/seat for 1-10
+  { upTo: 50, cost: 15 },      // $15/seat for 11-50
+  { upTo: 100, cost: 12 },     // $12/seat for 51-100
+  { upTo: 'unlimited', cost: 10 }, // $10/seat for 100+
+]
+```
+
+### Base Fee + Per-Seat (Stripe Only)
+
+Combine a flat fee with per-seat pricing:
+
+```tsx
+lineItems: [
+  {
+    id: 'price_base_fee',
+    name: 'Platform Fee',
+    cost: 49,
+    type: 'flat',
+  },
+  {
+    id: 'price_seats',
+    name: 'Team Seats',
+    cost: 0,
+    type: 'per_seat',
+    tiers: [
+      { upTo: 5, cost: 0 },
+      { upTo: 'unlimited', cost: 10 },
+    ],
+  },
+]
+```
+
+{% alert type="warning" title="Stripe only" %}
+Multiple line items (flat + per-seat) only work with Stripe. Lemon Squeezy and Paddle support one line item per plan.
+{% /alert %}
+
+## Provider Setup
+
+### Stripe
+
+1. Create a product in Stripe Dashboard
+2. Add a price with **Graduated pricing** or **Volume pricing**
+3. Set the pricing tiers to match your schema
+4. Copy the Price ID (e.g., `price_xxx`) to your line item `id`
+
+**Stripe pricing types:**
+
+- **Graduated**: Each tier applies to that range only (e.g., seats 1-5 at $0, seats 6-10 at $15)
+- **Volume**: The price for all units is determined by the total quantity
+
+### Lemon Squeezy
+
+1. Create a product with **Usage-based pricing**
+2. Configure the pricing tiers
+3. Copy the Variant ID to your line item `id`
+
+### Paddle
+
+1. Create a product with quantity-based pricing
+2. Configure as needed (Paddle handles proration automatically)
+3. Copy the Price ID to your line item `id`
+
+{% alert type="default" title="Paddle trial limitation" %}
+Paddle doesn't support updating subscription quantities during a trial period. If using per-seat billing with Paddle trials, consider using Feature Policies to restrict invitations during trials.
+{% /alert %}
+
+## Automatic Seat Updates
+
+Makerkit automatically updates seat counts when:
+
+| Action | Effect |
+|--------|--------|
+| Team member accepts invitation | Seat count increases |
+| Team member is removed | Seat count decreases |
+| Team member leaves | Seat count decreases |
+| Account is deleted | Subscription is canceled |
+
+The billing provider handles proration based on your settings.
+
+## Testing Per-Seat Billing
+
+1. **Create a team subscription:**
+   - Sign up and create a team account
+   - Subscribe to a per-seat plan
+   - Verify the initial seat count matches team size
+2. **Add a member:**
+   - Invite a new member to the team
+   - Have them accept the invitation
+   - Check Stripe/LS/Paddle: subscription quantity should increase
+3. **Remove a member:**
+   - Remove a member from the team
+   - Check: subscription quantity should decrease
+4. **Verify proration:**
+   - Check the upcoming invoice in your provider dashboard
+   - Confirm proration is calculated correctly
+
+## Manual Seat Updates (Advanced)
+
+In rare cases, you might need to manually update seat counts:
+
+```tsx
+import { createBillingGatewayService } from '@kit/billing-gateway';
+import { getSupabaseServerClient } from '@kit/supabase/server-client';
+
+export async function updateSeatCount(
+  subscriptionId: string,
+  subscriptionItemId: string,
+  newQuantity: number
+) {
+  const supabase = getSupabaseServerClient();
+
+  // Get subscription to find the provider
+  const { data: subscription } = await supabase
+    .from('subscriptions')
+    .select('billing_provider')
+    .eq('id', subscriptionId)
+    .single();
+
+  if (!subscription) {
+    throw new Error('Subscription not found');
+  }
+
+  const service = await createBillingGatewayService(
+    subscription.billing_provider
+  );
+
+  return service.updateSubscriptionItem({
+    subscriptionId,
+    subscriptionItemId,
+    quantity: newQuantity,
+  });
+}
+```
+
+## Checking Seat Limits
+
+To enforce seat limits in your application:
+
+```tsx
+import { createAccountsApi } from '@kit/accounts/api';
+import { getSupabaseServerClient } from '@kit/supabase/server-client';
+
+export async function canAddMember(accountId: string): Promise<boolean> {
+  const supabase = getSupabaseServerClient();
+  const api = createAccountsApi(supabase);
+
+  // Get current subscription
+  const subscription = await api.getSubscription(accountId);
+
+  if (!subscription) {
+    return false; // No subscription
+  }
+
+  // Get per-seat item
+  const { data: seatItem } = await supabase
+    .from('subscription_items')
+    .select('quantity')
+    .eq('subscription_id', subscription.id)
+    .eq('type', 'per_seat')
+    .single();
+
+  // Get current member count
+  const { count: memberCount } = await supabase
+    .from('accounts_memberships')
+    .select('*', { count: 'exact', head: true })
+    .eq('account_id', accountId);
+
+  // Check if under limit (if you have a max seats limit)
+  const maxSeats = 100; // Your limit
+  return (memberCount ?? 0) < maxSeats;
+}
+```
+
+## Common Issues
+
+### Seat count not updating
+
+1. Check that the line item has `type: 'per_seat'`
+2. Verify the subscription is active
+3. Check webhook logs for errors
+4. Ensure the subscription item ID is correct in the database
+
+### Proration not working as expected
+
+Configure proration behavior in your billing provider:
+- **Stripe:** Customer Portal settings or API parameters
+- **Lemon Squeezy:** Product settings
+- **Paddle:** Automatic proration
+
+### "Minimum quantity" errors
+
+Some plans require at least 1 seat. Ensure your tiers start at a valid minimum.
+
+## Related Documentation
+
+- [Billing Schema](/docs/next-supabase-turbo/billing/billing-schema) - Define pricing plans
+- [Stripe Setup](/docs/next-supabase-turbo/billing/stripe) - Configure Stripe
+- [Billing API](/docs/next-supabase-turbo/billing/billing-api) - Manual subscription updates
+- [Team Accounts](/docs/next-supabase-turbo/api/team-account-api) - Team management

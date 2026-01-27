@@ -1,0 +1,391 @@
+---
+status: "published"
+title: "Project Structure and Organization"
+label: "Project Structure"
+order: 1
+description: "Understand the monorepo structure, folder organization, and file naming conventions of the Next.js Prisma SaaS Kit."
+---
+
+Understand how the Next.js Prisma SaaS Kit organizes code across apps and packages so you can navigate confidently and add features in the right places.
+
+The kit uses a [Turborepo](https://turbo.build/repo/docs) monorepo with [pnpm workspaces](https://pnpm.io/workspaces). The `apps/web` directory contains your main Next.js application; `packages/` holds reusable libraries like `@kit/auth`, `@kit/database`, and `@kit/ui`. Feature code lives in `apps/web/app/` following Next.js App Router conventions. Config files in `apps/web/config/` control navigation, feature flags, and billing. This separation keeps concerns isolated while sharing types and utilities across the stack.
+
+**Definition:** A monorepo is a single repository containing multiple projects (apps and packages) that share dependencies, tooling, and can reference each other directly without publishing to npm.
+
+**Use the project structure documentation when:** you're onboarding to the codebase, adding a new feature and unsure where to put it, or creating a new shared package.
+
+**Avoid deep package nesting when:** your code is app-specific and won't be reused - just put it in `apps/web/`.
+
+**If unsure where code belongs:** start in `apps/web/app/` near the route that uses it. Extract to a package later if you need it elsewhere.
+
+## Why a Monorepo?
+
+**Benefits:**
+- **Code Reusability** - Share packages across multiple apps
+- **Type Safety** - Shared types across the entire stack
+- **Atomic Changes** - Update multiple packages in a single commit
+- **Consistent Tooling** - Unified linting, formatting, and testing
+- **Better Developer Experience** - Jump to definitions across packages
+
+**Structure:**
+```
+next-prisma-saas-kit-turbo/
+├── apps/               # Applications
+├── packages/           # Shared packages
+├── tooling/            # Build and utility scripts
+├── turbo/              # Turborepo generators
+├── docs/               # Documentation
+├── turbo.json          # Turborepo configuration
+├── pnpm-workspace.yaml # pnpm workspace configuration
+└── package.json        # Root package.json
+```
+
+## Top-Level Structure
+
+### Apps Directory
+
+Contains deployable applications:
+
+```
+apps/
+├── web/               # Main Next.js SaaS application
+├── dev-tool/          # Development tools for env vars and translations
+└── e2e/               # Playwright end-to-end tests
+```
+
+**apps/web** - Main Application
+- Next.js 16 with App Router
+- All user-facing pages and features
+- API routes and server actions
+- Marketing website
+
+**apps/e2e** - End-to-End Tests
+- Playwright test suites
+- Page object models
+- Test utilities
+
+### Packages Directory
+
+Contains reusable packages shared across apps.
+
+### Key Package Descriptions
+
+**@kit/auth** - Authentication Components
+- Sign-in/sign-up forms
+- Password reset flows
+- MFA components
+- Auth utilities
+
+**@kit/better-auth** - Auth Configuration
+- Better Auth setup
+- Session management
+- Authentication providers
+
+**@kit/database** - Database Layer
+- Prisma ORM schema definitions
+- Migration files
+- Database utilities
+- Type-safe query builders
+
+**@kit/ui** - UI Component Library
+- Shadcn UI components
+- Form components
+- Layout components
+- Shared design system
+
+**@kit/organization-*** - Organization Features (nested packages)
+- Organization CRUD operations
+- Member management
+- Invitation system
+- Role management
+
+**@kit/rbac** - Authorization
+- Permission definitions
+- Role-based access control
+- Policy enforcement
+
+**@kit/storage** - File Storage
+- File upload utilities
+- Storage provider abstraction
+- Image handling
+
+**@kit/email-templates** - Email Templates
+- Transactional emails
+- React Email components
+- Email layouts
+
+## Web App Structure
+
+The main application (`apps/web`) follows Next.js App Router conventions:
+
+```
+apps/web/
+├── app/                      # Next.js app directory
+│   ├── [locale]/            # Internationalized routes
+│   │   ├── auth/          # Authentication pages
+│   │   ├── (invitation)/     # Invitation pages
+│   │   ├── (public)/     # Public marketing pages
+│   │   ├── (internal)/      # Authentication protected pages
+│   ├── api/                 # API routes
+│   └── layout.tsx           # Root layout
+├── components/              # Shared React components
+├── config/                  # App configuration
+├── i18n/                    # Translation files
+│   └── messages/           # Locale-specific messages
+├── public/                  # Static assets
+├── styles/                  # Global styles
+├── .env                     # Public environment variables
+├── .env.local              # Local secrets (git-ignored)
+├── prisma/                   # Prisma schema in packages/database/src/prisma/
+├── next.config.ts          # Next.js configuration
+└── package.json            # Dependencies
+```
+
+### App Directory Deep Dive
+
+**Route Groups** (folders with parentheses):
+- `(invitation)/` - Invitation pages with specific layout
+- `(public)/` - Public pages with marketing layout
+- `(internal)/` - Authentication protected pages with specific layout
+- Regular folders become URL segments
+
+**Dynamic Routes**:
+- `[locale]/` - Language/locale parameter
+
+The full application routing is scoped by the `[locale]` parameter. This is optional for non-default locales (by default, the locale is `en`). Ex. `/es/auth/sign-in` (for Spanish) or `/auth/sign-in` (for English).
+
+**Special Files**:
+- `page.tsx` - Page component (creates route)
+- `layout.tsx` - Layout wrapper
+- `loading.tsx` - Loading UI
+- `error.tsx` - Error boundary
+- `not-found.tsx` - 404 page
+
+Please refer to the [Next.js documentation](https://nextjs.org/docs/app/building-your-application/routing) for more information on the routing conventions.
+
+### Custom Conventions
+
+Below are some conventions we use in the application.
+
+```
+*.schema.ts           # Zod validation schemas
+*-server-actions.ts   # Server actions
+*-page.loader.ts      # Data loaders for pages
+*.config.ts           # Configuration files
+*.types.ts            # TypeScript type definitions
+```
+
+These are just conventions; you are free to use your own naming conventions as long as you are consistent within your codebase.
+
+#### Page Loaders
+
+These are server-side functions that fetch data before a page is rendered. They are used to populate the page with data in React Server Components (RSC).
+
+#### Server Actions
+
+These are server-side functions that perform actions on the server. They are used to perform actions on the server in React Server Components (RSC).
+
+#### API Routes
+
+These are API routes that are used to perform server-side actions from the client-side.
+
+#### Schemas
+
+These are Zod schemas that are used to validate data both on the client-side and the server-side.
+
+Please refer to the [Zod documentation](https://zod.dev/) for more information on the Zod schemas.
+
+### Component Naming
+
+Components are named in kebab-case.
+
+**Examples:**
+```
+✅ Good:
+- user-profile-card.tsx
+- invite-member-form.tsx
+- get-user-session.ts
+- format-date.ts
+
+❌ Avoid:
+- UserProfileCard.tsx (PascalCase files)
+- InviteMemberForm.tsx
+- getUserSession.ts (camelCase for component files)
+```
+
+## Package Structure
+
+Each package follows a similar structure:
+
+```
+packages/example/
+├── src/
+│   ├── index.ts           # Public exports
+│   ├── components/        # React components (if any)
+    ├── lib/               # Library code
+├── package.json
+├── tsconfig.json
+├── eslint.config.mjs
+```
+
+To create a ready-to-use package, you can run the following command:
+```bash
+pnpm turbo gen package
+```
+
+And follow the prompts.
+
+### Package Exports
+
+Packages export through `src/index.ts`:
+
+```typescript
+// packages/auth/src/index.ts
+export { SignInForm } from './components/sign-in-form';
+export { useAuth } from './hooks/use-auth';
+export { getSession } from './utils/get-session';
+```
+
+**Usage in apps:**
+```typescript
+import { SignInForm, useAuth } from '@kit/better-auth/context';
+```
+
+Make sure to always separate client and server exports so that you don't accidentally import server-code in client-side bundles.
+
+```json {% title="package.json" %}
+{
+  "exports": {
+    "./client": "./src/client.ts",
+    "./server": "./src/server.ts"
+  }
+}
+```
+
+## Development Patterns
+
+### Adding a New Page
+
+1. Create file in `apps/web/app/[locale]/[...]/page.tsx`
+2. Export default async function
+3. Add metadata export
+4. Optionally create loading and error boundaries
+
+```typescript
+// apps/web/app/[locale]/my-page/page.tsx
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: 'My Page',
+  description: 'Page description',
+};
+
+export default async function MyPage() {
+  return <div>My Page Content</div>;
+}
+```
+
+### Adding a New Package
+
+Run the command:
+
+```bash
+pnpm turbo gen package
+```
+
+And follow the prompts.
+
+## Best Practices
+
+### 1. Keep Packages Focused
+
+Each package should have a single responsibility:
+- ✅ `@kit/auth` - Authentication only
+- ❌ `@kit/auth-and-users-and-settings` - Too broad
+
+### 2. Avoid Circular Dependencies
+
+Packages should not depend on each other circularly:
+- ✅ `auth` → `database` ← `organizations`
+- ❌ `auth` → `organizations` → `auth`
+
+### 3. Export Only Public APIs
+
+Only export what's meant to be used by other packages:
+
+```typescript
+// ✅ Good - explicit exports
+export { SignInForm } from './components/sign-in-form';
+
+// ❌ Avoid - exporting everything
+export * from './components';
+```
+
+### 4. Use Absolute Imports
+
+Prefer workspace imports over relative imports across packages:
+
+```typescript
+// ✅ Good
+import { Button } from '@kit/ui';
+
+// ❌ Avoid
+import { Button } from '../../../packages/ui/src/components/button';
+```
+
+### 5. Consistent File Naming
+
+Stick to the naming conventions:
+- Components: `kebab-case.tsx`
+- Utilities: `kebab-case.ts`
+- Server Actions: `*-server-actions.ts`
+- Schemas: `*.schema.ts`
+- Page Loaders: `*-page.loader.ts`
+
+## Common Pitfalls
+
+- **Importing server code in client bundles**: Keep `'use server'` and `'use client'` boundaries clean. If a package exports both, use separate entry points (`/client` and `/server`).
+- **Circular dependencies between packages**: Follow the dependency flow - lower layers cannot import from higher layers. If `@kit/auth` needs something from `@kit/billing`, refactor the shared code into `@kit/shared`.
+- **Placing app-specific code in packages**: If code is only used in one place, keep it in `apps/web/`. Extract to a package only when you need it elsewhere.
+- **Using relative imports across package boundaries**: Always use `@kit/package-name` imports, never `../../../packages/`.
+- **Forgetting to export from `src/index.ts`**: Packages only expose what's explicitly exported. Internal utilities stay internal.
+- **PascalCase file names**: The codebase uses `kebab-case.tsx` consistently. Don't introduce `UserProfile.tsx`.
+
+## Navigating the Codebase
+
+### Finding Code
+
+**By Feature:**
+- Authentication → `packages/auth/`
+- Database → `packages/database/`
+- UI Components → `packages/ui/`
+- Accounts → `packages/account/...`
+- Organizations → `packages/organization/...`
+- Billing → `packages/billing/...`
+- Email Templates → `packages/email-templates`
+- Mailers → `packages/mailers`
+- RBAC → `packages/rbac`
+- Storage → `packages/storage`
+- Action Middleware → `packages/action-middleware`
+
+**By Page:**
+- Landing Page → `apps/web/app/[locale]/(public)/page.tsx`
+- Sign In → `apps/web/app/[locale]/auth/sign-in/page.tsx`
+- Dashboard → `apps/web/app/[locale]/(internal)/dashboard/page.tsx`
+- Admin → `apps/web/app/[locale]/(internal)/admin/page.tsx`
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Where do I put a new API route?", "answer": "API routes go in apps/web/app/api/. For authenticated endpoints, use the route handler middleware from @kit/next/routes which validates sessions automatically."},
+     {"question": "How do I create a new shared package?", "answer": "Run pnpm turbo gen package and follow the prompts. This scaffolds a package with the correct package.json, TypeScript config, and export structure."},
+     {"question": "Can I delete packages I do not need?", "answer": "Yes, but carefully. Remove the package from pnpm-workspace.yaml, delete the directory, and run pnpm install to update the lockfile. Check for import errors with pnpm typecheck."},
+     {"question": "Why are some packages nested (like packages/organization/)?", "answer": "Meta-packages group related functionality. @kit/organization-core, @kit/organization-ui, and @kit/organization-hooks are separate for tree-shaking - you import only what you need."},
+     {"question": "How do I add a new page to the dashboard?", "answer": "Create a file at apps/web/app/[locale]/(internal)/your-page/page.tsx. Export metadata and a default async function. For protected team routes, use apps/web/app/[locale]/(internal)/home/[account]/your-page/page.tsx."},
+     {"question": "Where are environment variables configured?", "answer": "See the Environment Variables documentation. Use .env.local for secrets, .env for defaults."}
+   ]
+/%}
+
+---
+
+**Next:** [Package Architecture →](./package-architecture)

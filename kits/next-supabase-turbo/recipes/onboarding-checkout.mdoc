@@ -19,7 +19,7 @@ In this guide, we will cover:
 
 Remember: you can customize the onboarding and checkout flow to fit your app's needs. This is a starting point, and you can build on top of it.
 
-NB: **please make sure you have pullest the latest changes from the main branch before you start this guide.**
+**Important:** Please make sure you have pulled the latest changes from the main branch before you start this guide.
 
 ## Step 0: Adding an Onboarding Table
 
@@ -495,7 +495,7 @@ export const submitOnboardingFormAction = enhanceAction(
 
     const billingService = createBillingGatewayService(billingConfig.provider);
 
-    const { plan } = getPlanDetails(
+    const { plan, product } = getPlanDetails(
       data.checkout.productId,
       data.checkout.planId,
     );
@@ -508,6 +508,7 @@ export const submitOnboardingFormAction = enhanceAction(
       accountId: createTeamResponse.data.id,
       plan,
       variantQuantities: [],
+      enableDiscountField: product.enableDiscountField,
       metadata: {
         source: 'onboarding',
         userId: user.id,
@@ -555,7 +556,7 @@ In the `handleCheckoutSessionCompleted` method, we add new logic to handle onboa
 
 First, define the `completeOnboarding` function to process the onboarding data and create a team based on the user's input.
 
-NB: this is valid for Stripe, but you can adapt it to any other payment provider.
+**Note:** This is valid for Stripe, but you can adapt it to any other payment provider.
 
  ```typescript {% title="packages/billing/stripe/src/services/stripe-webhook-handler.service.ts" %}
 async function completeOnboarding(accountId: string) {
@@ -805,9 +806,9 @@ To integrate this onboarding flow into your app, you'll need to update your rout
 
 We can do this in the middleware, in the logic branch that handles the `/home` route. If the user is not logged in, we'll redirect them to the sign-in page. If the user is logged in but has not completed onboarding, we'll redirect them to the onboarding flow.
 
-Update the `apps/web/middleware.ts` file:
+Update the `apps/web/proxy.ts` file (or `apps/web/middleware.ts` for versions prior to Next.js 16):
 
- ```typescript {% title="apps/web/middleware.ts" %}
+ ```typescript {% title="apps/web/proxy.ts" %}
 {
   pattern: new URLPattern({ pathname: '/home/*?' }),
   handler: async (req: NextRequest, res: NextResponse) => {
@@ -854,7 +855,7 @@ This code checks if the user is logged in and has completed onboarding. If the u
 
 Also add the following pattern to make sure the user is authenticated when visiting the `/onboarding` route:
 
-```typescript {% title="apps/web/middleware.ts" %}
+```typescript {% title="apps/web/proxy.ts" %}
 {
   pattern: new URLPattern({ pathname: '/onboarding/*?' }),
   handler: async (req: NextRequest, res: NextResponse) => {

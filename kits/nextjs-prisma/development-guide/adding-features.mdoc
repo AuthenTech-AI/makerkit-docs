@@ -1,0 +1,748 @@
+---
+status: "published"
+title: "Adding Features"
+label: "Adding Features"
+order: 2
+description: "Step-by-step guide to adding new features to your Next.js Prisma kit SaaS application with multi-tenancy."
+---
+
+Build complete features in your Next.js Prisma kit by following a structured workflow: define schemas, create database tables, write server actions, and connect everything through forms and pages.
+
+This tutorial walks through building a *Projects* feature from scratch - a real-world example that demonstrates every layer of the stack. You'll learn the patterns used throughout the Next.js Prisma kit: Zod schemas for validation, Prisma for database operations, server actions for mutations, and React components for the UI. By the end, you'll have a working feature and a template for building more.
+
+Adding a feature means creating all the layers needed to support a new capability: validation schema, database table, server actions, data loader, UI components, and page integration.
+
+## Quick Steps
+
+1. Create feature directory structure
+2. Define Zod validation schema
+3. Add Prisma model and run migration
+4. Create server actions for CRUD operations
+5. Build data loader with React `cache()`
+6. Create form component with react-hook-form
+7. Build the page component
+8. Add route to navigation
+9. Verify with `pnpm typecheck` and manual testing
+
+## Feature Planning
+
+Before writing code, answer these questions to clarify scope and prevent rework:
+
+1. **Define requirements** - What does this feature do? What problem does it solve?
+2. **Design data model** - What data needs to be stored? How does it relate to existing entities?
+3. **Identify user actions** - What can users create, read, update, or delete?
+4. **Determine access control** - Who can access this? Team members only? Specific roles?
+
+This is useful for both manual development and when using AI to help you with the feature - as it will help define the scope of what you need to build.
+
+## Step-by-Step Example
+
+The following example builds a "Projects" feature where organization members can create and manage projects. Each step builds on the previous one, creating a type-safe chain from validation through to the UI.
+
+We will cover everything you need to know to add a new feature to your application:
+- Defining the Zod validation schema
+- Defining the database schema and creating a new migration
+- Creating the Server Actions
+- Fetching data from the database in Server Components
+- Building the UI Components
+- Creating the Page Component
+- Verifying the Feature
+
+### Project Structure
+
+Before we start, let's create the project structure for the projects feature. This is a good practice to follow when adding a new feature to your application.
+
+```
+apps/web/app/[locale]/(internal)/projects/
+├── _lib/
+├── _components/
+└── page.tsx
+└── layout.tsx
+```
+
+### Step 1: Define Schemas
+
+Start with the [Zod](https://zod.dev) validation schema. 
+
+This schema serves double duty: **it validates form input on the client and server action input on the server**.
+
+Defining it first ensures type safety flows through your entire feature.
+
+**💡 Tip:** If you use Linux or MacOS, use the command `touch` to quickly create a new file in your terminal.
+```bash
+touch apps/web/app/[locale]/(internal)/projects/_lib/project.schema.ts
+```
+
+On Windows, you can use the command `New-Item` to create a new file in your terminal.
+```
+New-Item -Path apps/web/app/[locale]/(internal)/projects/_lib/project.schema.ts -ItemType File
+```
+
+Better yet, on VSCode (or Cursor), you can use the command palette to create a new file.
+
+This will create a new file called `project.schema.ts` in the `_lib` directory.
+
+You can then open the file and add the following code:
+
+```typescript {% title="apps/web/app/[locale]/(internal)/projects/_lib/project.schema.ts" %}
+import * as z from 'zod';
+
+export const createProjectSchema = z.object({
+  name: z.string().min(3, 'Name must be at least 3 characters'),
+});
+
+export const updateProjectSchema = createProjectSchema.partial().extend({
+  id: z.uuid(),
+});
+
+export type CreateProjectInput = z.output<typeof createProjectSchema>;
+export type UpdateProjectInput = z.output<typeof updateProjectSchema>;
+```
+
+### Step 2: Define Database Schema
+
+With the validation schema in place, we move on to defining the database table. 
+
+The `organizationId` foreign key establishes the multi-tenant relationship - every project belongs to exactly one organization. 
+
+In the example below, we use Postgres and Prisma ORM to define the `projects` table.
+
+Let's create a new file called `projects.schema.ts` in the `_lib` directory.
+
+```bash
+touch apps/web/app/[locale]/(internal)/projects/_lib/projects.schema.ts
+```
+
+This will create a new file called `projects.schema.ts` in the `_lib` directory.
+
+You can then open the file and add the following code:
+
+```prisma {% title="packages/database/src/prisma/schema.prisma" %}
+model Project {
+  id             String       @id @default(uuid())
+  name           String
+  organizationId String       @map("organization_id")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("projects")
+}
+```
+
+Don't forget to add the relation to the `Organization` model:
+
+```prisma
+model Organization {
+  // ... existing fields
+  projects Project[]
+}
+```
+
+**Understanding the schema:**
+
+- **`model Project`** - Defines a Prisma model that maps to a PostgreSQL table named `projects`
+- **`@id @default(uuid())`** - A text-based primary key with automatic UUID generation
+- **`String`** - A required text field. Use `String?` for optional fields
+- **`organizationId`** - The foreign key that links each project to an organization. The `@relation` creates a database-level constraint, and `onDelete: Cascade` ensures projects are automatically deleted when their parent organization is removed
+- **`@updatedAt`** - Prisma automatically updates this timestamp on every update
+- **`@@map("projects")`** - Maps the model name to a specific table name in the database
+
+> **💡 Tip**: For more information about using Prisma ORM, please refer to the [Prisma ORM documentation](https://www.prisma.io/docs/concepts/components/prisma-schema/data-model).
+
+After defining the schema, generate a new migration file by running the following command:
+
+```bash
+pnpm --filter "@kit/database" prisma:generate
+```
+
+The command above will create a new migration file in the `packages/database/migrations` directory. You can then open the migration file and review the changes.
+
+The output will be something like this:
+```
+Environment variables loaded from .env
+Prisma schema loaded from prisma/schema.prisma
+Datasource "db": PostgreSQL database
+
+✔ Generated Prisma Client (v7.x.x) to ./packages/database/src/generated/prisma
+```
+
+Now create and apply a migration:
+
+```bash
+pnpm --filter "@kit/database" prisma:migrate
+```
+
+Prisma will prompt you for a migration name. Enter something like `add_projects`. The output will look like:
+
+```
+Environment variables loaded from .env
+Prisma schema loaded from prisma/schema.prisma
+
+✔ Enter a name for the new migration: add_projects
+Applying migration `20241226_add_projects`
+
+The following migration(s) have been created and applied from new schema changes:
+
+migrations/
+  └─ 20241226_add_projects/
+    └─ migration.sql
+
+✔ Generated Prisma Client (v7.x.x) to ./packages/database/src/generated/prisma
+```
+
+You can then open the migration file in `prisma/migrations/` and review the changes. For more information, see the [Prisma Migrate documentation](https://www.prisma.io/docs/concepts/components/prisma-migrate).
+
+Let's now navigate to the Prisma Studio to explore our new table.
+
+Run the following command to start the Prisma Studio:
+
+```bash
+pnpm --filter "@kit/database" prisma:studio
+```
+
+If everything is working correctly, the CLI will list the URL at which you can access the Prisma Studio:
+
+> Prisma Studio is up and running on https://localhost:5555
+
+Open the URL in your browser to explore the new table. You should see the new `projects`. It's a good idea to familiarize yourself with Prisma Studio, as it will become an invaluable tool for you when working with the database.
+
+### Step 3: Create Server Actions
+
+Server actions handle mutations. In the example below, we create three server actions: `createProjectAction`, `updateProjectAction`, and `deleteProjectAction`. 
+
+Next.js will automatically generate the API routes for these server actions - except, we will call them like normal async Javascript functions. Pretty neat, right?
+
+The `authenticatedActionClient` ensures users are logged in, while `getActiveOrganizationId` scopes operations to the current organization.
+
+💡 **Note:** The `authenticatedActionClient` is a pre-configured action client that handles authentication and authorization for you. It is located in the `@kit/action-middleware` package. Please always use this action client when creating server actions!
+
+Notice how the Zod schema from Step 1 validates input automatically:
+
+```typescript {% title="apps/web/app/[locale]/(internal)/projects/_lib/actions/projects-server-actions.ts" %}
+'use server';
+
+import { revalidatePath } from 'next/cache';
+
+import { authenticatedActionClient } from '@kit/action-middleware';
+import { generateId } from '@kit/shared/uuid';
+
+import { getActiveOrganizationId } from '@kit/better-auth/context';
+import { db } from '@kit/database';
+import * as z from 'zod';
+
+import { createProjectSchema, updateProjectSchema } from '../project.schema';
+
+export const createProjectAction = authenticatedActionClient
+  .inputSchema(createProjectSchema)
+  .action(async ({ parsedInput: data, ctx }) => {
+    const organizationId = await getActiveOrganizationId();
+
+    if (!organizationId) {
+      throw new Error('No active organization');
+    }
+
+    const project = await db.project.create({
+      data: {
+        ...data,
+        id: generateId(),
+        organizationId,
+      },
+    });
+
+    revalidatePath('/dashboard/projects', 'layout');
+
+    return project;
+  });
+
+export const updateProjectAction = authenticatedActionClient
+  .inputSchema(updateProjectSchema)
+  .action(async ({ parsedInput: data }) => {
+    const project = await db.project.update({
+      where: { id: data.id },
+      data: {
+        ...data,
+      },
+    });
+
+    revalidatePath('/dashboard/projects', 'layout');
+
+    return project;
+  });
+
+export const deleteProjectAction = authenticatedActionClient
+  .inputSchema(z.object({ id: z.string() }))
+  .action(async ({ parsedInput: { id } }) => {
+    await db.project.delete({
+      where: { id },
+    });
+
+    revalidatePath('/dashboard/projects', 'layout');
+  });
+```
+
+**Understanding the server actions:**
+- **`authenticatedActionClient`** - This is the action client that ensures the user is authenticated and authorized to perform the action
+- **`inputSchema`** - This is the Zod schema that validates the input of the action
+- **`revalidatePath`** - This is a Next.js function that revalidates the path of the page. This will ensure that the page is re-rendered with the new data.
+- **`generateId`** - This is the function that generates a new ID for the project using UUIDv7, a performant and secure way to generate a unique ID.
+
+### Step 4: Create Data Loader
+
+We can use loaders to fetch data from the database for Server Components, which we can then pass down to the components tree as props. A `loader` is just a fancy name for a function that fetches data from the database in a Server Component. You have me to blame for this!
+
+Wrapping them with React's `cache()` function prevents duplicate queries when multiple components request the same data during a single render. This is smart because you may require the same data across many components in the tree: this ensures the request is only made once on a per-request basis.
+
+```typescript {% title="apps/web/app/[locale]/(internal)/projects/_lib/loaders/projects-page.loader.ts" %}
+import 'server-only';
+
+import { cache } from 'react';
+
+import { db } from '@kit/database';
+
+export const getProjects = cache(async (organizationId: string) => {
+  return db.project.findMany({
+    where: { organizationId },
+    orderBy: { createdAt: 'desc' },
+  });
+});
+
+export const getProject = cache(async (id: string) => {
+  return db.project.findUnique({
+    where: { id },
+  });
+});
+```
+
+**Understanding the loader:**
+
+- **`import 'server-only'`** - Ensures this module can only be imported in server-side code. If you accidentally import it in a client component, the build will fail with a clear error. I recommend always using this.
+- **`cache()`** - React's request-level memoization function. If multiple components call `getProjects()` with the same argument during a single request, the database query runs only once
+- **`db.project.findMany()`** - Prisma's query API. It's intuitive and provides full type safety
+- **`where` and `orderBy`** - Prisma options for filtering and sorting results
+
+The `getProject` function uses `findUnique()` to fetch a single record by its unique ID, returning `null` if not found.
+
+### Step 5: Build UI Components
+
+The form component ties everything together on the client. It uses `react-hook-form` for form state, the Zod schema for validation, and `next-safe-action` to call server actions with automatic error handling.
+
+We will wrap the form in a `Sheet` component to open a side panel to create a new project.
+
+**Tip**: it's a good practice to use separate components for the form, and for the container that wraps the form (be this, a `Dialog`, `AlertDialog`, `Sheet`, etc.). This will make your code more readable and maintainable, and will instantiate the form component only when needed (e.g., when the user clicks the "Create Project" button in the header).
+
+```typescript {% title="apps/web/app/[locale]/(internal)/projects/_components/project-form.tsx" %}
+'use client';
+
+import { useState } from 'react';
+
+import { useAction } from 'next-safe-action/hooks';
+
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useForm } from 'react-hook-form';
+
+import { Button } from '@kit/ui/button';
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@kit/ui/form';
+import { Input } from '@kit/ui/input';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@kit/ui/sheet';
+import { toast } from '@kit/ui/sonner';
+
+import { createProjectAction } from '../_lib/actions/projects-server-actions';
+import {
+  type CreateProjectInput,
+  createProjectSchema,
+} from '../_lib/project.schema';
+
+export function ProjectFormContainer({ children }: React.PropsWithChildren) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetTrigger asChild>{children}</SheetTrigger>
+
+      <SheetContent className="flex flex-col gap-y-4">
+        <SheetHeader className="gap-y-0">
+          <SheetTitle>Create Project</SheetTitle>
+
+          <SheetDescription className="text-base">
+            Create a new project to get started.
+          </SheetDescription>
+        </SheetHeader>
+
+        <ProjectForm onSuccess={() => setOpen(false)} />
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function ProjectForm({ onSuccess }: { onSuccess: () => void }) {
+  const form = useForm({
+    resolver: zodResolver(createProjectSchema),
+    defaultValues: {
+      name: '',
+    },
+  });
+
+  const { executeAsync, status } = useAction(createProjectAction);
+  const isPending = status === 'executing';
+
+  const onSubmit = async (data: CreateProjectInput) => {
+    return toast
+      .promise(
+        executeAsync(data).then((response) => {
+          if (response.serverError || response.validationErrors) {
+            throw new Error(response.serverError || 'An error occurred');
+          }
+
+          onSuccess();
+        }),
+        {
+          loading: 'Creating project...',
+          success: 'Project created!',
+          error: 'Failed to create project',
+        },
+      )
+      .unwrap();
+  };
+
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <FormField
+          control={form.control}
+          name="name"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Project Name</FormLabel>
+
+              <FormControl
+                render={
+                  <Input
+                    {...field}
+                    disabled={isPending}
+                    placeholder="e.g. My Project"
+                  />
+                }
+              />
+
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <Button type="submit" disabled={isPending}>
+          {isPending ? 'Creating...' : 'Create Project'}
+        </Button>
+      </form>
+    </Form>
+  );
+}
+```
+
+We will be using this component in the page component later on.
+
+**Note**: since we're using React Hooks and interactive components, we need to wrap the component in a `use client` block. This **does not mean that the component only gets rendered on the client side**. Instead, unlike Server Components, this gets both server-side rendered and client-side rendered.
+
+### Step 6: Create Page
+
+The page component is a server component that fetches data and renders the UI. 
+
+It retrieves the organization context, loads projects through the data loader, and renders both the form and the project list:
+
+```typescript {% title="apps/web/app/[locale]/(internal)/projects/page.tsx" %}
+import Link from 'next/link';
+import { redirect } from 'next/navigation';
+
+import { getActiveOrganization } from '@kit/better-auth/context';
+import { AppBreadcrumbs } from '@kit/ui/app-breadcrumbs';
+import { Button } from '@kit/ui/button';
+import {
+  CardButton,
+  CardButtonHeader,
+  CardButtonTitle,
+} from '@kit/ui/card-button';
+import {
+  EmptyState,
+  EmptyStateButton,
+  EmptyStateHeading,
+  EmptyStateText,
+} from '@kit/ui/empty-state';
+import { If } from '@kit/ui/if';
+import { PageBody, PageHeader } from '@kit/ui/page';
+
+import { ProjectFormContainer } from './_components/project-form';
+import { getProjects } from './_lib/loaders/projects-page.loader';
+
+export default async function ProjectsPage() {
+  const organization = await getActiveOrganization();
+
+  if (!organization) {
+    redirect('/dashboard');
+  }
+
+  const projects = await getProjects(organization?.id);
+
+  return (
+    <PageBody>
+      <PageHeader>
+        <div className="flex-1">
+          <AppBreadcrumbs
+            values={{
+              dashboard: organization?.name ?? 'Dashboard',
+            }}
+          />
+        </div>
+
+        <div className="flex justify-end">
+          <ProjectFormContainer>
+            <Button size="sm">Create Project</Button>
+          </ProjectFormContainer>
+        </div>
+      </PageHeader>
+
+      <If condition={projects.length === 0}>
+        <EmptyState>
+          <EmptyStateHeading>No projects found</EmptyStateHeading>
+          <EmptyStateText>Create a new project to get started.</EmptyStateText>
+
+          <ProjectFormContainer>
+            <EmptyStateButton>Create Project</EmptyStateButton>
+          </ProjectFormContainer>
+        </EmptyState>
+      </If>
+
+      <If condition={projects.length > 0}>
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {projects.map((project) => (
+            <Link key={project.id} href={`/projects/${project.id}`}>
+              <CardButton asChild>
+                <CardButtonHeader>
+                  <CardButtonTitle className="text-left">
+                    <span className="truncate">{project.name}</span>
+                  </CardButtonTitle>
+                </CardButtonHeader>
+              </CardButton>
+            </Link>
+          ))}
+        </div>
+      </If>
+    </PageBody>
+  );
+}
+```
+
+**What's happening here:**
+
+This page brings together everything we built in the previous steps. Let's break it down:
+
+1. **Authorization check** - We call `getActiveOrganization()` to get the current organization. If there isn't one (the user hasn't selected an organization), we redirect them to the dashboard. This prevents unauthorized access.
+2. **Data fetching** - We call our `getProjects()` loader, passing the organization ID. Because this is a Server Component, the data fetching happens on the server before any HTML is sent to the browser.
+3. **Page structure** - We use `PageBody` and `PageHeader` components to create a consistent layout. The header includes breadcrumbs and a "Create Project" button wrapped in our `ProjectFormContainer` (the sheet we built earlier).
+4. **Conditional rendering** - The `If` component handles two states: an empty state when there are no projects (with a call-to-action to create one), and a grid of project cards when projects exist.
+5. **Project cards** - Each project renders as a `CardButton` with a link to its detail page. The `key={project.id}` prop helps React efficiently update the list when projects change.
+
+Notice how the page itself contains no client-side JavaScript - it's pure server-rendered HTML. The only interactive parts are the `ProjectFormContainer` components, which are Client Components that handle the sheet behavior.
+
+#### Wrapping the page in a layout
+
+Let's wrap the page in a layout component. We can reuse the same layout as the dashboard layout, which is located in the `(internal)/_components/app-sidebar.tsx` file.
+
+##### Why don't we reuse the same layout as the dashboard layout?
+Great question! There are cases where, in a certain page, you do not want to show the sidebar. The boilerplate required is minimal, but the flexibility it grants is great and will eventually help you. For example, you may want to show a different sidebar for the projects page, or you may want to show a different header for the projects page.
+
+##### Creating the layout component
+
+To create the layout component, we can use the following code:
+
+```tsx {% title="apps/web/app/[locale]/(internal)/projects/layout.tsx" %}
+import { AppSidebar } from '../_components/app-sidebar';
+
+export default function ProjectsLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  return <AppSidebar>{children}</AppSidebar>;
+}
+```
+
+### Step 7: Adding the page to the sidebar
+
+To add the page to the sidebar, add the route to the `routes` array in the navigation config file.
+
+```tsx {% title="apps/web/app/[locale]/(internal)/_config/navigation.config.tsx" %}
+import { Folder, Home } from 'lucide-react';
+import * as z from 'zod';
+
+import {
+  NavigationConfigSchema,
+  type RouteContext,
+} from '@kit/ui/navigation-schema';
+
+import { accountModeConfig } from './account-mode.config';
+
+const iconClasses = 'w-4';
+
+/**
+ * Unified navigation configuration for both personal and organization contexts
+ * Navigation items adapt based on the current account context
+ */
+const routes: z.output<typeof NavigationConfigSchema>['routes'] = [
+  {
+    label: 'common.routes.application',
+    children: [
+      {
+        label: 'common.routes.dashboard',
+        path: '/dashboard',
+        Icon: <Home className={iconClasses} />,
+      },
+      {
+        label: 'Projects',
+        path: '/projects',
+        Icon: <Folder className={iconClasses} />,
+        context: 'organization',
+      },
+    ],
+  },
+];
+```
+
+**Note**: for simplicity, we are not using the `common.routes.projects` key. You can use it if you want to translate the label of the project page by adding the translation to the `locales/en/common.json` file.
+
+**Understanding the context:**
+
+- **`context: 'organization'`** - This is the context of the page. It is used to determine the context of the page. In this case, we are using the organization context.
+
+If you were to omit the `context` property, the page would be accessible to both personal and organization contexts.
+
+### Step 8: Let's see the result
+
+Below is a screenshot of the projects page:
+
+{% img src="/images/docs/projects-page-empty.webp" width="2856" height="1972" /%}
+
+You can now create a new project by clicking the "Create Project" button in the header.
+
+{% img src="/images/docs/create-project-sheet.webp" width="2856" height="1972" /%}
+
+As you can see, as we don't currently have any projects, the empty state is displayed. Let's create a new project by clicking the "Create Project" button in the sheet:
+
+{% img src="/images/docs/projects-page.webp" width="2856" height="1972" /%}
+
+### Step 9: Create the project detail page
+
+At the moment, when you click on a project card, you are redirected to a 404 page. This is totally normal and expected, as we haven't created the project detail page yet. 
+
+Let's create a project detail page to display the project details. To do so, we can create a new page in the `(internal)/projects/[projectId]` directory.
+
+```tsx {% title="apps/web/app/[locale]/(internal)/projects/[projectId]/page.tsx" %}
+import { notFound } from 'next/navigation';
+
+import { AppBreadcrumbs } from '@kit/ui/app-breadcrumbs';
+import { PageBody, PageHeader } from '@kit/ui/page';
+
+import { getProject } from '../_lib/loaders/projects-page.loader';
+
+export default async function ProjectDetailPage({
+  params,
+}: {
+  params: Promise<{ projectId: string }>;
+}) {
+  const { projectId } = await params;
+  const project = await getProject(projectId);
+
+  if (!project) {
+    notFound();
+  }
+
+  return (
+    <PageBody>
+      <PageHeader>
+        <AppBreadcrumbs values={{ [project.id]: project.name }} />
+      </PageHeader>
+
+      <div className="border-border rounded-lg border p-4">
+        <h1 className="text-2xl font-bold">{project.name}</h1>
+      </div>
+    </PageBody>
+  );
+}
+```
+
+**What's happening here:**
+
+1. **Dynamic route** - The `[projectId]` folder name creates a dynamic segment. When a user visits `/projects/abc123`, Next.js captures `abc123` as the `projectId` parameter.
+2. **Awaiting params** - In Next.js 16, `params` is a Promise. We destructure `projectId` after awaiting it: `const { projectId } = await params`.
+3. **Fetching the project** - We reuse the `getProject()` loader we created earlier. Since it's wrapped in `cache()`, if other components on this page also call `getProject(projectId)`, the database is only queried once.
+4. **Handling missing projects** - If `getProject()` returns `null` (no project found), we call `notFound()`. This renders Next.js's built-in 404 page and stops execution - no need for an early return.
+5. **Breadcrumbs with dynamic values** - The `AppBreadcrumbs` component automatically generates breadcrumbs from the URL path. By default, it would show the raw `projectId` (like `abc123`). The `values` prop lets you override specific segments with human-readable names:
+
+```tsx
+<AppBreadcrumbs values={{ [project.id]: project.name }} />
+```
+
+This maps the project ID in the URL to the project's actual name. So instead of seeing `Home / Projects / abc123`, users see `Home / Projects / My Project`.
+
+{% img src="/images/docs/project-detail-page.webp" width="2856" height="1972" /%}
+
+### Step 10: Verify
+
+Before committing, run these checks to ensure everything works correctly:
+
+```bash
+# Check types - catches schema mismatches and missing imports
+pnpm typecheck
+
+# Fix lint issues - auto-fixes formatting and style problems
+pnpm lint:fix
+
+# Format code
+pnpm format:fix
+```
+
+## Common Pitfalls
+
+- **Wrong import paths**: Use `@kit/` imports for shared packages. Relative imports across packages won't work.
+- **Missing `'use server'`**: Server action files must start with this directive. Without it, the action runs on the client.
+- **Forgetting `revalidatePath`**: After mutations, call `revalidatePath()` to refresh the UI. Otherwise stale data persists.
+- **Skipping the layout**: Each feature route needs a layout that wraps `AppSidebar`. Without it, the sidebar won't render.
+- **Not scoping to organization**: Every query must filter by `organizationId`. The `getActiveOrganizationId()` helper provides this.
+- **Hardcoding paths in navigation**: Use the `app-navigation.config.tsx` file. Hardcoded paths in components break when routes change.
+- **Forgetting empty states**: Always handle the zero-items case. Use `EmptyState` components for consistent UX.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Do I need to create a package for every feature?", "answer": "No. Use packages/features/ only for code shared across apps. For most features, keep code in the app directory - it's simpler."},
+     {"question": "How do I add permissions to my feature?", "answer": "Chain withFeaturePermission middleware in your server actions. Define permissions in the organization's permission configuration."},
+     {"question": "Can I use a different database schema pattern?", "answer": "The patterns shown (organizationId foreign key, timestamps) are conventions. Adjust to your needs, but keep multi-tenancy in mind."},
+     {"question": "How do I add tests for my feature?", "answer": "Add E2E tests in apps/e2e using Playwright. Use data-testid attributes on form elements and buttons for reliable selectors."},
+     {"question": "Where should I put shared logic between features?", "answer": "Create a package in packages/features/ or use a shared _lib/ directory at the route level. Packages are better for code used across apps."}
+   ]
+/%}
+
+## Related
+
+- [Development Guide Overview](./overview) - Full development patterns guide
+- [Server Actions](./server-actions) - Type-safe mutations with authentication
+- [Working with Forms](./working-with-forms) - Client-side form integration
+- [Database Operations](./database-operations) - Query and mutation patterns
+
+---
+
+**Next:** [Server Actions →](./server-actions)

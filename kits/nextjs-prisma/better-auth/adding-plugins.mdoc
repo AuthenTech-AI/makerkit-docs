@@ -1,0 +1,214 @@
+---
+status: published
+title: Adding Better Auth Plugins
+label: Adding Plugins
+order: 7
+description: How to add and configure new Better Auth plugins
+---
+
+Extend Better Auth with plugins for OAuth providers, passkeys, API tokens, and more - create a plugin file, register it, and run migrations if needed.
+
+This page is part of the [Authentication documentation](./overview).
+
+Better Auth's plugin architecture lets you add features without modifying core auth logic. Create a plugin file in `packages/better-auth/src/plugins/`, export the configuration, register it in the plugin index, and optionally add a client-side plugin. Plugins that add database tables require running schema generation and migrations. The kit already includes plugins for MFA, organizations, rate limiting, and captcha - use them as patterns for adding new plugins.
+
+A Better Auth plugin is a modular extension that adds authentication features (OAuth providers, MFA methods, session handling) without modifying the core auth configuration.
+
+**Add a plugin when:** you need a feature Better Auth provides via plugin (passkeys, API tokens, new OAuth provider, custom session data).
+
+Check the [Better Auth plugins documentation](https://www.better-auth.com/docs/plugins) to see if a plugin exists for your use case.
+
+{% callout type="note" %}
+Examples below use placeholder names like `<your-plugin>`. Replace these with the actual plugin name from [Better Auth's plugin documentation](https://www.better-auth.com/docs/plugins).
+{% /callout %}
+
+## Plugin Location
+
+```
+packages/better-auth/
+└── src/
+    ├── auth.ts           # Server-side auth instance
+    ├── auth-client.ts    # Client-side auth instance
+    └── plugins/
+        ├── index.ts      # Plugin registry
+        └── *.ts          # Individual plugin configs
+```
+
+## Step 1: Create Plugin File
+
+Create a new file in `packages/better-auth/src/plugins/`:
+
+```typescript {% title="packages/better-auth/src/plugins/your-plugin.ts" %}
+import { yourPlugin } from 'better-auth/plugins/<your-plugin>';
+
+/**
+ * @name yourPluginConfig
+ * @description What this plugin does
+ */
+export const yourPluginConfig = yourPlugin({
+  // plugin options from Better Auth docs
+});
+```
+
+### Plugin Patterns
+
+**Simple plugin** - direct export when no dynamic config needed:
+
+```typescript
+import { bearer } from 'better-auth/plugins/bearer';
+
+export const bearerPlugin = bearer();
+```
+
+**Factory function** - when plugin needs runtime environment values:
+
+```typescript
+import { yourPlugin } from 'better-auth/plugins/<your-plugin>';
+import { env } from '@kit/shared/env';
+
+export function createYourPlugin() {
+  return yourPlugin({
+    issuer: env('NEXT_PUBLIC_PRODUCT_NAME'),
+  });
+}
+```
+
+**Conditional plugin** - when plugin depends on optional env vars:
+
+```typescript
+import * as z from 'zod';
+
+const secretKey = z.string().min(1).optional().parse(process.env.YOUR_PLUGIN_SECRET);
+
+export async function createYourPlugin() {
+  if (!secretKey) {
+    return [] as never;
+  }
+
+  const { yourPlugin } = await import('better-auth/plugins/<your-plugin>');
+  return [yourPlugin({ secretKey })];
+}
+```
+
+## Step 2: Register Server Plugin
+
+Add your plugin to `packages/better-auth/src/plugins/index.ts`:
+
+```typescript
+import { yourPluginConfig } from './<your-plugin>';
+
+export const betterAuthPlugins = [
+  // ... existing plugins
+  yourPluginConfig,
+];
+```
+
+## Step 3: Register Client Plugin
+
+If the plugin has client-side functionality, add it to `packages/better-auth/src/auth-client.ts`:
+
+```typescript
+import { yourPluginClient } from 'better-auth/client/plugins';
+
+export const authClient = createAuthClient({
+  plugins: [
+    // ... existing plugins
+    yourPluginClient(),
+  ],
+});
+```
+
+## Step 4: Database Schema (if required)
+
+If the plugin adds database tables:
+
+```bash
+# Generate Better Auth schema updates
+pnpm --filter @kit/better-auth schema:generate
+
+# Generate Prisma migrations
+pnpm --filter @kit/database prisma migrate dev --name add-your-plugin
+
+# Apply migrations
+pnpm --filter @kit/database prisma migrate deploy
+```
+
+## Step 5: Environment Variables
+
+If your plugin requires secrets:
+
+```bash {% title="apps/web/.env.local" %}
+YOUR_PLUGIN_SECRET=your-secret-value
+NEXT_PUBLIC_YOUR_PLUGIN_KEY=public-value
+```
+
+Validate with Zod in your plugin file:
+
+```typescript
+import * as z from 'zod';
+
+const pluginSecret = z
+  .string({ message: 'YOUR_PLUGIN_SECRET is required' })
+  .min(32, 'Secret must be at least 32 characters')
+  .parse(process.env.YOUR_PLUGIN_SECRET);
+```
+
+## Real-World Example: Bearer Plugin
+
+The [Bearer plugin](https://www.better-auth.com/docs/plugins/bearer) adds API token authentication:
+
+```typescript {% title="packages/better-auth/src/plugins/bearer.ts" %}
+import { bearer } from 'better-auth/plugins/bearer';
+
+/**
+ * @name bearerPlugin
+ * @description Enables Bearer token authentication for API routes
+ */
+export const bearerPlugin = bearer();
+```
+
+Register in `plugins/index.ts`:
+
+```typescript
+import { bearerPlugin } from './bearer';
+
+export const betterAuthPlugins = [
+  // ... existing plugins
+  bearerPlugin,
+];
+```
+
+Add the client plugin in `auth-client.ts`:
+
+```typescript
+import { bearerClient } from 'better-auth/client/plugins';
+
+export const authClient = createAuthClient({
+  plugins: [
+    // ... existing plugins
+    bearerClient(),
+  ],
+});
+```
+
+## Common Pitfalls
+
+- **Forgetting to register client plugin**: Server plugin works, but client-side methods are undefined. Check if the plugin has a client counterpart.
+- **Missing migrations**: Plugin adds tables but you forgot to run migrations. Auth fails with database errors.
+- **Using sync imports for conditional plugins**: Use dynamic imports (`await import()`) for plugins that may not be loaded.
+- **Not validating environment variables**: Plugin silently fails or uses undefined values. Always validate with Zod.
+- **Registering the same plugin twice**: Check `plugins/index.ts` for duplicates before adding.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Where do I find available plugins?", "answer": "The Better Auth plugins documentation lists all official plugins with configuration options."},
+     {"question": "Can I create custom plugins?", "answer": "Yes. Better Auth supports custom plugins. See the Better Auth custom plugins documentation for the plugin API."},
+     {"question": "How do I disable a plugin?", "answer": "Remove it from the plugins array in plugins/index.ts and auth-client.ts. Run migrations if needed to clean up unused tables."},
+     {"question": "Do plugins affect performance?", "answer": "Minimally. Plugins are loaded once at startup. Runtime impact depends on the plugin - auth flow plugins add latency per request; utility plugins do not."}
+   ]
+/%}
+
+---
+
+**Next:** [Auth Methods →](./auth-methods)

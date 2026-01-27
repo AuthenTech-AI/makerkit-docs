@@ -1,0 +1,289 @@
+---
+status: "published"
+title: "Database Schema Overview"
+label: "Database Schema"
+order: 3
+description: "Understand the database schema structure, tables, relationships, and multi-tenancy model in MakerKit."
+---
+
+The MakerKit database schema implements multi-tenant isolation through organization-based foreign keys. Core tables handle authentication (users, sessions, accounts), organizations (members, invitations, roles), and billing (subscriptions). All custom tables must include an `organizationId` foreign key for tenant isolation.
+
+This guide is part of the [Database Configuration](./overview) documentation.
+
+{% callout title="Definition" %}
+**Multi-tenancy** is an architecture where a single database serves multiple isolated customers (tenants) by filtering data on a tenant identifier like `organizationId`. Each organization sees only their own data.
+{% /callout %}
+
+{% sequence title="Database Schema" description="Understand the MakerKit database structure." %}
+[Core Schema](#core-schema)
+
+[Authentication Tables](#authentication-tables)
+
+[Organization Tables](#organization-tables)
+
+[Billing Tables](#billing-tables)
+
+[Multi-Tenancy Model](#multi-tenancy-model)
+
+[Common Schema Pitfalls](#common-schema-pitfalls)
+{% /sequence %}
+
+## Core Schema
+
+The core schema is defined in the `packages/database/src/prisma/schema.prisma` file, where the kit defines the core models and relationships.
+
+### Extending the Schema
+
+You can extend the schema by adding your own [Prisma model definitions](https://www.prisma.io/docs/concepts/components/prisma-schema/data-model) to the `packages/database/src/prisma/schema.prisma` file:
+
+```prisma {% title="packages/database/src/prisma/schema.prisma" %}
+// Add your own models here
+model Project {
+  id             String       @id
+  organizationId String       @map("organization_id")
+  name           String
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("projects")
+}
+```
+
+## Authentication Tables
+
+The authentication tables contain the tables for the authentication system as defined in Better Auth.
+
+### Users
+
+The table `user` stores user accounts and profile data.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | text | Primary key |
+| name | text | Display name |
+| email | text | Unique email address |
+| createdAt | timestamp | User creation date |
+| updatedAt | timestamp | User last update date |
+| banReason | text | Reason for ban |
+| banExpires | timestamp | Ban expiration date |
+| emailVerified | boolean | Email verification status |
+| image | text | Profile picture URL |
+| twoFactorEnabled | boolean | 2FA enabled |
+| role | text | Admin role (for admin features) |
+| banned | boolean | Ban status |
+| customer_id | text | Billing provider customer ID |
+
+### Sessions
+
+The table `session` stores authentication sessions.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | text | Primary key |
+| token | text | Unique session token |
+| userId | text | FK to users (cascade delete) |
+| expiresAt | timestamp | Session expiration |
+| createdAt | timestamp | Session creation date |
+| updatedAt | timestamp | Session last update date |
+| ipAddress | text | Client IP address |
+| userAgent | text | Browser user agent |
+| impersonatedBy | text | Admin user ID if impersonating |
+| activeOrganizationId | text | Current organization context |
+
+### Accounts
+
+The table `account` stores OAuth provider accounts and password credentials.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | text | Primary key |
+| providerId | text | Provider name (google, github, credential) |
+| accountId | text | Provider's account ID |
+| userId | text | FK to users (cascade delete) |
+| accessToken | text | OAuth access token |
+| refreshToken | text | OAuth refresh token |
+| password | text | Hashed password (for credential auth) |
+| idToken | text | OAuth ID token |
+| accessTokenExpiresAt | timestamp | OAuth access token expiration |
+| refreshTokenExpiresAt | timestamp | OAuth refresh token expiration |
+| scope | text | OAuth scope |
+| createdAt | timestamp | Account creation date |
+| updatedAt | timestamp | Account last update date |
+
+### Verifications
+
+The table `verification` stores email verification and password reset tokens.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | text | Primary key |
+| identifier | text | Email or phone number |
+| value | text | Verification code/token |
+| expiresAt | timestamp | Token expiration |
+| createdAt | timestamp | Verification creation date |
+| updatedAt | timestamp | Verification last update date |
+
+### Two Factors
+
+The table `twoFactor` stores TOTP 2FA secrets and backup codes.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | text | Primary key |
+| secret | text | TOTP secret |
+| backupCodes | text | Backup codes |
+| userId | text | FK to users (cascade delete) |
+
+## Organization Tables
+
+### Organizations
+
+The table `organization` stores team/workspace containers.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | text | Primary key |
+| name | text | Organization name |
+| slug | text | Unique URL-friendly slug |
+| logo | text | Logo URL |
+| metadata | text | JSON metadata |
+| createdAt | timestamp | Organization creation date |
+| stripeCustomerId | text | Stripe customer ID |
+
+### Members
+
+The table `member` links users to organizations with roles.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | text | Primary key |
+| organizationId | text | FK to organizations (cascade delete) |
+| userId | text | FK to users (cascade delete) |
+| role | text | Role (owner, admin, member) |
+| createdAt | timestamp | Member creation date |
+
+### Invitations
+
+The table `invitation` tracks pending organization invitations.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | text | Primary key |
+| organizationId | text | FK to organizations (cascade delete) |
+| email | text | Invitee's email |
+| role | text | Role to assign when accepted |
+| status | text | pending, accepted, or declined |
+| expiresAt | timestamp | Invitation expiration |
+| inviterId | text | FK to users (cascade delete) |
+| createdAt | timestamp | Invitation creation date |
+
+### Organization Roles
+
+The table `organizationRole` stores custom RBAC permission definitions per organization.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | text | Primary key |
+| organizationId | text | FK to organizations (cascade delete) |
+| role | text | Role name |
+| permission | text | Permission name |
+| metadata | text | JSON metadata |
+| createdAt | timestamp | Organization role creation date |
+| updatedAt | timestamp | Organization role last update date |
+
+## Billing Tables
+
+### Subscriptions
+
+The table `subscription` stores billing and subscription data.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | text | Primary key |
+| plan | text | Plan identifier |
+| referenceId | text | Organization/user reference |
+| customerId | text | Billing provider customer ID |
+| subscriptionId | text | Billing provider subscription ID |
+| status | text | active, trialing, canceled, etc. |
+| periodStart | timestamp | Current billing period start |
+| periodEnd | timestamp | Current billing period end |
+| seats | integer | Number of seats |
+| trialStart | timestamp | Trial start date |
+| trialEnd | timestamp | Trial end date |
+| cancelAtPeriodEnd | boolean | Cancel at end of period flag |
+| cancelAt | timestamp | Scheduled cancellation date |
+| canceledAt | timestamp | When subscription was canceled |
+| endedAt | timestamp | When subscription ended |
+
+## Multi-Tenancy Model
+
+All tenant data is isolated by organization. When adding custom tables, always include an `organizationId` foreign key.
+
+For example, the model `Project` could be defined as follows, where `organizationId` is a foreign key to the `Organization` model:
+
+```prisma
+model Project {
+  id             String       @id
+  organizationId String       @map("organization_id")
+  name           String
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("projects")
+}
+```
+
+**Note**: Always make sure to filter queries by organizationId to ensure data isolation:
+
+```typescript
+// Correct - respects multi-tenancy
+const projects = await db.project.findMany({
+  where: { organizationId: currentOrgId }
+});
+```
+
+## Common Schema Pitfalls
+
+- **Missing `onDelete: Cascade`** - Orphaned records remain when parent organizations or users are deleted; always cascade deletes for child records
+- **Forgetting `@@map`** - Without `@@map("table_name")`, Prisma creates camelCase table names that conflict with PostgreSQL conventions and make raw SQL awkward
+- **Not adding `organizationId` indexes** - Queries filtering by `organizationId` perform full table scans without an index; add `@@index([organizationId])` to tenant-scoped tables
+- **Nullable `organizationId`** - Makes tenant isolation ambiguous; always make `organizationId` required for tenant-scoped data
+- **Missing unique constraints** - Duplicate members, invitations, or roles can be inserted; add `@@unique([organizationId, userId])` to membership tables
+- **Forgetting reverse relations** - Adding a relation field without the reverse side causes schema validation errors; always add both sides
+
+## Decision Rules
+
+**Use `@@map` when:**
+- Creating new tables to maintain snake_case consistency with existing schema
+- You want readable SQL when debugging with raw queries
+
+**Use `onDelete: Cascade` when:**
+- Child records have no meaning without the parent (projects belong to org)
+- You want automatic cleanup when orgs/users are deleted
+
+**Use `onDelete: SetNull` when:**
+- Child records should persist after parent deletion (audit logs referencing deleted users)
+- The foreign key is nullable and historical data matters
+
+**If unsure:** Default to `Cascade` for tenant-scoped data and `SetNull` for audit/history tables.
+
+## Index Suggestions
+
+Core tables already include PK/unique/FK indexes. If query patterns match, consider adding:
+
+| Table | Suggested index | Why |
+|-------|-----------------|-----|
+| `account` | `unique(provider_id, account_id)` | Fast provider lookup, prevent dup accounts |
+| `verification` | `index(identifier, value)` | Fast token lookup by identifier + code |
+| `organization` | `index(stripe_customer_id)` | Resolve org from billing webhooks |
+| `organization_role` | `index(organization_id, role)` or `unique(organization_id, role, permission)` | Role permission fetch + dedup |
+| `member` | `unique(organization_id, user_id)` | Fast membership lookup, prevent dup |
+| `invitation` | `index(organization_id, status)` (opt: `email, organization_id, status`) | Pending invites list + accept flow |
+| `subscription` | `index(reference_id)`, `index(stripe_customer_id)`, `index(stripe_subscription_id)` | App + webhook lookups |
+| `rate_limit` | `unique(key)` | Upsert by key, avoid full scan |
+
+
+---
+
+**Next:** [Migrations →](./migrations)

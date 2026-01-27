@@ -1,0 +1,116 @@
+---
+status: "published"
+title: "Invitations"
+label: "Invitations"
+order: 2
+description: "View and manage pending member invitations."
+---
+
+This guide is part of the [Drizzle](/drizzle) stack docs.
+
+Invitations let you add new members to your organization. This page covers the complete invitation workflow — from sending an invite to what happens when the recipient accepts.
+
+## Sending an Invitation
+
+To invite someone, click the "Invite member" button on the members page. Enter their email address and select the role they should have when they join.
+
+{% img src="/images/docs/invite-member.webp" width="2400" height="1600" alt="Invite team member form" /%}
+
+## The Invitation Email
+
+Recipients receive an email containing a unique invitation link. The email includes your organization's name so they know who is inviting them.
+
+{% img src="/images/docs/invitation-email.webp" width="2400" height="1600" alt="Invitation email preview" /%}
+
+Invitation links expire after a configurable period (default: 7 days). Users can resend invitations if the invited users haven't accepted it yet.
+
+## Accepting an Invitation
+
+When someone clicks the invitation link, they're taken to an acceptance page. If they already have an account, they can sign in and join immediately.
+
+{% img src="/images/docs/accept-invitation.webp" width="2400" height="1600" alt="Accept invitation page" /%}
+
+If they don't have an account yet, they'll be prompted to create one. After signing up, they're automatically added to the organization with their assigned role.
+
+{% img src="/images/docs/invitation-signup.webp" width="2400" height="1600" alt="Invited user signup form" /%}
+
+## Managing Pending Invitations
+
+The invitations tab shows all pending invites that haven't been accepted yet. From here you can:
+
+- **Resend** — Send the invitation email again with a fresh link
+- **Cancel** — Revoke the invitation before it's accepted
+
+{% img src="/images/docs/cancel-invitation.webp" width="2400" height="1600" alt="Cancel invitation dialog" /%}
+
+Cancelled invitations become invalid immediately. If the recipient tries to use an old link, they'll see an error message.
+
+## Invitation Limits
+
+Depending on your plan, there may be limits on how many members can join an organization. If you've reached your limit, new invitations will be blocked until you upgrade or remove existing members.
+
+See [Seat Enforcement](/docs/nextjs-drizzle/billing/seat-enforcement) for details on seat-based limits.
+
+## Authorization Policies
+
+Invitations are protected by authorization policies that run before each operation. By default, no policies are registered, meaning all invitation operations are allowed.
+
+### Available Policies
+
+| Registry | Operation |
+|----------|-----------|
+| `invitationCreateRegistry` | Sending invitations |
+| `invitationAcceptRegistry` | Accepting invitations |
+| `invitationCancelRegistry` | Canceling invitations |
+
+### Example: Require Subscription to Invite
+
+To block invitations when no subscription exists:
+
+```typescript
+// packages/organization/policies/src/policies/custom.ts
+import { definePolicy, allow, deny } from '@kit/policies';
+import { db, subscription } from '@kit/database';
+import { and, eq, inArray } from 'drizzle-orm';
+import type { InvitationCreateContext } from '../types';
+
+export const subscriptionRequiredPolicy = definePolicy<InvitationCreateContext>({
+  id: 'invitation-create.subscription-required',
+  evaluate: async (context) => {
+    const activeSub = await db
+      .select({ id: subscription.id })
+      .from(subscription)
+      .where(
+        and(
+          eq(subscription.referenceId, context.organizationId),
+          inArray(subscription.status, ['active', 'trialing']),
+        ),
+      )
+      .limit(1);
+
+    if (!activeSub.length) {
+      return deny({
+        code: 'SUBSCRIPTION_REQUIRED',
+        message: 'An active subscription is required to invite members',
+        remediation: 'Subscribe to a plan first',
+      });
+    }
+
+    return allow();
+  },
+});
+```
+
+Then register it in `packages/organization/policies/src/registry.ts`:
+
+```typescript
+import { subscriptionRequiredPolicy } from './policies/custom';
+
+invitationCreateRegistry.registerPolicy(subscriptionRequiredPolicy);
+```
+
+See [Authorization Policies](../organizations/authorization-policies) for more examples.
+
+---
+
+**Next:** [Roles & Permissions →](./roles-permissions)

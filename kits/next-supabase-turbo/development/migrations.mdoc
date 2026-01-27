@@ -2,86 +2,308 @@
 status: "published"
 label: "Migrations"
 order: 1
-title: "How to create new migrations and update the database schema in your Next.js Supabase application"
-description: "Learn how to create new migrations and update the database schema in your Next.js Supabase application"
+title: "Database Migrations in the Next.js Supabase Starter Kit"
+description: "Create and manage database migrations using Supabase's declarative schema and diffing tools to evolve your PostgreSQL schema safely."
 ---
 
-{% sequence title="How to create new migrations and update the database schema" description="Learn how to create new migrations and update the database schema in your Next.js Supabase application" %}
+Database migrations in Makerkit use Supabase's declarative schema approach. Define your schema in SQL files at `apps/web/supabase/schemas/`, then generate migration files that track changes over time. This keeps your schema version-controlled and deployable across environments.
 
-[Do not use Supabase Studio to make schema changes](#do-not-use-supabase-studio-to-make-schema-changes-(recommendation))
+{% sequence title="Database Migration Workflow" description="Create and apply schema changes safely" %}
 
-[Updating the Database Schema](#declarative-schema)
+[Edit the declarative schema](#editing-the-declarative-schema)
 
-[Creating a migration file from a schema change](#creating-a-migration-file-from-a-schema-change)
+[Generate a migration file](#generating-a-migration-file)
 
-[Pushing the migration to the remote Supabase instance](#pushing-the-migration-to-the-remote-supabase-instance)
+[Test locally](#testing-locally)
 
-[Applying changes to the database schema](#applying-changes-to-the-database-schema)
+[Push to production](#pushing-to-production)
 
 {% /sequence %}
 
-Creating a schema for your data is one of the primary tasks when building a new application. In this guide, we'll walk through how to create new migrations and update the database schema in your Next.js Supabase application.
+## Why Declarative Schema?
 
-## Do not use Supabase Studio to make schema changes (recommendation)
+Makerkit uses declarative schema files instead of incremental migrations for several reasons:
 
-Supabase's hosted Studio is pretty great - but I don't think it should be used to perform schema changes. Instead, I recommend using your local Supabase Studio to make the changes and then generate the migration file. Then, you can push the migration to the remote Supabase instance.
+- **Readable**: See your entire schema in one place
+- **Mergeable**: Schema changes are easier to review in PRs
+- **Recoverable**: Always know the intended state of your database
+- **Automated**: Supabase generates migration diffs for you
 
-## Declarative schema
+{% alert type="warning" title="Avoid Supabase Studio for Schema Changes" %}
+Don't use the hosted Supabase Studio to modify your schema. Changes made there won't be tracked in your codebase. Use your local Supabase instance and generate migrations from schema files.
+{% /alert %}
 
-Using Supabase's declarative schema, you can define your schema at `apps/web/supabase/schemas`. In here, we can create a new file called using whatever name you want: for example, if our schema is about `integrations`, we can create a file called `integrations.sql`.
+## Schema File Organization
 
-The file should contain the SQL statements to create the schema.
+Schema files live in `apps/web/supabase/schemas/`:
 
-For example, here's a basic schema for an `integrations` table:
+```
+apps/web/supabase/
+├── config.toml           # Supabase configuration
+├── seed.sql              # Seed data for development
+├── schemas/              # Declarative schema files
+│   ├── 00-extensions.sql
+│   ├── 01-enums.sql
+│   ├── 02-accounts.sql
+│   ├── 03-roles.sql
+│   ├── 04-memberships.sql
+│   ├── 05-subscriptions.sql
+│   └── your-feature.sql  # Your custom schema
+└── migrations/           # Generated migration files
+    ├── 20240101000000_initial.sql
+    └── 20240115000000_add_projects.sql
+```
 
-```sql
-create table if not exists public.integrations (
-  id uuid primary key default uuid_generate_v4(),
+Files are loaded alphabetically, so prefix with numbers to control order.
+
+## Editing the Declarative Schema
+
+### Adding a New Table
+
+Create a schema file for your feature:
+
+```sql {% title="apps/web/supabase/schemas/20-projects.sql" %}
+-- Projects table for team workspaces
+create table if not exists public.projects (
+  id uuid primary key default gen_random_uuid(),
+  account_id uuid not null references public.accounts(id) on delete cascade,
   name text not null,
-  created_at timestamp with time zone default now(),
-  updated_at timestamp with time zone default now()
+  description text,
+  status text not null default 'active' check (status in ('active', 'archived')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- Enable RLS
+alter table public.projects enable row level security;
+
+-- RLS policies
+create policy "Users can view their account's projects"
+  on public.projects
+  for select
+  using (
+    account_id in (
+      select account_id from public.accounts_memberships
+      where user_id = auth.uid()
+    )
+  );
+
+create policy "Users with write permission can insert projects"
+  on public.projects
+  for insert
+  with check (
+    public.has_permission(auth.uid(), account_id, 'projects.write'::app_permissions)
+  );
+
+-- Updated at trigger
+create trigger set_projects_updated_at
+  before update on public.projects
+  for each row execute function public.set_updated_at();
+```
+
+### Modifying an Existing Table
+
+Edit the schema file directly. For example, to add a column:
+
+```sql {% title="apps/web/supabase/schemas/20-projects.sql" %}
+create table if not exists public.projects (
+  id uuid primary key default gen_random_uuid(),
+  account_id uuid not null references public.accounts(id) on delete cascade,
+  name text not null,
+  description text,
+  status text not null default 'active' check (status in ('active', 'archived')),
+  priority integer not null default 0,  -- New column
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
 );
 ```
 
-## Creating a migration file from a schema change
+### Adding Indexes
 
-Now, you want this schema to be applied to your local Supabase instance so you can start using it and test it out.
+Add indexes for frequently queried columns:
 
-We can now use Supabase's diffing feature to generate a migration file for us.
+```sql
+-- Add to your schema file
+create index if not exists projects_account_id_idx
+  on public.projects(account_id);
 
-```bash
-pnpm --filter web run supabase:db:diff -f <filename>  # Generate the migration file using the diffing feature
+create index if not exists projects_status_idx
+  on public.projects(status)
+  where status = 'active';
 ```
 
-This command will generate the migration file using the diffing feature using the default `migra` tool.
+## Generating a Migration File
 
-The migration file will be created in the `apps/web/supabase/migrations` directory.
+After editing schema files, generate a migration that captures the diff:
 
 ```bash
-pnpm run supabase:web:start   # start supabase
-pnpm run supabase:web:reset   # reset supabase
+# Generate migration from schema changes
+pnpm --filter web supabase:db:diff -f add_projects
 ```
 
-{% alert type="warning" title="Double check the migration file" %}
-Make sure the migration file is correct before pushing it to the remote Supabase instance. The diffing tool can make mistakes and has various caveats. Always double check the generated migration file before pushing it to the remote Supabase instance.
+This creates a timestamped migration file in `apps/web/supabase/migrations/`:
+
+```sql {% title="apps/web/supabase/migrations/20260119000000_add_projects.sql" %}
+-- Generated by Supabase CLI
+
+create table public.projects (
+  id uuid primary key default gen_random_uuid(),
+  account_id uuid not null references public.accounts(id) on delete cascade,
+  name text not null,
+  description text,
+  status text not null default 'active' check (status in ('active', 'archived')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.projects enable row level security;
+
+-- ... policies and triggers
+```
+
+{% alert type="error" title="Always Review Generated Migrations" %}
+The diffing tool has [known caveats](https://supabase.com/docs/guides/local-development/declarative-database-schemas#known-caveats). Always review generated migrations before applying them. Check for:
+- Destructive operations (DROP statements)
+- Missing or incorrect constraints
+- Order of operations issues
 {% /alert %}
 
-Learn more about [the known caveats of the diffing tool](https://supabase.com/docs/guides/local-development/declarative-database-schemas#known-caveats).
+## Testing Locally
 
-## Pushing the migration to the remote Supabase instance
-
-After you're happy with the changes, you can push the migration to the remote Supabase instance. This is so that the changes are reflected in the remote database and not only in your local Supabase Studio.
+Apply and test your migration locally before pushing to production:
 
 ```bash
+# Stop Supabase if running
+pnpm run supabase:web:stop
+
+# Start with fresh database
+pnpm run supabase:web:start
+
+# Or reset to apply all migrations
+pnpm run supabase:web:reset
+```
+
+### Verify the Schema
+
+Check that your changes applied correctly:
+
+```bash
+# Open local Supabase Studio
+open http://localhost:54323
+```
+
+Navigate to **Table Editor** and verify your table exists with the correct columns.
+
+### Run Database Tests
+
+If you have pgTAP tests, run them to verify RLS policies:
+
+```bash
+pnpm --filter web supabase:test
+```
+
+See [Database Tests](/docs/next-supabase-turbo/development/database-tests) for writing tests.
+
+## Pushing to Production
+
+After testing locally, push migrations to your remote Supabase instance:
+
+```bash
+# Link to your Supabase project (first time only)
+pnpm --filter web supabase link --project-ref your-project-ref
+
+# Push migrations
 pnpm --filter web supabase db push
 ```
 
-## Applying changes to the database schema
+### Migration Commands Reference
 
-Whenever you want to apply changes to the database schema, you can use the same process as above.
+| Command | Description |
+|---------|-------------|
+| `pnpm run supabase:web:start` | Start local Supabase |
+| `pnpm run supabase:web:stop` | Stop local Supabase |
+| `pnpm run supabase:web:reset` | Reset and apply all migrations |
+| `pnpm --filter web supabase:db:diff -f <name>` | Generate migration from schema diff |
+| `pnpm --filter web supabase db push` | Push migrations to remote |
+| `pnpm --filter web supabase:typegen` | Regenerate TypeScript types |
 
-0. Stop the Supabase service
-1. Modify the schema in the `apps/web/supabase/schemas` directory
-2. Generate the migration file using the diffing feature
-3. Restart Supabase with the `no-backup` flag to test the changes locally
-4. Push the migration to the remote Supabase instance
+## Regenerating TypeScript Types
+
+After schema changes, regenerate the TypeScript types:
+
+```bash
+pnpm --filter web supabase:typegen
+```
+
+This updates `packages/supabase/src/database.types.ts` with your new tables and columns. Import types in your code:
+
+```tsx
+import type { Database } from '@kit/supabase/database';
+
+type Project = Database['public']['Tables']['projects']['Row'];
+type NewProject = Database['public']['Tables']['projects']['Insert'];
+```
+
+## Common Patterns
+
+### Adding a Lookup Table
+
+```sql
+-- Status enum as lookup table
+create table if not exists public.project_statuses (
+  id text primary key,
+  label text not null,
+  sort_order integer not null default 0
+);
+
+insert into public.project_statuses (id, label, sort_order) values
+  ('active', 'Active', 1),
+  ('archived', 'Archived', 2),
+  ('deleted', 'Deleted', 3)
+on conflict (id) do nothing;
+```
+
+### Adding a Junction Table
+
+```sql
+-- Many-to-many relationship
+create table if not exists public.project_members (
+  project_id uuid not null references public.projects(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  role text not null default 'member',
+  created_at timestamptz not null default now(),
+  primary key (project_id, user_id)
+);
+```
+
+### Data Migration
+
+For data transformations, use a separate migration:
+
+```sql {% title="apps/web/supabase/migrations/20260120000000_backfill_priority.sql" %}
+-- Backfill priority based on status
+update public.projects
+set priority = case
+  when status = 'active' then 1
+  when status = 'archived' then 0
+  else 0
+end
+where priority is null;
+```
+
+## Troubleshooting
+
+**Diff shows no changes**: Ensure your schema file is being loaded. Check file naming (alphabetical order matters).
+
+**Migration fails on production**: The diff tool may generate invalid SQL. Review and manually fix the migration file.
+
+**Type mismatch after migration**: Regenerate types with `pnpm --filter web supabase:typegen`.
+
+**RLS policy errors**: Check that your policies reference valid columns and functions. Test with [database tests](/docs/next-supabase-turbo/development/database-tests).
+
+## Related Resources
+
+- [Database Schema](/docs/next-supabase-turbo/development/database-schema) for detailed schema patterns
+- [Database Architecture](/docs/next-supabase-turbo/development/database-architecture) for understanding the data model
+- [Database Functions](/docs/next-supabase-turbo/development/database-functions) for built-in SQL functions
+- [Database Tests](/docs/next-supabase-turbo/development/database-tests) for testing migrations

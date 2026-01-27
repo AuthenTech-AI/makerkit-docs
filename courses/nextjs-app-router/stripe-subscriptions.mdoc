@@ -1,0 +1,1514 @@
+---
+title: "Next.js Course: Accepting Payments with Stripe"
+label: "Stripe Payments"
+description: "In this lesson, we learn how to implement payments using Stripe and let users subscribe to a plan using Stripe Checkout."
+order: 7
+---
+
+If you are building a SaaS, you probably want to charge your users so they can use your service. In this module, we hook up our application with Stripe Checkout, a hosted payment gateway that helps accept payments from customers.
+
+Since Stripe does a lot of the heavy lifting thanks to Stripe Checkout, our application's responsibility is mainly to respond to the events sent from Stripe and update our database to keep data in sync.
+
+The process is fairly simple:
+1. **Checkout**: Users will choose a plan in the application, and we will redirect them to the checkout. We will identify users in Stripe by using their IDs
+2. **Webhooks**: Webhooks are events sent by Stripe to our servers. These events will let us know of changes within Stripe related to our customers, for example, a successful checkout, a successful paid invoice, an update in the subscription, and so on. Our job is to keep the database in sync with Stripe.
+3. **Billing Portal**: After the checkout is successful, we can let users manage their billing details and their invoices using the hosted Stripe Billing Portal.
+
+## Getting Started with Stripe
+
+To get started with [Stripe Checkout](https://stripe.com/docs/payments/checkout), you will need to create an account using the [Stripe website](https://stripe.com).
+
+If you want, you can get your business details sorted right away. If you
+want to continue with the set-up, you can skip it for now and get back to it later.
+
+## Stripe CLI
+
+The Stripe CLI allows us to redirect webhooks coming from the hosted Stripe Checkout toward our local development instance. This makes local development a breeze for implementing Stripe into our applications.
+
+Please [follow this guide to install the CLI on your system](https://stripe.com/docs/stripe-cli).
+
+My recommendation is to use Docker, but there are various ways to install it on your machine. If Docker is something you're keen on, add the command below to your `package.json` scripts:
+
+```json {% title="package.json" %}
+{
+  "scripts": {
+    "stripe:listen": "docker run --rm -it --name=stripe -v ~/.config/stripe:/root/.config/stripe stripe/stripe-cli:latest listen --forward-to http://host.docker.internal:3000/stripe/webhook"
+  }
+}
+```
+
+### Using the correct URL endpoint for the webhooks
+
+We are redirecting the webhooks to `localhost:3000/stripe/webhook`, which is the URL of our local development instance. If you are using a different port, **please change it accordingly**.
+
+For the sake of this tutorial, we assume that you are running the Next.js server at `localhost:3000`, and that you add the API handler at `/stripe/webhook` (as we will see in the next sections).
+
+### Launching the Stripe CLI
+
+Whenever you want to test Stripe, run the command:
+
+```
+npm run stripe:listen
+```
+
+The first time you run this command, you will likely need to sign in with Stripe and link the instance to your local machine. Once set up, please run the command again. This time, if all went well, **Stripe will display the Webhook Secret Key: you will need this key for testing**.
+
+Copy the webhook secret to your `STRIPE_WEBHOOK_SECRET` environment variables in the `.env.development` file.
+
+```bash {% title=".env.development" %}
+STRIPE_WEBHOOK_SECRET=****************************
+```
+
+Please do not miss this step, otherwise, the **webhooks will not work.**
+
+### Installing the Stripe NPM Library
+
+You will also need to install the Stripe NPM Library. You can install it using the following command:
+
+```
+npm i stripe
+```
+
+## Database Schema
+
+Since we will need to store the subscriptions in our database, we need to update the schema with two further tables:
+
+1. `subscriptions`: this table contains the data needed to store some important information about the status of the subscription
+2. `users_subscriptions`: we use a join-table to link users with their subscriptions, but also to store an additional property: `customer_id`. This ID is assigned by Stripe after creating the checkout: our users will be associated with this property, and we can refer to them when creating new checkouts or when redirecting customers to the Billing Portal.
+
+### The subscriptions table
+
+Below is some data that we will be storing in our database using the Stripe Webhooks' payloads.
+
+```sql
+create type subscription_status as ENUM (
+  'active',
+  'trialing',
+  'past_due',
+  'canceled',
+  'unpaid',
+  'incomplete',
+  'incomplete_expired',
+  'paused'
+);
+
+create table subscriptions (
+  id text not null primary key,
+  price_id text not null,
+  status subscription_status not null,
+  cancel_at_period_end bool not null,
+  currency text,
+  interval text,
+  interval_count int,
+  created_at timestamptz not null,
+  period_starts_at timestamptz not null,
+  period_ends_at timestamptz not null,
+  trial_starts_at timestamptz,
+  trial_ends_at timestamptz,
+  user_id uuid not null references public.users (id) on delete cascade
+);
+```
+
+- The `price_id` property refers to the plan we will create within Stripe (ex. Basic Yearly plan)
+- The `subscription_status` property refers to the status of the subscription. We use this property to know if the user can access certain functionalities or not.
+- The `cancel_at_period_end` property is a boolean that we use to know if the customer's plan will end at the end of the current period. That is if the customer canceled their plan.
+- The `currency` property is the currency used for the subscription
+- The `period_starts_at` property refers to when the subscription starts
+- The `period_ends_at` property refers to when the subscription ends
+- If the user used a trial, the `trial_starts_at` refers to when the trial starts
+- If the user used a trial, the `trial_ends_at` refers to when the trial ends
+- The `user_id` is a foreign key pointing to the user whose subscription belongs to
+
+#### Subscriptions RLS
+
+We will enable the RLS for this table, and **only allow users to read their subscriptions**:
+
+```sql
+alter table subscriptions enable row level security;
+
+create policy "Users can only read their own subscriptions" on
+subscriptions
+  for select
+    using (auth.uid () = user_id);
+```
+
+We will be updating this table only by receiving Stripe webhooks - where we will use an Admin Client to bypass RLS.
+
+### The users subscriptions join table
+
+Now, we link an user to a subscription using a join table `customers_subscriptions`:
+
+```sql
+create table customers_subscriptions (
+  id bigint generated always as identity primary key,
+  customer_id text unique not null,
+  user_id uuid not null references public.users (id) on delete cascade,
+  subscription_id text unique references public.subscriptions (id) on delete
+  set null
+);
+```
+
+We set the `customer_id` property on this table: this property associates the user with the Stripe Customer ID, which we will use to redirect the user to the Billing Portal or to start new subscriptions.
+
+Since we only have a `customer_id` property assigned after a user starts their subscription, this property will be null until then. **The property should remain unchanged for as long as the user's records exists in our database** - so it will only be deleted if the relative `user_id` row gets deleted from the `users` table.
+
+Of course - we need to enable RLS and restrict users to **only be able read** from this table:
+
+```sql
+alter table customers_subscriptions enable row level security;
+
+create policy "Users can only read their own customers subscriptions" on
+customers_subscriptions
+  for select
+    using (auth.uid () = user_id);
+```
+
+Our SQL database is almost complete! Remember to reset the database and regenerate the types using the following commands:
+
+```
+npm run supabase:reset
+npm run typegen
+```
+
+## Defining the Subscription interface
+
+We will create a new file at `lib/subscriptions/subscription.ts` so we can
+define the Subscription interface we will use in our application:
+
+```ts {% title="lib/subscriptions/subscription.ts" %}
+import type { Stripe } from 'stripe';
+
+interface Subscription {
+  id: string;
+
+  priceId: string;
+
+  status: Stripe.Subscription.Status;
+  cancelAtPeriodEnd: boolean;
+  currency: string | null;
+
+  interval: string | null;
+  intervalCount: number | null;
+
+  createdAt: string;
+  periodStartsAt: string;
+  periodEndsAt: string;
+  trialStartsAt: string | null;
+  trialEndsAt: string | null;
+}
+
+export default Subscription;
+```
+
+## Pricing Table
+
+When creating a checkout session from our application, we need to set a specific `Price ID`. This ID refers to the Stripe Price ID of the `price` that the user is subscribing to.
+
+This is a combination of:
+
+1. The product the user is subscribing to (ex. Basic, Pro, Premium)
+2. The variant the user chooses (ex. Monthly, Weekly, Yearly)
+
+Every combination will have a different Price ID, and we need to let users choose this in our application's UI.
+
+### Setting up the Prices in Stripe
+
+To create the Products and Prices, we use the [Stripe Dashboard](https://dashboard.stripe.com).
+
+My recommendation is to make 2 products, each with a monthly and a yearly plan. We will then build a pricing table using these two plans.
+
+Assuming you have created a Stripe account, [you can build your products and prices at this link](https://dashboard.stripe.com/test/products). To get started, make sure you toggle on **Test Mode** on Stripe, so you can test the checkout without having to use real credit cards.
+
+#### Basic Plan
+
+To Start, we create a basic plan, and add two prices:
+1. monthly ($9.99)
+2. yearly ($99.99).
+
+{% img src="/assets/courses/basic-plan-stripe.webp" width="2864" height="1986" /%}
+
+To use a yearly billing cycle, you need to change the **Billing Period** to **Yearly**.
+
+#### Pro Plan
+
+Then, we create a pro plan, and add two prices:
+1. monthly ($29.99)
+2. yearly ($299.99).
+
+#### Finding the Price IDs
+
+Now that we have created the plans, we need to find the Price IDs, since we have to add these to our application and use them to create the checkout when the user clicks on the button.
+
+Click on each plan and then copy the Price IDs, as you can see in the image below:
+
+{% img src="/assets/courses/stripe-price-ids.webp" width="2576" height="574" /%}
+
+Keep the pages open, we will need them in the next section.
+
+## Subscription Page
+
+Now that we have the Price IDs, we can create a new page in our application where users can subscribe to a plan. We will create an object containing information about the plans, and then we will use this object to render the pricing table.
+
+### Creating the Plans model
+
+First, let's create a model at `lib/stripe/plans.ts`:
+
+```ts {% title="lib/stripe/plans.ts" %}
+const plans = [
+  {
+    name: 'Basic',
+    description: 'A basic plan for everyone',
+    features: [`Enjoy up to 500,000 tokens per month`, `Email Support`],
+    trialPeriodDays: 7,
+    prices: [
+      {
+        id: '<price_id>',
+        name: 'Monthly',
+        description: 'A monthly plan',
+        price: 9.99,
+      },
+      {
+        id: 'price_1NRsbgEi65PUrsks1UNJcnEK',
+        name: 'Yearly',
+        description: 'A yearly plan',
+        price: 99.99,
+      },
+    ],
+  },
+  {
+    name: 'Pro',
+    description: 'A pro plan for ambitious writers',
+    features: [`Enjoy up to 3 million tokens per month`, `Chat Support`],
+    trialPeriodDays: 14,
+    prices: [
+      {
+        id: '<price_id>',
+        name: 'Monthly',
+        description: 'A monthly plan',
+        price: 29.99,
+      },
+      {
+        id: '<price_id>',
+        name: 'Yearly',
+        description: 'A yearly plan',
+        price: 299.99,
+      },
+    ],
+  },
+];
+
+export default plans;
+```
+
+The model above contains the following properties:
+1. **name**: the name of the plan
+2. **description**: the description of the plan
+3. **features**: an array of strings containing the features of the plan
+4. **trialPeriodDays**: the number of days of the trial period. If you pass a value greater than 0, the user will be able to use the service for free for the number of days specified.
+5. **prices**: an array of objects containing the Price IDs, the name of the plan, the description of the plan, and the price of the plan
+
+Using the model above, we can dynamically render the pricing table in our application, as we will see in the next section.
+
+### Creating the Pricing Table
+
+Now that we have the plans, we can create a new `PricingTable` component at `components/PricingTable.tsx`:
+
+```tsx {% title="components/PricingTable.tsx" %}
+'use client';
+
+import { CheckCircleIcon } from 'lucide-react';
+import { useState } from 'react';
+
+import plans from '@/lib/stripe/plans';
+import { Button } from '@/components/ui/button';
+
+function PricingTable() {
+  const [selectedCycle, setSelectedCycle] 
+    = useState<'monthly' | 'yearly'>('monthly');
+
+  const getVariant = (cycle: 'monthly' | 'yearly') => {
+    if (cycle === selectedCycle) {
+      return 'default';
+    }
+
+    return 'ghost';
+  };
+
+  return (
+    <div className='flex flex-col space-y-8 items-center'>
+      <div className='flex justify-center'>
+        <div className='flex space-x-1'>
+          <Button 
+            type='button' 
+            onClick={() => setSelectedCycle('monthly')} 
+            variant={getVariant('monthly')}
+          >
+            Monthly
+          </Button>
+
+          <Button 
+            type='button' 
+            onClick={() => setSelectedCycle('yearly')} 
+            variant={getVariant('yearly')}
+          >
+            Yearly
+          </Button>
+        </div>
+      </div>
+
+      <div className='flex space-x-4'>
+        {plans.map((plan) => {
+          const selectedPrice = plan.prices.find(({ name }) => {
+            return name.toLowerCase() === selectedCycle;
+          });
+
+          if (!selectedPrice) {
+            console.warn(
+              `No price found for ${selectedCycle}. You may need to add a price to the ${plan.name} plan.`,
+            );
+
+            return null;
+          }
+
+          return (
+            <form key={selectedPrice.price}>
+              <div
+                className='flex flex-col space-y-4 p-6 rounded-xl border
+                border-gray-100 shadow-sm dark:border-slate-800'
+              >
+                <h2 className='font-semibold text-lg'>
+                  {plan.name}
+                </h2>
+
+                <div className='flex items-center space-x-1'>
+                  <span className='text-2xl font-bold'>
+                    ${selectedPrice.price}
+                  </span>
+                  <span className='lowercase text-sm'>
+                    /{selectedPrice.name}
+                  </span>
+                </div>
+
+                <div className='flex flex-col space-y-1'>
+                  {plan.features.map((feature) => {
+                    return (
+                      <div
+                        key={feature}
+                        className='flex space-x-2.5 items-center text-sm'
+                      >
+                        <CheckCircleIcon className='w-4 h-4 text-green-500' />
+                        <span>{feature}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                <input
+                  type='hidden'
+                  name='priceId'
+                  value={selectedPrice?.id}
+                />
+
+                <Button variant={'outline'}>
+                  Subscribe
+                </Button>
+              </div>
+            </form>
+          )
+        })}
+      </div>
+    </div>
+  );
+}
+
+export default PricingTable;
+```
+
+### Adding the Pricing Table to the Subscription Page
+
+With our pricing table complete, we can now add the component to a new page `Subscription` we will create at `app/(app)/subscription/page.tsx`:
+
+```tsx {% title="app/(app)/subscription/page.tsx" %}
+import { CreditCardIcon } from 'lucide-react';
+import PricingTable from '@/components/PricingTable';
+
+function SubscriptionPage() {
+  return (
+    <div className='container'>
+      <div className='flex flex-col flex-1 space-y-8'>
+        <h1 className='text-2xl font-semibold flex space-x-4 items-center'>
+          <CreditCardIcon className='w-5 h-5' />
+
+          <span>
+            Subscription
+          </span>
+        </h1>
+
+        <PricingTable />
+      </div>
+    </div>
+  );
+}
+
+export default SubscriptionPage;
+```
+
+### Adding the Subscription Page to the Menu
+
+Since we now have 2 pages, we need to add the subscription page to the menu. First, we create a new component named `NavLink`, which is a wrapper around the `Link` component from Next.js.
+
+This component **is aware of the current route**, and **adds a class to the link** if the current route matches the `href` property.
+
+```tsx {% title="components/NavLink.tsx" %}
+'use client';
+
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+
+function NavLink(props: React.PropsWithChildren<{
+  href: string;
+}>) {
+  const pathName = usePathname();
+  
+  const className = props.href.includes(pathName) ? 'font-semibold' : 'text-gray-500 dark:text-gray-400 hover:underline';
+
+  return (
+    <li>
+      <Link className={className} href={props.href}>
+        {props.children}
+      </Link>
+    </li>
+  )
+}
+
+export default NavLink;
+```
+
+Since we use the client hook `usePathname` - we need to mark the component as a `client` component. Which is okay.
+
+Now we can update the `AppHeader.tsx` component at `components/AppHeader.tsx`:
+
+```tsx {% title="components/AppHeader.tsx" %}
+import Link from 'next/link';
+import ProfileDropdown from '@/components/ProfileDropdown';
+import NavLink from '@/components/NavLink';
+
+function AppHeader() {
+  return (
+    <div className='p-4 border-b border-gray-40 dark:border-slate-800 flex justify-between items-center'>
+      <div className='flex items-center space-x-8'>
+        <Link href='/dashboard' className='font-bold'>
+          Smart Blog Writer
+        </Link>
+
+        <ul className='flex space-x-3'>
+          <NavLink href='/dashboard'>
+            Dashboard
+          </NavLink>
+
+          <NavLink href='/subscription'>
+            Subscription
+          </NavLink>
+        </ul>
+      </div>
+
+      <ProfileDropdown />
+    </div>
+  )
+}
+
+export default AppHeader;
+```
+
+The page should look like this:
+
+{% img src="/assets/courses/subscription-page.webp" width="2948" height="2024" /%}
+
+## Creating a Checkout
+
+Now that our UI is ready-to-go, we can create a checkout session using the Stripe API.
+
+### Creating the Stripe Client instance
+
+First, we need to create a new file at `lib/stripe/client.ts`, which will contain the Stripe Client instance we use to create the checkout session:
+
+```ts {% title="lib/stripe/client.ts" %}
+import Stripe from 'stripe';
+
+const apiVersion = '2022-11-15';
+
+export default async function getStripeInstance() {
+  return new Stripe(getStripeKey(), {
+    apiVersion,
+  });
+}
+
+function getStripeKey() {
+  const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY;
+
+  if (!STRIPE_SECRET_KEY) {
+    throw new Error(
+      `'STRIPE_SECRET_KEY' environment variable was not provided`
+    );
+  }
+
+  return STRIPE_SECRET_KEY;
+}
+```
+
+#### Adding the Stripe Secret Key to the Environment Variables
+
+As you may have noticed in the code above, we need to add the Stripe Secret Key to the environment variables.
+
+To retrieve this key, you need to go to the [Stripe Dashboard](https://dashboard.stripe.com/test/apikeys) and copy the **Secret Key**.
+
+Then, we need to add the following line to the `.env.development` file:
+
+```bash {% title=".env.development" %}
+STRIPE_SECRET_KEY=sk_test_****************************
+```
+
+### Creating the Checkout Session API
+
+We will export a new function from `lib/stripe/checkout.ts`:
+
+```ts {% title="lib/stripe/checkout.ts" %}
+import type { Stripe } from 'stripe';
+import getStripeInstance from '@/lib/stripe/client';
+
+interface CreateCheckoutParams {
+  returnUrl: string;
+  userId: string;
+  priceId: string;
+  customerId?: string;
+  trialPeriodDays?: number;
+}
+
+/**
+ * @name createStripeCheckout
+ * @description Creates a Stripe Checkout session, and returns an Object
+ * containing the session, which you can use to redirect the user to the
+ * checkout page
+ * @param params
+ */
+export default async function createStripeCheckout(
+  params: CreateCheckoutParams
+) {
+  const successUrl = getUrlWithParams(params.returnUrl, {
+    success: 'true',
+  });
+
+  const cancelUrl = getUrlWithParams(params.returnUrl, {
+    cancel: 'true',
+  });
+
+  const clientReferenceId = params.userId;
+
+  // we pass an optional customer ID, so we do not duplicate the Stripe
+  // customers if an organization subscribes multiple times
+  const customer = params.customerId || undefined;
+
+  // if it's a one-time payment
+  // you should change this to "payment"
+  // docs: https://stripe.com/docs/billing/subscriptions/build-subscription
+  const mode: Stripe.Checkout.SessionCreateParams.Mode = 'subscription';
+
+  // get stripe instance
+  const stripe = await getStripeInstance();
+
+  const lineItem: Stripe.Checkout.SessionCreateParams.LineItem = {
+    quantity: 1,
+    price: params.priceId,
+  };
+
+  const subscriptionData: Stripe.Checkout.SessionCreateParams.SubscriptionData =
+    {
+      trial_period_days: params.trialPeriodDays,
+    };
+
+  return stripe.checkout.sessions.create({
+    mode,
+    customer,
+    line_items: [lineItem],
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+    client_reference_id: clientReferenceId.toString(),
+    subscription_data: subscriptionData,
+  });
+}
+
+function getUrlWithParams(origin: string, params: Record<string, string>) {
+  const url = new URL(origin);
+  const returnUrl = cleanParams(url);
+
+  for (const param in params) {
+    returnUrl.searchParams.set(param, params[param]);
+  }
+
+  return returnUrl.toString();
+}
+
+function cleanParams(returnUrl: URL) {
+  returnUrl.searchParams.delete('cancel');
+  returnUrl.searchParams.delete('success');
+  returnUrl.searchParams.delete('error');
+
+  return returnUrl;
+}
+```
+
+We will now use the function above to create a new checkout session when the user clicks on the subscribe button. To call this function, we will use a Server Action. Let's define a new server action at `lib/actions/subscription.ts`:
+
+```ts title="lib/actions/subscription.ts"
+'use server';
+
+import { headers } from 'next/headers';
+import { redirect } from 'next/navigation';
+import { RedirectType } from 'next/dist/client/components/redirect';
+
+import createStripeCheckout from '@/lib/stripe/checkout';
+import plans from '@/lib/stripe/plans';
+import getSupabaseServerActionClient from '@/lib/supabase/action-client';
+
+export async function createCheckoutAction(
+  formData: FormData
+) {
+  const priceId = formData.get('priceId') as string;
+  const returnUrl = headers().get('referer') || headers().get('origin') || '';
+
+  if (!priceId) {
+    throw new Error(`Price ID was not provided`);
+  }
+
+  const redirectToErrorPage = (error?: string) => {
+    console.error({ error }, `Could not create Stripe Checkout session`);
+
+    const url = [returnUrl, `?error=true`].join('');
+
+    return redirect(url);
+  };
+
+  const client = getSupabaseServerActionClient();
+
+  // require the user to be logged in
+  const userResult = await client.auth.getUser();
+  const userId = userResult.data?.user.id;
+
+  if (!userId) {
+    redirect('/auth/sign-in');
+  }
+
+  const { customerId, subscriptionId } = await client
+    .from('customers_subscriptions')
+    .select('customer_id, subscription_id')
+    .eq('user_id', userId)
+    .throwOnError()
+    .maybeSingle()
+    .then(({ data, error }) => {
+      if (error) {
+        throw error;
+      }
+
+      return {
+        customerId: data?.customer_id,
+        subscriptionId: data?.subscription_id,
+      };
+    });
+
+  // if the user already has a subscription, redirect them to the dashboard
+  if (subscriptionId) {
+    return redirectToErrorPage(`User already has a subscription`);
+  }
+
+  const trialPeriodDays = getTrialPeriodDays(priceId);
+
+  // create the Stripe Checkout session
+  const { url } = await createStripeCheckout({
+    returnUrl,
+    userId,
+    priceId,
+    customerId,
+    trialPeriodDays,
+  }).catch((e) => {
+    console.error(e, `Stripe Checkout error`);
+
+    return redirectToErrorPage(`An unexpected error occurred`);
+  });
+
+  console.log({ url }, `Stripe Checkout session created`);
+
+  if (!url) {
+    return redirectToErrorPage(`An unexpected error occurred`);
+  }
+
+  // redirect user back based on the response
+  return redirect(url, RedirectType.replace);
+}
+
+// get the trial period days from the plans
+function getTrialPeriodDays(priceId: string) {
+  for (const plan of plans) {
+    for (const price of plan.prices) {
+      if (price.id === priceId) {
+        return plan.trialPeriodDays;
+      }
+    }
+  }
+}
+```
+
+With this function, we can now create a new checkout session. We will use this function in the `PricingTable` component, and we will add a new `action` handler to the form within each plan:
+
+```tsx title="components/PricingTable.tsx" {3}
+import { createCheckoutAction } from '@/lib/actions/subscription.ts'
+
+<form action={createCheckoutAction}>
+...
+</form>
+```
+
+By clicking on checkout, you should be redirected to the Stripe Checkout page. Please don't subscribe yet, we will need to set up the webhooks first. We will do it in the next section.
+
+If it does not work, please check the Next.js server terminal for any errors.
+
+## Webhooks
+
+Now that we have created the checkout, we need to listen to the events coming from Stripe. We will use the Stripe CLI to listen to these events, and we will use the Supabase Admin Client to update the database.
+
+Before continuing, **please make sure you have the Stripe CLI running** - we cannot proceed without it.
+
+```
+npm run stripe:listen
+```
+
+### Database mutations
+
+Before we create the webhook handler, we need to create the mutations we will use to update the database when we receive a webhook.
+
+We will create a new file at `lib/mutations/subscription.ts`:
+
+```ts title="lib/mutations/subscription.ts"
+import { Database } from "@/database.types";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import Subscription from "@/lib/subscriptions/subscription";
+
+type Client = SupabaseClient<Database>;
+type SubscriptionRow = Database['public']['Tables']['subscriptions']['Row'];
+
+export async function addSubscription(
+  client: Client,
+  subscription: Stripe.Subscription,
+  userId: string
+) {
+  const data = subscriptionMapper(subscription);
+
+  return getSubscriptionsTable(client)
+    .insert({
+      ...data,
+      id: subscription.id,
+      user_id: userId,
+    })
+    .select('id')
+    .throwOnError()
+    .single();
+}
+
+export async function deleteSubscription(
+  client: Client,
+  subscriptionId: string
+) {
+  return getSubscriptionsTable(client)
+    .delete()
+    .match({ id: subscriptionId })
+    .throwOnError();
+}
+
+export async function updateSubscriptionById(
+  client: Client,
+  subscription: Stripe.Subscription
+) {
+  return getSubscriptionsTable(client)
+    .update(subscriptionMapper(subscription))
+    .match({
+      id: subscription.id,
+    })
+    .throwOnError();
+}
+
+export async function setCustomerSubscriptionData(
+  client: Client,
+  props: {
+    customerId: string;
+    userId: string;
+    subscriptionId: string;
+  }
+) {
+  const { customerId, userId, subscriptionId } = props;
+
+  return client
+    .from('customers_subscriptions')
+    .upsert(
+      {
+        customer_id: customerId,
+        user_id: userId,
+        subscription_id: subscriptionId,
+      },
+      {
+        onConflict: 'customer_id',
+      }
+    )
+    .match({ customer_id: customerId })
+    .throwOnError();
+}
+
+function subscriptionMapper(
+  subscription: Stripe.Subscription
+): SubscriptionRow {
+  const lineItem = subscription.items.data[0];
+  const price = lineItem.price;
+  const priceId = price.id;
+  const interval = price?.recurring?.interval ?? null;
+  const intervalCount = price?.recurring?.interval_count ?? null;
+
+  const row: Partial<SubscriptionRow> = {
+    price_id: priceId,
+    currency: subscription.currency,
+    status: subscription.status ?? 'incomplete',
+    interval,
+    interval_count: intervalCount,
+    cancel_at_period_end: subscription.cancel_at_period_end ?? false,
+    created_at: subscription.created ? toISO(subscription.created) : undefined,
+    period_starts_at: subscription.current_period_start
+      ? toISO(subscription.current_period_start)
+      : undefined,
+    period_ends_at: subscription.current_period_end
+      ? toISO(subscription.current_period_end)
+      : undefined,
+  };
+
+  if (subscription.trial_start) {
+    row.trial_starts_at = toISO(subscription.trial_start);
+  }
+
+  if (subscription.trial_end) {
+    row.trial_ends_at = toISO(subscription.trial_end);
+  }
+
+  return row as SubscriptionRow;
+}
+
+function toISO(timestamp: number) {
+  return new Date(timestamp * 1000).toISOString();
+}
+
+function getSubscriptionsTable(client: Client) {
+  return client.from('subscriptions');
+}
+```
+
+Let's explain what we are doing here:
+
+1. **addSubscription**: we use this function to add a new subscription to the database. We use the `subscriptionMapper` function to map the Stripe Subscription object to our database schema.
+2. **deleteSubscription**: we use this function to delete a subscription from the database. We use the `subscriptionId` to match the subscription we want to delete.
+3. **updateSubscriptionById**: we use this function to update a subscription in the database. We use the `subscriptionId` to match the subscription we want to update.
+4. **setCustomerSubscriptionData**: we use this function to set the `customer_id` property on the `customers_subscriptions` table. This property is used to link the user to the Stripe Customer ID, which we will use to redirect the user to the Billing Portal.
+
+#### Explaining the "subscriptionMapper" function
+
+The `subscriptionMapper` function is used to generate the object we will use to update the database. We use this function to map the Stripe Subscription `Stripe.Subscription` object to our database schema, i.e. `SubscriptionRow`.
+
+### Creating the Stripe Webhook Handler
+
+With all the mutations in place, we can now create the webhook handler. The Stripe Webhook handler is a POST request that we will receive from Stripe when an event occurs.
+
+NB: We will use the Stripe CLI to redirect the webhooks to our local development instance, so please ensure it is up and running.
+
+#### Stripe Webhooks Topics
+
+The Stripe Webhooks Topics are the events that Stripe will send to our application. We will use these topics to handle the events we are interested in. For the sake of this lesson, we will handle the following topics:
+
+1. **checkout.session.completed**: this webhook is called when the checkout is completed. We use this webhook to add the subscription to the database.
+2. **customer.subscription.deleted**: this webhook is called when the subscription is deleted. We use this webhook to delete the subscription from the database.
+3. **customer.subscription.updated**: this webhook is called when the subscription is updated. We use this webhook to update the subscription in the database.
+
+You can find the full list of topics [in the Stripe documentation](https://stripe.com/docs/api/events/types).
+
+#### Creating the Stripe Webhook API Route
+
+Let's now define the code for the Stripe Webhook API route. We will create a new API route at `app/stripe/webhook/route.ts`:
+
+```tsx title="app/stripe/webhook/route.ts"
+import type { Stripe } from 'stripe';
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+import { headers } from 'next/headers';
+import { NextResponse } from 'next/server';
+
+import getStripeInstance from '@/lib/stripe/client';
+import getSupabaseRouteHandlerClient from '@/lib/supabase/route-handler-client';
+
+import {
+  addSubscription,
+  deleteSubscription,
+  setCustomerSubscriptionData,
+  updateSubscriptionById,
+} from '@/lib/mutations/subscription';
+
+const STRIPE_SIGNATURE_HEADER = 'stripe-signature';
+
+enum StripeWebhooks {
+  Completed = 'checkout.session.completed',
+  SubscriptionDeleted = 'customer.subscription.deleted',
+  SubscriptionUpdated = 'customer.subscription.updated',
+}
+
+const webhookSecretKey = process.env.STRIPE_WEBHOOK_SECRET as string;
+
+export async function POST(request: Request) {
+  const signature = headers().get(STRIPE_SIGNATURE_HEADER);
+
+  console.info(`[Stripe] Received Stripe Webhook`);
+
+  if (!webhookSecretKey) {
+    return new Response(
+      `The variable STRIPE_WEBHOOK_SECRET is unset. Please add the STRIPE_WEBHOOK_SECRET environment variable`,
+      {
+        status: 400,
+      }
+    );
+  }
+
+  // verify signature header is not missing
+  if (!signature) {
+    return new Response(null, { status: 400 });
+  }
+
+  const rawBody = await request.text();
+  const stripe = await getStripeInstance();
+
+  // create an Admin client to write to the subscriptions table
+  const client = getSupabaseRouteHandlerClient({
+    admin: true,
+  });
+
+  try {
+    // build the event from the raw body and signature using Stripe
+    const event = await stripe.webhooks.constructEventAsync(
+      rawBody,
+      signature,
+      webhookSecretKey
+    );
+
+    console.info(
+      {
+        type: event.type,
+      },
+      `[Stripe] Processing Stripe Webhook...`
+    );
+
+    switch (event.type) {
+      case StripeWebhooks.Completed: {
+        const session = event.data.object as Stripe.Checkout.Session;
+        const subscriptionId = session.subscription as string;
+
+        const subscription = await stripe.subscriptions.retrieve(
+          subscriptionId
+        );
+
+        await onCheckoutCompleted(client, session, subscription);
+
+        break;
+      }
+
+      case StripeWebhooks.SubscriptionDeleted: {
+        const subscription = event.data.object as Stripe.Subscription;
+
+        await deleteSubscription(client, subscription.id);
+
+        break;
+      }
+
+      case StripeWebhooks.SubscriptionUpdated: {
+        const subscription = event.data.object as Stripe.Subscription;
+
+        await updateSubscriptionById(client, subscription);
+
+        break;
+      }
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error(
+      {
+        error,
+      },
+      `[Stripe] Webhook handling failed`
+    );
+
+    return new Response(null, { status: 500 });
+  }
+}
+
+async function onCheckoutCompleted(
+  client: SupabaseClient,
+  session: Stripe.Checkout.Session,
+  subscription: Stripe.Subscription
+) {
+  const userId = getUserIdFromClientReference(session);
+  const customerId = session.customer as string;
+  const { error, data } = await addSubscription(client, subscription, userId);
+
+  if (error) {
+    return Promise.reject(
+      `Failed to add subscription to the database: ${error}`
+    );
+  }
+
+  // finally, we set the subscription data on
+  // the user subscriptions join table
+  return setCustomerSubscriptionData(client, {
+    customerId,
+    userId,
+    subscriptionId: data.id,
+  });
+}
+
+function getUserIdFromClientReference(session: Stripe.Checkout.Session) {
+  return session.client_reference_id as string;
+}
+```
+
+As you can see, we respond to three webhooks:
+1. **checkout.session.completed**: this webhook is called when the checkout is completed. We use this webhook to add the subscription to the database.
+2. **customer.subscription.updated**: this webhook is called when the subscription is updated. We use this webhook to update the subscription in the database.
+3. **customer.subscription.deleted**: this webhook is called when the subscription is deleted. We use this webhook to delete the subscription from the database.
+
+In the next section, we will be adding a new webhook handler for responding to the `invoice.paid` webhook. This webhook is called when the user pays the invoice, and we will use it to update the subscription's available tokens.
+
+### Testing the Checkout Flow
+
+You can now go on and subscribe to a plan. You should be redirected to the Stripe Checkout page.
+
+When checking out, use the card number `4242 4242 4242 4242` and any future date for the expiration date and CVC: this is a test card provided by Stripe and will result in a successful checkout. Of course, this is a test checkout and **no real money will be charged**.
+
+If everything went well, you should be redirected to the `returnUrl` you provided when creating the checkout session - which should be the subscription page. You should also see a new subscription in the database.
+
+To verify that the subscription was created, you can open the Supabase Studio and verify that the `subscriptions` table contains a new row, like in the image below:
+
+{% img src="/assets/courses/subscriptions-table-supabase.webp" width="2626" height="982" /%}
+
+### Displaying the Subscription Status
+Of course, when a subscription is created, we need to **display the subscription status to the user**.
+
+We proceed to fetch the subscription status from the `(app)` layout so that we can display and use it in all the pages of our application that are behind authentication.
+
+#### Fetching the Subscription Status
+
+First, we need to fetch the subscription status from the database. We will create a new function at `lib/queries/subscription.ts` we name `getUserSubscription`:
+
+```ts title="lib/queries/subscription.ts"
+import { Database } from '@/database.types';
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+import Subscription from '@/lib/subscriptions/subscription';
+
+type Client = SupabaseClient<Database>;
+
+async function getUserSubscription(client: Client, userId: string) {
+  return client
+    .from('customers_subscriptions')
+    .select<
+      string,
+      {
+        customerId: string;
+        subscription: Subscription | undefined;
+      }
+    >(
+      `
+        customerId: customer_id,
+        subscription: subscription_id (
+          id,
+          status,
+          currency,
+          interval,
+          cancelAtPeriodEnd: cancel_at_period_end,
+          intervalCount: interval_count,
+          priceId: price_id,
+          createdAt: created_at,
+          periodStartsAt: period_starts_at,
+          periodEndsAt: period_ends_at,
+          trialStartsAt: trial_starts_at,
+          trialEndsAt: trial_ends_at
+        )
+      `
+    )
+    .eq('user_id', userId)
+    .throwOnError()
+    .maybeSingle();
+}
+```
+
+This is okay - but we can do better. In fact, **we may need to call this function in several layouts**, and we don't want to repeat the same code over and over again. To solve this problem, **we can cache this function for the whole request lifecycle**.
+
+We will use the `cache` function from `react` to cache the result of the function.
+
+```ts title="lib/queries/subscription.ts"
+import getSupabaseServerComponentClient from '@/lib/supabase/server-component-client';
+import { cache } from 'react';
+
+export const getSubscription = cache(async () => {
+  const client = getSupabaseServerComponentClient();
+  const userResponse = await client.auth.getUser();
+
+  if (userResponse.error) {
+    throw userResponse.error;
+  }
+
+  const userId = userResponse.data?.user.id;
+
+  if (!userId) {
+    throw new Error('User not found');
+  }
+
+  const { error, data } = await getUserSubscription(client, userId);
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+});
+```
+
+Every layout or page calling this function will now use the cached result, instead of calling the function again.
+
+Now, we can use this function to fetch the subscription status on the subscription page and render the subscription status instead of the pricing table when the user is subscribed.
+
+The function above will return an object containing the `customerId` and the `subscription` object (if these exist). We will use this object to render the subscription status.
+
+#### Building the Subscription Status Component
+
+Let's create a new component at `components/SubscriptionStatus.tsx`. This component will take the `subscription` object as a "prop", and will render the subscription status.
+
+It's extremely minimal for simplicity, but you can extend it to add more information about the subscription. Later on, we will add a more detailed description for each subscription status.
+
+```tsx title="components/SubscriptionStatus.tsx"
+import { useMemo } from 'react';
+
+import plans from '@/lib/stripe/plans';
+import Subscription from '@/lib/subscriptions/subscription';
+
+function SubscriptionStatus(
+  {
+    subscription,
+  }: React.PropsWithChildren<{
+    subscription: Subscription;
+  }>
+) {
+  const plan = useMemo(() => {
+    return plans.find((plan) => {
+      return plan.prices.some(price => price.id === subscription.priceId);
+    })
+  }, [subscription.priceId]);
+
+  const dates = useMemo(() => {
+    return {
+      endDate: new Date(subscription.periodEndsAt).toDateString(),
+      trialEndDate: subscription.trialEndsAt
+        ? new Date(subscription.trialEndsAt).toDateString()
+        : null,
+    };
+  }, [subscription]);
+
+  if (!plan) {
+    return null;
+  }
+
+  const cancelAtPeriodEnd = subscription.cancelAtPeriodEnd;
+
+  return (
+    <div>
+      <h1>
+        You are subscribed to the plan: <b>{plan.name}</b>
+      </h1>
+
+      <div>
+        The current status of your subscription is <b>{subscription.status}</b>
+      </div>
+
+      <div>
+        <RenewStatusDescription 
+          cancelAtPeriodEnd={cancelAtPeriodEnd} 
+          dates={dates}
+        />
+      </div>
+    </div>
+  );
+}
+
+function RenewStatusDescription(
+  props: React.PropsWithChildren<{
+    cancelAtPeriodEnd: boolean;
+    dates: {
+      endDate: string;
+      trialEndDate: string | null;
+    };
+  }>
+) {
+  if (props.cancelAtPeriodEnd) {
+    return (
+      <span>
+        Your subscription is scheduled to be canceled on {props.dates.endDate}
+      </span>
+    );
+  }
+
+  return (
+    <span>
+      Your subscription is scheduled to be renewed on {props.dates.endDate}
+    </span>
+  );
+}
+
+export default SubscriptionStatus;
+```
+
+#### Using the Subscription Status Component in the Subscription Page
+
+With the component in place, we can now use it on the subscription page. We will update the subscription page at `app/(app)/subscription/page.tsx` and use the result of the `getSubscription` function to render the subscription status component:
+
+```tsx title="app/(app)/subscription/page.tsx" {9-10, 24}
+import { use } from 'react';
+
+import { CreditCardIcon } from 'lucide-react';
+import PricingTable from '@/components/PricingTable';
+import { getSubscription } from '@/lib/queries/subscription';
+import SubscriptionStatus from '@/components/SubscriptionStatus';
+
+function SubscriptionPage() {
+  const data = use(getSubscription());
+  const subscription = data?.subscription;
+
+  return (
+    <div className='container'>
+      <div className='flex flex-col flex-1 space-y-8'>
+        <h1 className='text-2xl font-semibold flex space-x-4 items-center'>
+          <CreditCardIcon className='w-5 h-5' />
+
+          <span>
+            Subscription
+          </span>
+        </h1>
+
+        {
+          subscription ? <SubscriptionStatus subscription={subscription} /> : <PricingTable />
+        }
+      </div>
+    </div>
+  );
+}
+
+export default SubscriptionPage;
+```
+
+Now, refresh the page, and we should see the subscription status displayed in the UI, instead of a pricing table - if you have subscribed to a plan.
+
+## Billing Portal
+
+Lastly, we want the customers to access their Billing Portal if they have already completed the checkout. We will use the Stripe Billing Portal to do so.
+
+### Setting up the Billing Portal for testing mode
+
+First, we need to save the Billing Portal settings in test mode to be able to use it for testing. To do so, visit the [Stripe Billing Portal](https://dashboard.stripe.com/test/settings/billing/portal) and hit the Save button.
+
+### Creating the Billing Portal Session
+
+The first thing we need to do is to add a function that allows us, given a customer ID, to create a new Billing Portal session. We will create a new file at `lib/stripe/billing-portal.ts`:
+
+```ts title="lib/stripe/billing-portal.ts"
+import getStripeInstance from '@/lib/stripe/client';
+
+async function createBillingPortalSession(params: {
+  customerId: string;
+  returnUrl: string;
+}) {
+  const stripe = await getStripeInstance();
+
+  return stripe.billingPortal.sessions.create({
+    customer: params.customerId,
+    return_url: params.returnUrl,
+  });
+}
+
+export default createBillingPortalSession;
+```
+
+Of course, we also need a Server Action to create the Billing Portal session. We will create a new Server Action at `lib/actions/subscription.ts`, right below the `createCheckoutAction` function:
+
+```ts title="lib/actions/subscription.ts"
+import createBillingPortalSession from '@/lib/stripe/billing-portal';
+
+export async function createBillingPortalSessionAction(
+  formData: FormData
+) {
+  const customerId = formData.get('customerId') as string;
+
+  if (!customerId) {
+    throw new Error(`Customer ID was not provided`);
+  }
+
+  const client = getSupabaseServerActionClient();
+  const userResponse = await client.auth.getUser();
+
+  if (userResponse.error || !userResponse.data?.user?.id) {
+    throw new Error(`User is not logged in`);
+  }
+
+  const referer = headers().get('referer');
+  const origin = headers().get('origin');
+  const returnUrl = referer || origin;
+
+  if (!returnUrl) {
+    throw new Error(`Referer or origin was not provided`);
+  }
+
+  // get the Stripe Billing Portal session
+  const { url } = await createBillingPortalSession({
+    returnUrl,
+    customerId,
+  });
+
+  // redirect to the Stripe Billing Portal
+  return redirect(url, RedirectType.replace);
+}
+```
+
+Now, we want to add a Button to redirect customers to the Billing Portal. We will create a new component at `components/BillingPortalButton.tsx`:
+
+```tsx title="components/BillingPortalButton.tsx"
+import { Button } from '@/components/ui/button';
+import { createBillingPortalSessionAction } from '@/lib/actions/subscription';
+
+function BillingPortalButton(
+  { customerId }: React.PropsWithChildren<{
+    customerId: string;
+  }>
+) {
+  return (
+    <form action={createBillingPortalSessionAction}>
+      <input type={'hidden'} name={'customerId'} value={customerId} />
+
+      <Button variant='outline'>
+        Go to Billing Portal
+      </Button>
+    </form>
+  );
+};
+
+export default BillingPortalButton;
+```
+
+We wrap the Button component in a form, and we pass the `customerId` as a hidden input. This is because we need to pass the `customerId` to the Server Action, and we can't do it directly from the component.
+
+Now, we add the `BillingPortalButton` component to the subscription page at `app/(app)/subscription/page.tsx`.
+
+If the `customerId` is not available, we don't render the button. This is because the `customerId` is only available when the user has completed the checkout.
+
+```tsx title="app/(app)/subscription/page.tsx" {29-31, 12}
+import { use } from 'react';
+
+import { CreditCardIcon } from 'lucide-react';
+import PricingTable from '@/components/PricingTable';
+import { getSubscription } from '@/lib/queries/subscription';
+import SubscriptionStatus from '@/components/SubscriptionStatus';
+import BillingPortalButton from '@/components/BillingPortalButton';
+
+function SubscriptionPage() {
+  const data = use(getSubscription());
+  const subscription = data?.subscription;
+  const customerId = data?.customerId;
+
+  return (
+    <div className='container'>
+      <div className='flex flex-col flex-1 space-y-8'>
+        <h1 className='text-2xl font-semibold flex space-x-4 items-center'>
+          <CreditCardIcon className='w-5 h-5' />
+
+          <span>
+            Subscription
+          </span>
+        </h1>
+
+        {
+          subscription ? <SubscriptionStatus subscription={subscription} /> : <PricingTable />
+        }
+
+        {
+          customerId ? <BillingPortalButton customerId={customerId} /> : null
+        }
+      </div>
+    </div>
+  );
+}
+
+export default SubscriptionPage;
+```
+
+If you now click on the button, you should be redirected to the Stripe Billing Portal. You can also try to cancel the subscription, and you should see the subscription status updated in the UI. Or, you can try update your current plan. This will also update the subscription status in the UI.
+
+{% img src="/assets/courses/subscription-status-page.webp" width="2682" height="1962" /%}
+
+### Canceling a Subscription
+
+To cancel a subscription, your customers can use the Billing Portal. Unless the subscription is configured to end immediately, the subscription will be canceled at the end of the current billing period.
+
+This means that the subscription will keep being active until the end of the current billing period - but the text will change to `Your subscription is scheduled to be canceled on {date}`, rather than `Your subscription is scheduled to be renewed on {date}`.
+
+You can update all these settings in the Stripe Dashboard.
+
+## Adding the Pricing table to the Landing Page (Optional)
+
+If you want, you can drop the pricing table on the landing page. Let's update the home page `app/page.tsx` and add the pricing table:
+
+First we import the `PricingTable` component:
+
+```tsx title="app/page.tsx"
+import PricingTable from '@/components/PricingTable';
+```
+
+Then, we add the pricing table component starting at line 103 (or wherever you want to place it in the page):
+
+```tsx title="app/page.tsx" {3-5}
+<hr className='border-gray-100 dark:border-slate-800' />
+
+<div className='flex flex-col space-y-8'>
+  <div className='flex flex-col space-y-2'>
+    <h2 className='text-2xl font-semibold text-center'>
+      Pricing
+    </h2>
+
+    <h3 className='text-lg text-center text-gray-400'>
+      The affordable choice for content creators
+    </h3>
+  </div>
+
+  <PricingTable />
+</div>
+```
+
+{% img src="/assets/courses/pricing-table-landing-page.webp" width="2700" height="1702" /%}
+
+## Conclusion
+
+We're finally done with implementing Stripe! 🎉 This was a long lesson, but we have learned a lot of things.
+
+We have learned how to create a checkout session, how to listen to webhooks, and how to create a Billing Portal session.
+
+This part is an invaluable lesson for any developer who wants to implement Stripe in their application. You can finally charge users of your services and make money! Yay!
+
+## What's Next?
+
+Now that we can take payments from our users, we need to ensure that only paying users can make requests to our content generation API. Additionally, we need to keep track of the number of tokens available to the user, and we need to update this number when the user makes a request to the API.
+
+Let's proceed to the next lesson to learn how to do this!

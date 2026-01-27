@@ -1,0 +1,46 @@
+---
+status: "published"
+title: "Blog System"
+label: "Blog System"
+order: 2
+description: "Create and manage blog content for content marketing and SEO."
+---
+
+Build a blog for content marketing and SEO.
+
+**Note:** This kit uses **Keystatic CMS** for content management with Markdoc format by default, and also offers a WordPress integration. 
+
+You can easily switch to another CMS by changing the `CMS_CLIENT` environment variable and creating a new CMS implementation.
+
+Keystatic uses [Markdoc](https://markdoc.io) for content management - so files are expected to be `.mdoc` files written in Markdoc format.
+
+## Blog Structure
+
+Organize blog posts with metadata:
+
+```
+apps/web/content/posts/
+├── hello-world.mdoc  
+├── getting-started.mdoc
+└── best-practices.mdoc
+```
+
+## Blog Post Format
+
+Use [Markdoc](https://markdoc.io) for rich content:
+
+```mdx
+---
+title: "Getting Started with Our SaaS Kit"
+description: "Learn how to build your SaaS product faster."
+publishedAt: "2024-01-15"
+tags: ["tutorial", "getting-started"]
+status: "published"
+---
+```
+
+You can then add the content of the blog post to the file below the frontmatter.
+
+---
+
+**Next:** [Documentation →](./documentation)

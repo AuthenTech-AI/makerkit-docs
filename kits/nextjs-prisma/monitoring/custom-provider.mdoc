@@ -1,0 +1,328 @@
+---
+status: "published"
+title: 'Creating a Custom Monitoring Provider'
+label: 'Custom Provider'
+description: 'Learn how to implement custom monitoring providers for services like Datadog, New Relic, or any error tracking platform.'
+order: 3
+---
+
+While Makerkit includes Sentry support out of the box, you can implement custom providers for any monitoring service. This guide shows you how to create and register a custom monitoring provider.
+
+{% sequence title="Custom Provider Guide" description="Create a custom monitoring provider" %}
+
+[Extend the MonitoringService Abstract Class](#extend-the-monitoringservice-abstract-class)
+
+[Register the Server Provider](#register-the-server-provider)
+
+[Register the Client Provider](#register-the-client-provider)
+
+[Example: Datadog Provider](#example-datadog-provider)
+
+{% /sequence %}
+
+## Extend the MonitoringService Abstract Class
+
+Create a class that extends the `MonitoringService` abstract class:
+
+```typescript {% title="packages/monitoring/my-provider/src/my-monitoring-service.ts" %}
+import { MonitoringService } from '@kit/monitoring-core';
+
+export class MyMonitoringService extends MonitoringService {
+  private initialized = false;
+
+  async ready(): Promise<void> {
+    // Wait for the service to be ready
+    // Return immediately if already initialized
+    if (this.initialized) return;
+
+    // Initialize your SDK here
+    await this.initialize();
+  }
+
+  captureException<
+    Extra extends Record<string, unknown>,
+    Config extends Record<string, unknown>,
+  >(
+    error: Error & { digest?: string },
+    extra?: Extra,
+    config?: Config,
+  ): void {
+    // Send the error to your monitoring service
+  }
+
+  captureEvent<Extra extends object>(
+    event: string,
+    extra?: Extra,
+  ): void {
+    // Track a custom event
+  }
+
+  identifyUser<Info extends { id: string }>(info: Info): void {
+    // Associate subsequent errors with this user
+  }
+
+  private async initialize(): Promise<void> {
+    // Load SDKs, configure clients, etc.
+    this.initialized = true;
+  }
+}
+```
+
+## Register the Server Provider
+
+Add your provider to the server monitoring registry:
+
+```typescript {% title="packages/monitoring/api/src/services/get-server-monitoring-service.ts" %}
+import {
+  ConsoleMonitoringService,
+  MonitoringService,
+} from '@kit/monitoring-core';
+import { createRegistry } from '@kit/shared/registry';
+
+import {
+  MonitoringProvider,
+  getMonitoringProvider,
+} from '../get-monitoring-provider';
+
+const serverMonitoringRegistry = createRegistry<
+  MonitoringService,
+  NonNullable<MonitoringProvider>
+>();
+
+// Register Sentry
+serverMonitoringRegistry.register('sentry', async () => {
+  const { SentryMonitoringService } = await import('@kit/sentry');
+  return new SentryMonitoringService();
+});
+
+// Register your custom provider
+serverMonitoringRegistry.register('my-provider', async () => {
+  const { MyMonitoringService } = await import('@kit/my-provider');
+  return new MyMonitoringService();
+});
+
+export async function getServerMonitoringService() {
+  const provider = getMonitoringProvider();
+
+  if (!provider) {
+    return new ConsoleMonitoringService();
+  }
+
+  return serverMonitoringRegistry.get(provider);
+}
+```
+
+## Register the Client Provider
+
+Create a React provider component for client-side monitoring:
+
+```typescript {% title="packages/monitoring/my-provider/src/provider.tsx" %}
+'use client';
+
+import { MonitoringContext } from '@kit/monitoring-core';
+import { MyMonitoringService } from './my-monitoring-service';
+
+const service = new MyMonitoringService();
+
+export function MyMonitoringProvider({ children }: React.PropsWithChildren) {
+  return (
+    <MonitoringContext.Provider value={service}>
+      {children}
+    </MonitoringContext.Provider>
+  );
+}
+```
+
+Register it in the client provider registry:
+
+```typescript {% title="packages/monitoring/api/src/components/provider.tsx" %}
+import { createRegistry } from '@kit/shared/registry';
+
+const monitoringProviderRegistry = createRegistry<
+  { default: React.ComponentType<React.PropsWithChildren> },
+  NonNullable<MonitoringProvider>
+>();
+
+// Register Sentry provider
+monitoringProviderRegistry.register('sentry', async () => {
+  return import('@kit/sentry/provider');
+});
+
+// Register your custom provider
+monitoringProviderRegistry.register('my-provider', async () => {
+  return import('@kit/my-provider/provider');
+});
+```
+
+## Update the Provider Schema
+
+Add your provider to the allowed providers list:
+
+```typescript {% title="packages/monitoring/api/src/get-monitoring-provider.ts" %}
+import * as z from 'zod';
+
+const MONITORING_PROVIDERS = [
+  'sentry',
+  'my-provider',  // Add your provider here
+  '',
+] as const;
+
+export const MONITORING_PROVIDER = z
+  .enum(MONITORING_PROVIDERS)
+  .optional()
+  .transform((value) => value || undefined);
+```
+
+Now you can enable your provider with:
+
+```bash {% title=".env.local" %}
+NEXT_PUBLIC_MONITORING_PROVIDER=my-provider
+```
+
+## Example: Datadog Provider
+
+Here's a complete example implementing a Datadog RUM (Real User Monitoring) provider:
+
+```typescript {% title="packages/monitoring/datadog/src/datadog-monitoring-service.ts" %}
+import { datadogRum } from '@datadog/browser-rum';
+import { MonitoringService } from '@kit/monitoring-core';
+
+export class DatadogMonitoringService extends MonitoringService {
+  private initialized = false;
+  private readyPromise: Promise<void>;
+  private readyResolver?: () => void;
+
+  constructor() {
+    this.readyPromise = new Promise((resolve) => {
+      this.readyResolver = resolve;
+    });
+
+    void this.initialize();
+  }
+
+  async ready(): Promise<void> {
+    return this.readyPromise;
+  }
+
+  captureException<
+    Extra extends Record<string, unknown>,
+    Config extends Record<string, unknown>,
+  >(
+    error: Error & { digest?: string },
+    extra?: Extra,
+    config?: Config,
+  ): void {
+    if (!this.initialized) return;
+
+    datadogRum.addError(error, {
+      ...extra,
+      digest: error.digest,
+    });
+  }
+
+  captureEvent<Extra extends object>(
+    event: string,
+    extra?: Extra,
+  ): void {
+    if (!this.initialized) return;
+
+    datadogRum.addAction(event, extra);
+  }
+
+  identifyUser<Info extends { id: string }>(info: Info): void {
+    if (!this.initialized) return;
+
+    datadogRum.setUser({
+      id: info.id,
+      ...info,
+    });
+  }
+
+  private async initialize(): Promise<void> {
+    if (typeof window === 'undefined') {
+      this.readyResolver?.();
+      return;
+    }
+
+    const applicationId = process.env.NEXT_PUBLIC_DATADOG_APPLICATION_ID;
+    const clientToken = process.env.NEXT_PUBLIC_DATADOG_CLIENT_TOKEN;
+
+    if (!applicationId || !clientToken) {
+      console.warn('Datadog credentials not configured');
+      this.readyResolver?.();
+      return;
+    }
+
+    datadogRum.init({
+      applicationId,
+      clientToken,
+      site: 'datadoghq.com',
+      service: 'my-saas-app',
+      env: process.env.NODE_ENV,
+      sessionSampleRate: 100,
+      sessionReplaySampleRate: 20,
+      trackUserInteractions: true,
+      trackResources: true,
+      trackLongTasks: true,
+      defaultPrivacyLevel: 'mask-user-input',
+    });
+
+    this.initialized = true;
+    this.readyResolver?.();
+  }
+}
+```
+
+**Environment variables:**
+
+```bash {% title=".env.local" %}
+NEXT_PUBLIC_MONITORING_PROVIDER=datadog
+NEXT_PUBLIC_DATADOG_APPLICATION_ID=your-application-id
+NEXT_PUBLIC_DATADOG_CLIENT_TOKEN=your-client-token
+```
+
+## Testing Your Provider
+
+1. Set the environment variable to your provider
+2. Trigger a test error
+3. Check your monitoring dashboard
+
+```typescript {% title="Test component" %}
+'use client';
+
+import { useMonitoring } from '@kit/monitoring/hooks';
+
+export function TestMonitoring() {
+  const monitoring = useMonitoring();
+
+  return (
+    <div>
+      <button
+        onClick={() => {
+          monitoring.captureException(new Error('Test error'));
+        }}
+      >
+        Test Exception
+      </button>
+
+      <button
+        onClick={() => {
+          monitoring.captureEvent('test_event', { foo: 'bar' });
+        }}
+      >
+        Test Event
+      </button>
+    </div>
+  );
+}
+```
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Can I use multiple monitoring providers simultaneously?", "answer": "The current architecture supports one provider at a time. To use multiple providers, you'd need to create a composite provider that forwards calls to multiple underlying services."},
+     {"question": "How do I handle server-only providers?", "answer": "Some providers only support server-side monitoring. In that case, implement the server service but have the client provider use ConsoleMonitoringService or a no-op implementation."},
+     {"question": "What if my provider has async initialization?", "answer": "Use the ready() method pattern shown in the examples. Store a Promise that resolves when initialization completes, and await it before capturing errors."},
+     {"question": "How do I pass provider-specific configuration?", "answer": "The captureException method accepts a config parameter for provider-specific options. Your implementation can use this to pass options like severity levels, tags, or other provider features."}
+   ]
+/%}

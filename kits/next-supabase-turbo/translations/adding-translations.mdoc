@@ -2,54 +2,168 @@
 status: "published"
 title: "Adding new translations | Next.js Supabase SaaS Kit"
 label: "Adding new translations"
-description: "Learn how to add new translations to your Next.js Supabase SaaS project."
+description: "Learn how to add new languages, create translation files, and organize namespaces in your Next.js Supabase SaaS application."
 order: 1
 ---
 
+This guide covers adding new languages, creating translation files, and organizing your translations into namespaces.
+
 {% sequence title="Steps to add new translations" description="Learn how to add new translations to your Next.js Supabase SaaS project." %}
 
-[Create Language Files](#1.-create-language-files)
+[Create language files](#1-create-language-files)
 
-[Update Language Settings](#2.-update-language-settings)
+[Register the language](#2-register-the-language)
 
-[Add new namespaces](#3.-add-new-namespaces)
+[Add custom namespaces](#3-add-custom-namespaces)
+
+[Translate email templates](#4-translate-email-templates)
 
 {% /sequence %}
 
-Makerkit projects store translations at the application level, specifically in the `apps/web/public/locales` directory. By default, We provide the English translations at `apps/web/public/locales/en`.
-
-If you're looking to expand your application's language support, follow these two steps:
-
 ## 1. Create Language Files
 
-First, create a new folder in `apps/web/public/locales/[lng]`, where `[lng]` represents the appropriate language code. This could be `de` for German, `it` for Italian, `es` for Spanish, `ja` for Japanese, and so on.
+Translation files live in `apps/web/public/locales/[language]/`. Each language needs its own folder with JSON files matching your namespaces.
+
+### Create the Language Folder
+
+Create a new folder using the [ISO 639-1 language code](https://en.wikipedia.org/wiki/List_of_ISO_639-1_codes):
+
+```bash
+mkdir apps/web/public/locales/es
+```
+
+Common language codes:
+- `de` - German
+- `es` - Spanish
+- `fr` - French
+- `it` - Italian
+- `ja` - Japanese
+- `pt` - Portuguese
+- `zh` - Chinese
 
 ### Regional Language Codes
 
-If you use a regional language code, such as `es-ES` for Spanish in Spain, you must use a lowercase `es-es` instead. Thus, the folder name should be `apps/web/public/locales/es-es`.
+For regional variants like `es-ES` (Spanish - Spain) or `pt-BR` (Portuguese - Brazil), use lowercase with a hyphen:
 
-## 2. Update Language Settings
+```bash
+# Correct
+mkdir apps/web/public/locales/es-es
+mkdir apps/web/public/locales/pt-br
 
-Next, add the new language to the settings file located at `apps/web/lib/i18n/i18n.settings.ts`:
-
-```tsx
-/**
- * The list of supported languages.
- * By default, only the default language is supported.
- * Add more languages here if needed.
- */
-export const languages: string[] = [defaultLanguage, 'es'];
+# Incorrect - will not work
+mkdir apps/web/public/locales/es-ES
 ```
 
-In the example above, the language `es` (Spanish) is added to the `languages` array. Feel free to add as many languages as your application requires.
+The system normalizes language codes to lowercase internally.
 
-## 3. Add new namespaces
+### Copy and Translate Files
 
-If you want to add a new namespace (for example, `chatbots.json`) where you will store translations for chatbots, you can do so by creating a new file in the `apps/web/public/locales/[lng]` directory. For example, `apps/web/public/locales/en/chatbots.json`.
+Copy the English files as a starting point:
 
-Then, you register the new namespace in the `i18n.settings.ts` file:
+```bash
+cp apps/web/public/locales/en/*.json apps/web/public/locales/es/
+```
 
-```tsx {8} title="apps/web/lib/i18n/i18n.settings.ts"
+Then translate each JSON file. Here's an example for `common.json`:
+
+```json title="apps/web/public/locales/es/common.json"
+{
+  "homeTabLabel": "Inicio",
+  "cancel": "Cancelar",
+  "clear": "Limpiar",
+  "goBack": "Volver",
+  "tryAgain": "Intentar de nuevo",
+  "loading": "Cargando. Por favor espere...",
+  "routes": {
+    "home": "Inicio",
+    "account": "Cuenta",
+    "billing": "Facturacion"
+  }
+}
+```
+
+Keep the same key structure as the English files. Only translate the values.
+
+## 2. Register the Language
+
+Add your new language to the settings file:
+
+```tsx title="apps/web/lib/i18n/i18n.settings.ts" {6}
+/**
+ * The default language of the application.
+ */
+const defaultLanguage = process.env.NEXT_PUBLIC_DEFAULT_LOCALE ?? 'en';
+
+/**
+ * The list of supported languages.
+ * Add more languages here as needed.
+ */
+export const languages: string[] = [defaultLanguage, 'es', 'de', 'fr'];
+```
+
+The order matters for fallback behavior:
+1. First language is the default fallback
+2. When a translation is missing, the system falls back through this list
+
+### Verify the Registration
+
+After adding a language, verify it works:
+
+1. Restart the development server
+2. Open browser DevTools > Application > Cookies
+3. Set the `lang` cookie to your new language code (e.g., `es`)
+4. Refresh the page
+
+You should see your translations appear.
+
+## 3. Add Custom Namespaces
+
+Namespaces organize translations by feature or domain. The default namespaces are:
+
+```tsx title="apps/web/lib/i18n/i18n.settings.ts"
+export const defaultI18nNamespaces = [
+  'common',      // Shared UI elements
+  'auth',        // Authentication flows
+  'account',     // Account settings
+  'teams',       // Team management
+  'billing',     // Billing and subscriptions
+  'marketing',   // Marketing pages
+];
+```
+
+### Create a New Namespace
+
+#### Create the JSON file for each language:
+
+```bash
+# Create for English
+touch apps/web/public/locales/en/projects.json
+
+# Create for other languages
+touch apps/web/public/locales/es/projects.json
+```
+
+#### Add your translations  
+
+```json title="apps/web/public/locales/en/projects.json"
+{
+  "title": "Projects",
+  "createProject": "Create Project",
+  "projectName": "Project Name",
+  "projectDescription": "Description",
+  "deleteProject": "Delete Project",
+  "confirmDelete": "Are you sure you want to delete this project?",
+  "status": {
+    "active": "Active",
+    "archived": "Archived",
+    "draft": "Draft"
+  }
+}
+```
+
+#### Register the namespace:
+
+```tsx title="apps/web/lib/i18n/i18n.settings.ts" {8}
 export const defaultI18nNamespaces = [
   'common',
   'auth',
@@ -57,8 +171,246 @@ export const defaultI18nNamespaces = [
   'teams',
   'billing',
   'marketing',
-  'chatbots',      // <--- Add the new namespace here
+  'projects', // Your new namespace
 ];
 ```
 
-In the example above, the `chatbots` namespace is added to the `defaultI18nNamespaces` array. And that's it! You can now start adding translations to your new namespace.
+#### Use the namespace in your components:
+
+```tsx title="apps/web/app/home/[account]/projects/page.tsx"
+import { Trans } from '@kit/ui/trans';
+
+function ProjectsPage() {
+  return (
+    <div>
+      <h1>
+        <Trans i18nKey="projects:title" />
+      </h1>
+
+      <button>
+        <Trans i18nKey="projects:createProject" />
+      </button>
+    </div>
+  );
+}
+```
+
+### Namespace Best Practices
+
+**Keep namespaces focused**: Each namespace should cover a single feature or domain.
+
+```
+Good:
+- projects.json (project management)
+- invoices.json (invoicing feature)
+- notifications.json (notification system)
+
+Avoid:
+- misc.json (too vague)
+- page1.json (not semantic)
+```
+
+**Use consistent key naming**:
+
+```json
+{
+  "title": "Page title",
+  "description": "Page description",
+  "actions": {
+    "create": "Create",
+    "edit": "Edit",
+    "delete": "Delete"
+  },
+  "status": {
+    "loading": "Loading...",
+    "error": "An error occurred",
+    "success": "Success!"
+  }
+}
+```
+
+**Avoid duplicating common strings**: Use the `common` namespace for shared strings like "Cancel", "Save", "Loading".
+
+## 4. Translate Email Templates
+
+Email templates have their own translation system in `packages/email-templates/src/locales/`.
+
+### Email Translation Structure
+
+```
+packages/email-templates/src/locales/
+└── en/
+    ├── account-delete-email.json
+    ├── invite-email.json
+    └── otp-email.json
+```
+
+### Add Email Translations for a New Language
+
+#### Create the language folder:
+
+```bash
+mkdir packages/email-templates/src/locales/es
+```
+
+#### Copy and translate the email files:
+
+```bash
+cp packages/email-templates/src/locales/en/*.json packages/email-templates/src/locales/es/
+```
+
+#### Translate the content:
+
+```json title="packages/email-templates/src/locales/es/invite-email.json"
+{
+  "subject": "Has sido invitado a unirte a un equipo",
+  "heading": "Unete a {{teamName}} en {{productName}}",
+  "hello": "Hola {{invitedUserEmail}},",
+  "mainText": "<strong>{{inviter}}</strong> te ha invitado al equipo <strong>{{teamName}}</strong> en <strong>{{productName}}</strong>.",
+  "joinTeam": "Unirse a {{teamName}}",
+  "copyPasteLink": "o copia y pega esta URL en tu navegador:",
+  "invitationIntendedFor": "Esta invitacion es para {{invitedUserEmail}}."
+}
+```
+
+Email templates support interpolation with `{{variable}}` syntax and basic HTML tags.
+
+## Organizing Large Translation Files
+
+For applications with many translations, consider splitting by feature:
+
+```
+apps/web/public/locales/en/
+├── common.json           # 50-100 keys max
+├── auth.json
+├── account.json
+├── billing/
+│   ├── subscriptions.json
+│   ├── invoices.json
+│   └── checkout.json
+└── features/
+    ├── projects.json
+    ├── analytics.json
+    └── integrations.json
+```
+
+Update your namespace registration accordingly:
+
+```tsx
+export const defaultI18nNamespaces = [
+  'common',
+  'auth',
+  'account',
+  'billing/subscriptions',
+  'billing/invoices',
+  'features/projects',
+];
+```
+
+## Translation Workflow Tips
+
+### Use Placeholders During Development
+
+When adding new features, start with English placeholders:
+
+```json
+{
+  "newFeature": "[TODO] New feature title",
+  "newFeatureDescription": "[TODO] Description of the new feature"
+}
+```
+
+This makes untranslated strings visible and searchable.
+
+### Maintain Translation Parity
+
+Keep all language files in sync. When adding a key to one language, add it to all:
+
+```bash
+# Check for missing keys (example script)
+diff <(jq -r 'keys[]' locales/en/common.json | sort) \
+     <(jq -r 'keys[]' locales/es/common.json | sort)
+```
+
+### Consider Translation Services
+
+For production applications, integrate with translation services:
+
+- [Crowdin](https://crowdin.com/)
+- [Lokalise](https://lokalise.com/)
+- [Phrase](https://phrase.com/)
+
+These services can:
+- Sync with your JSON files via CLI or CI/CD
+- Provide translator interfaces
+- Handle pluralization rules per language
+- Track translation coverage
+
+## RTL Language Support
+
+For right-to-left languages like Arabic (`ar`) or Hebrew (`he`):
+
+1. Add the language as normal to `i18n.settings.ts`
+2. Create a client component to detect the current language and set the `dir` attribute:
+
+```tsx title="apps/web/components/rtl-provider.tsx"
+'use client';
+
+import { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
+
+const rtlLanguages = ['ar', 'he', 'fa', 'ur'];
+
+export function RtlProvider({ children }: { children: React.ReactNode }) {
+  const { i18n } = useTranslation();
+
+  useEffect(() => {
+    const isRtl = rtlLanguages.includes(i18n.language);
+    document.documentElement.dir = isRtl ? 'rtl' : 'ltr';
+    document.documentElement.lang = i18n.language;
+  }, [i18n.language]);
+
+  return children;
+}
+```
+
+3. Wrap your app with the provider in `RootProviders`:
+
+```tsx title="apps/web/components/root-providers.tsx"
+import { RtlProvider } from './rtl-provider';
+
+export function RootProviders({ children }: { children: React.ReactNode }) {
+  return (
+    <I18nProvider settings={i18nSettings} resolver={i18nResolver}>
+      <RtlProvider>
+        {children}
+      </RtlProvider>
+    </I18nProvider>
+  );
+}
+```
+
+4. Use Tailwind's RTL utilities (`rtl:` prefix) for layout adjustments:
+
+```tsx
+<div className="ml-4 rtl:ml-0 rtl:mr-4">
+  {/* Content flows correctly in both directions */}
+</div>
+```
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "How do I verify my translations are working?", "answer": "Set the lang cookie in browser DevTools (Application > Cookies) to your language code, then refresh. Alternatively, use the Language Selector component in account settings if you have multiple languages configured."},
+     {"question": "Do I need to translate every single key?", "answer": "No. Missing translations fall back to the default language (usually English). During development, you can translate incrementally. For production, ensure all user-facing strings are translated."},
+     {"question": "Can I use nested folders for namespaces?", "answer": "Yes. Create subfolders like billing/subscriptions.json and register them as 'billing/subscriptions' in defaultI18nNamespaces. The resolver will load from the nested path."},
+     {"question": "How do I handle pluralization in different languages?", "answer": "i18next handles pluralization automatically. Define _one, _other, _few, _many suffixes as needed. For example, Russian needs different rules than English. Check i18next pluralization docs for language-specific rules."},
+     {"question": "Should translation files be committed to git?", "answer": "Yes, translation JSON files should be version controlled. If using a translation management service, configure it to sync with your repository via pull requests."}
+   ]
+/%}
+
+## Related Documentation
+
+- [Using Translations](/docs/next-supabase-turbo/translations/using-translations) - Use translations in your components
+- [Language Selector](/docs/next-supabase-turbo/translations/language-selector) - Add a language switcher
+- [Email Translations](/docs/next-supabase-turbo/translations/email-translations) - Translate email templates

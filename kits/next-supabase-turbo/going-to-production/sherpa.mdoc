@@ -2,70 +2,222 @@
 status: "published"
 title: "Deploy Next.js Supabase to sherpa.sh"
 label: "Deploy to sherpa.sh"
-order: 6
-description: "This guide will help you deploy the Next.js SaaS boilerplate to sherpa.sh - a high performance, cost-effective platform for deploying Next.js applications."
+order: 7
+description: "Deploy your MakerKit Next.js Supabase application to sherpa.sh, a cost-effective platform for Next.js applications with responsive support."
 ---
 
-Sherpa.sh is a cost-effective platform for dev teams who hate wasting time on infrastructure. 
+Deploy your MakerKit Next.js 16 application to sherpa.sh, a bootstrapped hosting platform built specifically for Next.js. sherpa.sh offers competitive pricing, responsive founder support, and direct integration with the MakerKit community.
 
-Deploying your Next.js app to sherpa.sh is easy, and you can deploy the Next.js SaaS boilerplate to sherpa.sh by following these steps:
-
-{% alert type="success" %}
-Sherpa.sh is a bootstrapped startup. If you need help, the founder of sherpa.sh is in our discord server as user `@Zach @ sherpa.sh`.  You can message him directly there for assistance.
+{% alert type="success" title="Direct support available" %}
+sherpa.sh is a bootstrapped startup with responsive support. The founder `@Zach @ sherpa.sh` is available in the [MakerKit Discord](https://discord.gg/makerkit) for direct assistance.
 {% /alert %}
 
-# Video Tutorial
+## Video Tutorial
 
-Below you will find a video tutorial that will guide you through the process of deploying the Next.js SaaS boilerplate to sherpa.sh. You can also skip ahead and follow the written steps below.
+Watch the step-by-step deployment process:
 
 {% youtube id="6K5JzPD8wKU" /%}
 
-# Getting Started
+---
 
-## Import Project
+## Prerequisites
 
-1. Go to [sherpa.sh](https://www.sherpa.sh) and create a new account.
-2. Link the github account/organization that contains your Makerkit project repo.
+Before deploying:
 
-## Configure Build Settings
+1. [Set up your Supabase project](/docs/next-supabase-turbo/going-to-production/supabase)
+2. [Generate environment variables](/docs/next-supabase-turbo/going-to-production/production-environment-variables)
+3. Push your code to GitHub
 
-Configure your build settings for Makerkit.  
+---
 
-{% alert type="info" %}
-Be sure to enter the project settings exactly. They are crucial for the project to deploy correctly.
+## Step 1: Create sherpa.sh Account
+
+1. Go to [sherpa.sh](https://www.sherpa.sh)
+2. Create a new account
+3. Link your GitHub account or organization containing your MakerKit repository
+
+---
+
+## Step 2: Import Project
+
+1. Click **New Project**
+2. Select your MakerKit repository from the list
+3. Proceed to build configuration
+
+---
+
+## Step 3: Configure Build Settings
+
+Configure your build settings exactly as shown:
+
+{% img src="/assets/images/docs/sherpa-build-settings.webp" width="1744" height="854" /%}
+
+### Required Settings
+
+| Setting | Value |
+|---------|-------|
+| Framework Preset | Next.js |
+| Install Command | `pnpm install` |
+| Build Command | `pnpm run build` |
+| Output Directory | `apps/web` |
+| Root Directory | `apps/web` |
+
+{% alert type="warning" title="Exact settings required" %}
+These settings must be configured exactly as shown. MakerKit uses a monorepo structure that requires pointing to the `apps/web` directory.
 {% /alert %}
 
-{% img src="/assets/images/docs/sherpa-build-settings.webp" width="1744"
-height="854" /%}
+**Video reference**: [Build settings configuration](https://youtu.be/6K5JzPD8wKU?feature=shared&t=71)
 
-As you can see in the image, please make sure to:
-1. use Next.js as the framework preset
-2. use pnpm for the install and build commands
-3. point the outpur directory to the `apps/web` folder
-4. point the root directory to the `apps/web` folder
+---
 
-Video tutorial: [Build settings](https://youtu.be/6K5JzPD8wKU?feature=shared&t=71)
+## Step 4: Set Environment Variables
 
-## Environment Variables
+Add your production environment variables in the sherpa.sh project settings.
 
-Please make sure to set all the environment variables required for the project to work correctly.
+Generate your variables using:
 
-To generate the environment variables, please follow the steps in the [Environment Variables](https://makerkit.dev/docs/next-supabase-turbo/going-to-production/production-environment-variables) guide.
+```bash
+pnpm turbo gen env
+```
 
-A production deployment should be setting the below environment variables. Failure to set the environment variables will result in the project not working correctly.
+Copy the contents of `turbo/generators/templates/env/.env.local` to sherpa.sh.
 
-If the build fails, deep dive into the logs to see what is the issue. Our Zod configuration will validate and report any missing environment variables. To find out which environment variables are missing, please check the logs.
+### Required Variables
 
-Video tutorial: [Environment Variables](https://youtu.be/6K5JzPD8wKU?feature=shared&t=126)
+```bash
+# Application
+NEXT_PUBLIC_SITE_URL=https://yourdomain.com
+NEXT_PUBLIC_PRODUCT_NAME=Your App Name
 
-## I have more apps - how do I deploy them?
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLIC_KEY=eyJ...
+SUPABASE_SECRET_KEY=eyJ...
 
-If you have multiple apps, customize the build command to point to the app being deployed.
+# Billing
+NEXT_PUBLIC_BILLING_PROVIDER=stripe
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
 
-Where `app/web` is set in the output directory and root directory, change that to the path of the app you want to deploy.
+# Email
+MAILER_PROVIDER=resend
+RESEND_API_KEY=re_...
 
-# Getting Help & Requesting Features
+# Webhooks
+SUPABASE_DB_WEBHOOK_SECRET=your-secret
+```
 
-Sherpa.sh is a bootstrapped startup with a responsive team.  The founder of Sherpa.sh is in our discord server as user `@Zach @ sherpa.sh`.  You can message him directly with feature requests, any questions, or issues.
+For the complete list, see [Environment Variables](/docs/next-supabase-turbo/going-to-production/production-environment-variables).
 
-Otherwise, you can find the sherpa.sh documentation [here](https://sherpa-sh.gitbook.io/sherpa.sh-docs).
+{% alert type="default" title="Build validation" %}
+MakerKit validates environment variables at build time using Zod. Missing variables will cause the build to fail with specific error messages indicating which variables are missing.
+{% /alert %}
+
+**Video reference**: [Environment Variables](https://youtu.be/6K5JzPD8wKU?feature=shared&t=126)
+
+---
+
+## Step 5: Deploy
+
+Click **Deploy** to start the build process. sherpa.sh will:
+
+1. Clone your repository
+2. Install dependencies with pnpm
+3. Build the Next.js application
+4. Deploy to their infrastructure
+
+### First Deployment
+
+Your first deployment may fail if:
+
+- `NEXT_PUBLIC_SITE_URL` is set to a custom domain you haven't configured yet
+- Environment variables are missing
+
+This is normal. After getting your sherpa.sh URL, update the environment variables and redeploy.
+
+---
+
+## Post-Deployment Setup
+
+After successful deployment:
+
+### Update Supabase URLs
+
+In Supabase Dashboard (**Authentication > URL Configuration**):
+
+| Field | Value |
+|-------|-------|
+| Site URL | Your sherpa.sh URL or custom domain |
+| Redirect URLs | `https://yourdomain.com/auth/callback**` |
+
+### Configure Webhooks
+
+Point your webhooks to your sherpa.sh deployment:
+
+- **Supabase DB webhook**: `https://yourdomain.com/api/db/webhook`
+- **Stripe webhook**: `https://yourdomain.com/api/billing/webhook`
+
+---
+
+## Multiple Apps
+
+If you have multiple apps in your monorepo:
+
+1. Change the **Output Directory** to your app's path (e.g., `apps/admin`)
+2. Change the **Root Directory** to match (e.g., `apps/admin`)
+3. Create separate sherpa.sh projects for each app
+
+---
+
+## Custom Domain
+
+To add a custom domain:
+
+1. Go to your sherpa.sh project settings
+2. Add your domain
+3. Configure DNS records as instructed
+4. Update `NEXT_PUBLIC_SITE_URL` to your custom domain
+5. Update Supabase Site URL and Redirect URLs
+
+---
+
+## Troubleshooting
+
+### Build fails with missing variables
+
+Check the build logs for specific error messages. MakerKit's Zod validation will tell you exactly which variables are missing.
+
+### pnpm not found
+
+Ensure the Install Command is set to `pnpm install` (not `npm install`).
+
+### Build output not found
+
+Verify:
+- Output Directory is set to `apps/web`
+- Root Directory is set to `apps/web`
+- Build Command is `pnpm run build`
+
+### Environment variables not working
+
+1. Verify variables are saved in sherpa.sh settings
+2. Check for typos in variable names
+3. Redeploy after adding variables
+
+---
+
+## Getting Help
+
+sherpa.sh offers responsive support:
+
+1. **Discord**: Contact `@Zach @ sherpa.sh` in the [MakerKit Discord](https://discord.gg/makerkit)
+2. **Documentation**: [sherpa.sh docs](https://sherpa-sh.gitbook.io/sherpa.sh-docs)
+3. **Feature requests**: Reach out directly via Discord
+
+---
+
+## Next Steps
+
+- [Environment Variables](/docs/next-supabase-turbo/going-to-production/production-environment-variables): Complete variable reference with Zod validation
+- [Supabase Configuration](/docs/next-supabase-turbo/going-to-production/supabase): Database, RLS, and webhook setup
+- [Deployment Checklist](/docs/next-supabase-turbo/going-to-production/checklist): Full production deployment checklist

@@ -1,0 +1,481 @@
+---
+status: "published"
+title: "Customizing Branding in Makerkit Next.js Prisma"
+label: "Branding"
+order: 2
+description: "Customize your SaaS application's visual identity. Update the logo, favicon, color theme, fonts, and metadata to transform Makerkit into TeamPulse."
+---
+
+This is the [Prisma SaaS Starter Kit course](./course). Start with the [Architecture & Technologies](./architecture-and-technologies) module to get the fundamentals in place.
+
+---
+
+This module covers replacing Makerkit's default branding with TeamPulse's visual identity - logo, colors, fonts, and metadata. These changes appear throughout the application: marketing site, authentication pages, dashboard sidebar, and browser tabs.
+
+**What you'll accomplish:**
+- Replace the default logo with TeamPulse branding
+- Generate and configure favicons
+- Customize the Shadcn UI color theme
+- Configure fonts for your brand
+- Update site metadata (title, description)
+
+---
+
+## Step 1: Update the Logo
+
+The logo appears across your entire application - site header, footer, authentication pages, and the dashboard sidebar. Makerkit centralizes logo rendering in a single component, so you only need to update one file.
+
+The default logo is an SVG image. You have several options for replacing it:
+
+### Option A: Replace with an SVG image
+
+For crisp rendering at any size, use an inline SVG. Replace the `LogoImage` function with your own SVG:
+
+```typescript {% title="apps/web/components/app-logo.tsx" %}
+function LogoImage({
+  className,
+  width = 105,
+}: {
+  className?: string;
+  width?: number;
+}) {
+  return (
+    <svg
+      width={width}
+      className={className ?? 'w-[75px] sm:w-[95px]'}
+      viewBox="0 0 200 40"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      {/* Your SVG paths here */}
+      <text
+        x="0"
+        y="30"
+        className="fill-primary font-bold text-2xl"
+      >
+        TeamPulse
+      </text>
+    </svg>
+  );
+}
+```
+
+### Option B: Use an Image File
+
+For logos in PNG, JPG, or external SVG format, use Next.js Image component:
+
+```typescript {% title="apps/web/components/app-logo.tsx" %}
+import Image from 'next/image';
+
+function LogoImage({
+  className,
+  width = 105,
+}: {
+  className?: string;
+  width?: number;
+}) {
+  return (
+    <Image
+      src="/images/logo.png"
+      alt="TeamPulse"
+      width={width}
+      height={32}
+      className={className}
+      priority
+    />
+  );
+}
+```
+
+Place your logo image in `apps/web/public/images/`.
+
+### Option C: Text-Based Logo
+
+For a simple text logo, you can use styled text:
+
+```typescript {% title="apps/web/components/app-logo.tsx" %}
+import { cn } from '@kit/ui/utils';
+
+function LogoImage({
+  className,
+}: {
+  className?: string;
+}) {
+  return (
+    <span className={cn('text-xl font-bold text-primary', className)}>
+      TeamPulse
+    </span>
+  );
+}
+```
+
+**Verify your changes:** After updating the logo, check these locations:
+- Marketing site header (`/`)
+- Marketing site footer
+- Authentication pages (`/auth/sign-in`)
+- Dashboard sidebar (after signing in)
+
+### Example: TeamPulse Logo
+
+```tsx {% title="apps/web/components/app-logo-image.tsx" %}
+import { cn } from '@kit/ui/utils';
+
+export function LogoImage({
+  className,
+  width = 105,
+}: {
+  className?: string;
+  width?: number;
+}) {
+  return (
+    <svg
+      width={width}
+      className={cn(`w-20 lg:w-[95px]`, className)}
+      viewBox="0 0 911 182"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M33.1202 52.785V137.655H15.5252V52.785H0.00021543V34.155H15.5252V2.48551e-05H33.1202V34.155H48.6452V52.785H33.1202ZM78.8996 93.771C78.8996 97.083 80.0726 100.533 82.4186 104.121C84.9026 107.709 87.7316 110.745 90.9056 113.229C96.7016 117.783 103.464 120.06 111.192 120.06C123.474 120.06 133.479 114.126 141.207 102.258L156.939 111.573C151.557 120.267 144.933 126.96 137.067 131.652C129.201 136.344 120.576 138.69 111.192 138.69C104.154 138.69 97.4606 137.379 91.1126 134.757C84.7646 131.997 79.1756 128.202 74.3456 123.372C69.5156 118.542 65.7206 112.953 62.9606 106.605C60.3386 100.257 59.0276 93.564 59.0276 86.526C59.0276 79.488 60.3386 72.795 62.9606 66.447C65.7206 59.961 69.5156 54.303 74.3456 49.473C79.0376 44.643 84.5576 40.917 90.9056 38.295C97.3916 35.673 104.154 34.362 111.192 34.362C118.23 34.362 124.923 35.673 131.271 38.295C137.757 40.917 143.346 44.643 148.038 49.473C158.25 59.961 163.356 72.105 163.356 85.905C163.356 88.389 163.149 91.011 162.735 93.771H78.8996ZM111.192 51.336C105.534 51.336 100.221 52.578 95.2526 55.062C90.2846 57.546 86.2826 60.858 83.2466 64.998C80.3486 69 78.8996 73.278 78.8996 77.832H143.484C143.484 73.278 141.966 69 138.93 64.998C136.032 60.858 132.099 57.546 127.131 55.062C122.163 52.578 116.85 51.336 111.192 51.336ZM263.796 137.655V121.923C259.38 127.029 254.274 131.1 248.478 134.136C242.682 137.172 236.541 138.69 230.055 138.69C222.879 138.69 216.117 137.379 209.769 134.757C203.559 132.135 198.039 128.409 193.209 123.579C188.379 118.887 184.584 113.367 181.824 107.019C179.202 100.533 177.891 93.771 177.891 86.733C177.891 79.695 179.202 73.002 181.824 66.654C184.584 60.168 188.379 54.51 193.209 49.68C198.039 44.85 203.559 41.124 209.769 38.502C216.117 35.88 222.879 34.569 230.055 34.569C236.679 34.569 242.889 35.949 248.685 38.709C254.619 41.469 259.656 45.333 263.796 50.301V36.639H282.426V137.655H263.796ZM230.055 52.992C225.501 52.992 221.085 53.889 216.807 55.683C212.667 57.339 209.079 59.685 206.043 62.721C203.007 65.757 200.592 69.414 198.798 73.692C197.142 77.832 196.314 82.179 196.314 86.733C196.314 91.287 197.142 95.634 198.798 99.774C200.592 103.914 203.007 107.502 206.043 110.538C209.079 113.574 212.667 115.989 216.807 117.783C221.085 119.439 225.501 120.267 230.055 120.267C234.609 120.267 238.956 119.439 243.096 117.783C247.236 115.989 250.824 113.574 253.86 110.538C256.896 107.502 259.242 103.914 260.898 99.774C262.692 95.634 263.589 91.287 263.589 86.733C263.589 82.179 262.692 77.832 260.898 73.692C259.242 69.414 256.896 65.757 253.86 62.721C250.824 59.685 247.236 57.339 243.096 55.683C238.956 53.889 234.609 52.992 230.055 52.992ZM422.094 137.655V72.864C422.094 67.206 420.093 62.445 416.091 58.581C412.227 54.717 407.466 52.785 401.808 52.785C396.288 52.785 391.458 54.717 387.318 58.581C383.316 62.307 381.315 66.999 381.315 72.657V137.655H362.478V72.657C362.478 66.861 360.546 62.169 356.682 58.581C352.542 54.717 347.643 52.785 341.985 52.785C336.465 52.785 331.773 54.717 327.909 58.581C323.769 62.721 321.699 67.62 321.699 73.278V137.655H303.069V36.639H321.699V44.298C324.045 41.4 327.081 38.985 330.807 37.053C334.671 35.121 338.397 34.155 341.985 34.155C348.057 34.155 353.577 35.397 358.545 37.881C363.651 40.227 368.067 43.539 371.793 47.817C375.519 43.539 379.935 40.227 385.041 37.881C390.147 35.397 395.736 34.155 401.808 34.155C407.19 34.155 412.227 35.121 416.919 37.053C421.611 38.985 425.751 41.745 429.339 45.333C432.927 48.921 435.687 53.13 437.619 57.96C439.689 62.652 440.724 67.62 440.724 72.864V137.655H422.094Z"
+        className="fill-[#525252] dark:fill-white"
+      />
+      <path
+        d="M513.722 139.518C505.856 139.518 499.301 138.276 494.057 135.792C488.813 133.17 484.052 129.099 479.774 123.579V181.746H461.351V36.639H479.774V51.129C484.052 45.885 489.158 41.676 495.092 38.502C501.026 35.328 507.236 33.741 513.722 33.741C520.76 33.741 527.453 35.121 533.801 37.881C540.287 40.503 545.876 44.298 550.568 49.266C555.398 54.234 559.124 59.961 561.746 66.447C564.506 72.795 565.886 79.557 565.886 86.733C565.886 93.909 564.506 100.671 561.746 107.019C559.124 113.367 555.398 119.025 550.568 123.993C545.876 128.823 540.287 132.618 533.801 135.378C527.453 138.138 520.76 139.518 513.722 139.518ZM513.722 52.578C509.168 52.578 504.821 53.475 500.681 55.269C496.541 56.925 492.953 59.34 489.917 62.514C486.881 65.688 484.466 69.414 482.672 73.692C480.878 77.832 479.981 82.179 479.981 86.733C479.981 91.287 480.878 95.634 482.672 99.774C484.466 103.914 486.881 107.571 489.917 110.745C492.953 113.919 496.541 116.403 500.681 118.197C504.821 119.991 509.168 120.888 513.722 120.888C518.276 120.888 522.623 119.991 526.763 118.197C530.903 116.403 534.491 113.919 537.527 110.745C540.563 107.571 542.909 103.914 544.565 99.774C546.359 95.634 547.256 91.287 547.256 86.733C547.256 82.179 546.359 77.832 544.565 73.692C542.909 69.414 540.563 65.688 537.527 62.514C534.491 59.34 530.903 56.925 526.763 55.269C522.623 53.475 518.276 52.578 513.722 52.578ZM646.56 137.034V128.34C643.8 131.238 640.281 133.653 636.003 135.585C631.863 137.517 627.723 138.483 623.583 138.483C618.063 138.483 612.75 137.448 607.644 135.378C602.676 133.17 598.26 130.134 594.396 126.27C590.67 122.406 587.703 117.99 585.495 113.022C583.425 107.916 582.39 102.534 582.39 96.876V34.155H600.606V96.876C600.606 103.224 602.883 108.675 607.437 113.229C611.991 117.783 617.373 120.06 623.583 120.06C626.481 120.06 629.379 119.439 632.277 118.197C635.175 116.955 637.659 115.299 639.729 113.229C644.283 108.675 646.56 103.224 646.56 96.876V34.155H664.569V137.034H646.56ZM685.332 137.655V2.48551e-05H701.892V137.655H685.332ZM774.691 64.998C774.277 62.514 773.38 60.168 772 57.96C769.378 53.406 764.203 51.129 756.475 51.129C752.335 51.129 749.161 51.612 746.953 52.578C744.055 53.682 741.847 55.269 740.329 57.339C738.949 59.409 738.259 61.686 738.259 64.17C738.259 67.206 739.363 69.966 741.571 72.45C743.917 75.072 747.712 76.452 752.956 76.59C762.202 77.004 769.654 78.108 775.312 79.902C781.108 81.696 785.524 84.801 788.56 89.217C791.734 93.633 793.321 99.843 793.321 107.847C793.321 115.989 790.216 123.027 784.006 128.961C780.97 131.859 777.382 134.205 773.242 135.999C769.24 137.793 765.031 138.69 760.615 138.69H757.51C746.47 138.69 737.569 135.516 730.807 129.168C725.287 124.062 721.837 116.886 720.457 107.64H738.88C739.57 110.952 740.95 113.643 743.02 115.713C746.194 118.749 750.61 120.267 756.268 120.267C757.786 120.267 758.89 120.198 759.58 120.06C764.41 119.784 768.205 118.473 770.965 116.127C773.725 113.643 775.105 110.607 775.105 107.019C775.105 102.051 773.587 98.808 770.551 97.29C767.515 95.772 761.65 95.013 752.956 95.013C742.054 95.013 733.705 91.563 727.909 84.663C723.217 79.419 720.871 72.795 720.871 64.791C720.871 62.997 720.94 61.617 721.078 60.651C722.182 51.681 725.839 44.85 732.049 40.158C738.397 35.328 746.746 32.913 757.096 32.913C764.686 32.913 771.31 34.569 776.968 37.881C780.97 40.365 784.42 43.815 787.318 48.231C790.078 52.647 791.872 58.167 792.7 64.791L792.286 64.998H774.691ZM825.636 93.771C825.636 97.083 826.809 100.533 829.155 104.121C831.639 107.709 834.468 110.745 837.642 113.229C843.438 117.783 850.2 120.06 857.928 120.06C870.21 120.06 880.215 114.126 887.943 102.258L903.675 111.573C898.293 120.267 891.669 126.96 883.803 131.652C875.937 136.344 867.312 138.69 857.928 138.69C850.89 138.69 844.197 137.379 837.849 134.757C831.501 131.997 825.912 128.202 821.082 123.372C816.252 118.542 812.457 112.953 809.697 106.605C807.075 100.257 805.764 93.564 805.764 86.526C805.764 79.488 807.075 72.795 809.697 66.447C812.457 59.961 816.252 54.303 821.082 49.473C825.774 44.643 831.294 40.917 837.642 38.295C844.128 35.673 850.89 34.362 857.928 34.362C864.966 34.362 871.659 35.673 878.007 38.295C884.493 40.917 890.082 44.643 894.774 49.473C904.986 59.961 910.092 72.105 910.092 85.905C910.092 88.389 909.885 91.011 909.471 93.771H825.636ZM857.928 51.336C852.27 51.336 846.957 52.578 841.989 55.062C837.021 57.546 833.019 60.858 829.983 64.998C827.085 69 825.636 73.278 825.636 77.832H890.22C890.22 73.278 888.702 69 885.666 64.998C882.768 60.858 878.835 57.546 873.867 55.062C868.899 52.578 863.586 51.336 857.928 51.336Z"
+        fill="url(#paint0_linear_2808_2)"
+      />
+      <defs>
+        <linearGradient
+          id="paint0_linear_2808_2"
+          x1="481.544"
+          y1="-47.845"
+          x2="479.044"
+          y2="214.155"
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop stopColor="#8E79DE" />
+        </linearGradient>
+      </defs>
+    </svg>
+  );
+}
+```
+
+---
+
+## Step 2: Generate and Configure Favicons
+
+Favicons appear in browser tabs, bookmarks, and mobile home screens. A complete favicon set includes multiple sizes for different devices and contexts.
+
+### Generate Your Favicon Set
+
+1. Start with a square logo image (at least 512x512 pixels)
+2. Use a favicon generator like [Favicon.io](https://favicon.io/) or [RealFaviconGenerator](https://realfavicongenerator.net/)
+3. Download the generated files
+
+### Replace Default Favicons
+
+Makerkit stores favicons in `apps/web/public/images/favicon/`. Replace these files with your generated ones:
+
+```
+public/images/favicon/
+├── favicon.ico          # Classic favicon (16x16, 32x32)
+├── favicon-16x16.png    # Small favicon
+├── favicon-32x32.png    # Standard favicon
+├── apple-touch-icon.png # iOS home screen (180x180)
+├── android-chrome-192x192.png
+├── android-chrome-512x512.png
+└── site.webmanifest     # PWA manifest
+```
+
+### Update the Web Manifest
+
+If your generator created a `site.webmanifest` file, update it with TeamPulse details:
+
+```json
+{
+  "name": "TeamPulse",
+  "short_name": "TeamPulse",
+  "icons": [
+    {
+      "src": "/images/favicon/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/images/favicon/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "theme_color": "#4F46E5",
+  "background_color": "#ffffff",
+  "display": "standalone"
+}
+```
+
+Update `theme_color` and `background_color` to match your brand.
+
+---
+
+## Step 3: Customize the Color Theme
+
+Makerkit uses [Shadcn UI](https://ui.shadcn.com/) for components, which defines colors through CSS custom properties. Changing these values transforms the application's look.
+
+### Understanding the Theme Structure
+
+Theme colors are defined in `apps/web/styles/theme.css`. The file contains two sections: `:root` for light mode and `.dark` for dark mode. Key color variables include:
+
+| Variable | Purpose |
+|----------|---------|
+| `--primary` | Buttons, links, active states |
+| `--secondary` | Secondary buttons, less prominent UI |
+| `--accent` | Hover states, highlights |
+| `--background` | Page background |
+| `--foreground` | Primary text color |
+| `--muted` | Subtle backgrounds |
+| `--destructive` | Delete buttons, error states |
+
+### Apply a New Theme
+
+The easiest way to customize colors is to use Shadcn UI's theme generator:
+
+1. Visit [ui.shadcn.com/themes](https://ui.shadcn.com/themes)
+2. Choose a base color that matches TeamPulse's brand
+3. Click "Copy" to copy the CSS variables
+4. Paste into `apps/web/styles/theme.css`
+
+### Example: TeamPulse Violet Theme
+
+Here's an example theme using violet as the primary color:
+
+```css {% title="apps/web/styles/theme.css" %}
+:root {
+  --radius: 0.65rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.141 0.005 285.823);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.141 0.005 285.823);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.141 0.005 285.823);
+  --primary: oklch(0.541 0.281 293.009);
+  --primary-foreground: oklch(0.969 0.016 293.756);
+  --secondary: oklch(0.967 0.001 286.375);
+  --secondary-foreground: oklch(0.21 0.006 285.885);
+  --muted: oklch(0.967 0.001 286.375);
+  --muted-foreground: oklch(0.552 0.016 285.938);
+  --accent: oklch(0.967 0.001 286.375);
+  --accent-foreground: oklch(0.21 0.006 285.885);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.92 0.004 286.32);
+  --input: oklch(0.92 0.004 286.32);
+  --ring: oklch(0.702 0.183 293.541);
+  --chart-1: oklch(0.811 0.111 293.571);
+  --chart-2: oklch(0.606 0.25 292.717);
+  --chart-3: oklch(0.541 0.281 293.009);
+  --chart-4: oklch(0.491 0.27 292.581);
+  --chart-5: oklch(0.432 0.232 292.759);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.141 0.005 285.823);
+  --sidebar-primary: oklch(0.541 0.281 293.009);
+  --sidebar-primary-foreground: oklch(0.969 0.016 293.756);
+  --sidebar-accent: oklch(0.967 0.001 286.375);
+  --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
+  --sidebar-border: oklch(0.92 0.004 286.32);
+  --sidebar-ring: oklch(0.702 0.183 293.541);
+}
+
+.dark {
+  --background: oklch(0.141 0.005 285.823);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.21 0.006 285.885);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.21 0.006 285.885);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.606 0.25 292.717);
+  --primary-foreground: oklch(0.969 0.016 293.756);
+  --secondary: oklch(0.274 0.006 286.033);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.274 0.006 286.033);
+  --muted-foreground: oklch(0.705 0.015 286.067);
+  --accent: oklch(0.274 0.006 286.033);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.38 0.189 293.745);
+  --chart-1: oklch(0.811 0.111 293.571);
+  --chart-2: oklch(0.606 0.25 292.717);
+  --chart-3: oklch(0.541 0.281 293.009);
+  --chart-4: oklch(0.491 0.27 292.581);
+  --chart-5: oklch(0.432 0.232 292.759);
+  --sidebar: oklch(0.21 0.006 285.885);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.606 0.25 292.717);
+  --sidebar-primary-foreground: oklch(0.969 0.016 293.756);
+  --sidebar-accent: oklch(0.274 0.006 286.033);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.38 0.189 293.745);
+}
+```
+
+Toggle between light and dark mode to verify your theme looks correct in both.
+
+---
+
+## Step 4: Configure Fonts
+
+Makerkit uses Inter as the default sans-serif font, with Apple's system font taking precedence on Apple devices.
+
+### Understanding the Font System
+
+Fonts are configured in `apps/web/lib/fonts.ts`. The file defines two font variables:
+- `sans`  -  Body text and UI elements
+- `heading`  -  Headings (by default, same as `sans`)
+
+### Change the Font
+
+To use a different Google Font, update the import and configuration:
+
+```typescript {% title="apps/web/lib/fonts.ts" %}
+// Example: Using Poppins instead of Inter
+import { Poppins as SansFont } from 'next/font/google';
+
+const sans = SansFont({
+  subsets: ['latin'],
+  variable: '--font-sans-fallback',
+  fallback: ['system-ui', 'Helvetica Neue', 'Helvetica', 'Arial'],
+  preload: true,
+  weight: ['300', '400', '500', '600', '700'],
+});
+
+const heading = sans;
+
+export { sans, heading };
+
+export function getFontsClassName() {
+  const font = [sans.variable, heading.variable].reduce<string[]>(
+    (acc, curr) => {
+      if (acc.includes(curr)) return acc;
+      return [...acc, curr];
+    },
+    [],
+  );
+
+  return font;
+}
+```
+
+### Use Different Fonts for Headings
+
+```typescript
+import { Inter as SansFont, Outfit as HeadingFont } from 'next/font/google';
+
+const sans = SansFont({
+  subsets: ['latin'],
+  variable: '--font-sans-fallback',
+  fallback: ['system-ui', 'Helvetica Neue', 'Helvetica', 'Arial'],
+  preload: true,
+  weight: ['300', '400', '500', '600', '700'],
+});
+
+const heading = HeadingFont({
+  subsets: ['latin'],
+  variable: '--font-heading',
+  preload: true,
+  weight: ['500', '600', '700'],
+});
+```
+
+### Remove Apple System Font Override
+
+By default, Apple devices use the system font instead of your custom font. To use your chosen font everywhere, update `apps/web/styles/shadcn-ui.css`:
+
+```css
+@theme inline {
+  /* Remove -apple-system, BlinkMacSystemFont to use custom font on all devices */
+  --font-sans: var(--font-sans-fallback);
+  --font-heading: var(--font-heading, var(--font-sans));
+  /* ... rest of variables */
+}
+```
+
+---
+
+## Step 5: Update Site Metadata
+
+Site metadata appears in browser tabs, search results, and social media shares.
+
+### Update the Product Name
+
+The product name appears throughout the application, including emails. Update `NEXT_PUBLIC_PRODUCT_NAME` in `apps/web/.env`:
+
+```bash {% title="apps/web/.env" %}
+NEXT_PUBLIC_PRODUCT_NAME=TeamPulse
+```
+
+### Update the Site Title and Description
+
+These values populate the `<title>` and `<meta name="description" />` tags. Update them in `apps/web/i18n/messages/en/marketing.json`:
+
+```json {% title="apps/web/i18n/messages/en/marketing.json" %}
+{
+  "site": {
+    "title": "Teampulse - A feedback board tool for your team",
+    "description": "TeamPulse is a feedback board tool for your team. It allows your team to submit feedback and vote on feedback items."
+  }
+}
+```
+
+{% img src="/assets/courses/next-drizzle/teampulse-landing-page.webp" alt="TeamPulse Landing Page" width="1000" height="1000" /%}
+
+---
+
+## Checkpoint: Verify Your Branding
+
+Verify all branding changes are working:
+
+- [ ] **Logo** appears in site header, footer, and auth pages
+- [ ] **Favicon** appears in browser tab (clear cache if needed)
+- [ ] **Colors** reflect your theme in buttons, links, and UI elements
+- [ ] **Fonts** are applied to body text and headings
+- [ ] **Site title** appears in browser tab
+- [ ] **Dark mode** looks correct with your theme
+
+**Test these locations:**
+1. Marketing homepage (`/`)
+2. Sign-in page (`/auth/sign-in`)
+3. Dashboard (after signing in)
+4. Light and dark mode toggle
+
+## Signing In
+
+When you sign in, you should see the new logo in the site header.
+
+{% img src="/assets/courses/next-drizzle/teampulse-sign-in.webp" alt="TeamPulse Sign In" width="1000" height="1000" /%}
+
+If you haven't seeded the database yet, run `pnpm seed` to create test users. Then sign in with `user1@makerkit.dev` / `testingpassword`.
+
+---
+
+## Module Complete
+
+You now have:
+- [x] Custom logo throughout the application
+- [x] Branded favicons for browser and mobile
+- [x] Customized color theme
+- [x] Configured fonts
+- [x] Updated site metadata
+
+**Next:** In [Module 3: Data Model & First Feature](./data-model-and-first-feature), you'll design the database schema and build your first feature - feedback boards with full CRUD operations.
+
+---
+
+## Learn More
+
+- [Shadcn UI Themes](https://ui.shadcn.com/themes) - Browse and generate color themes
+- [Next.js Font Optimization](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) - Font loading strategies
+- [Favicon Generator](https://favicon.io/) - Generate favicon sets from images or text
+- [Tailwind CSS Colors](https://tailwindcss.com/docs/customizing-colors) - Color palette reference
+
+Looking for a Drizzle-based kit? Check out the [Next.js Drizzle SaaS Kit](/drizzle) for a complete foundation.

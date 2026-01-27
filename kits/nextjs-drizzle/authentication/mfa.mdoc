@@ -1,0 +1,255 @@
+---
+status: "published"
+title: "Multi-Factor Authentication"
+label: "MFA"
+order: 5
+description: "TOTP-based two-factor authentication with authenticator apps. Users can enable MFA from their security settings."
+---
+
+{% sequence title="MFA Setup and Usage" description="How users enable and use MFA." %}
+
+[Enable MFA from settings](#enabling-mfa)
+
+[Scan QR code with authenticator app](#setup-process)
+
+[Enter verification code on sign in](#verification-flow)
+
+{% /sequence %}
+
+Multi-Factor Authentication (MFA) adds an extra layer of security by requiring users to enter a time-based one-time password (TOTP) from an authenticator app after signing in with their email and password.
+
+## How MFA Works
+
+MFA in the kit uses TOTP (Time-based One-Time Password), compatible with authenticator apps like:
+
+- Google Authenticator
+- Authy
+- 1Password
+- Microsoft Authenticator
+- Any TOTP-compatible app
+
+When MFA is enabled:
+
+1. User signs in with email/password
+2. Better Auth detects MFA is enabled for this user
+3. User is redirected to `/auth/verify`
+4. User enters the 6-digit code from their authenticator app
+5. If valid, session is created and user proceeds to dashboard
+
+## Enabling MFA
+
+Users enable MFA from their security settings page.
+
+**Route:** `/settings/security`
+
+{% img src="/images/docs/enable-mfa.webp" width="2388" height="1798" alt="Security settings page showing Enable MFA button" /%}
+
+### Setup Process
+
+1. User clicks "Enable MFA" button
+2. A QR code is displayed
+3. User scans the QR code with their authenticator app
+4. User enters the initial verification code to confirm setup
+5. MFA is now active on their account
+
+The QR code contains the TOTP secret and account information in a standard `otpauth://` URI format that authenticator apps recognize.
+
+### Backup Codes
+
+When MFA is enabled, users should be prompted to save backup codes. These one-time codes can be used if the user loses access to their authenticator app.
+
+## Verification Flow
+
+{% img src="/images/docs/verify-mfa.webp" width="2388" height="1798" alt="MFA verification form showing 6-digit code input" /%}
+
+**Route:** `/auth/verify`
+
+The verification page shows a simple form for entering the 6-digit code. The code changes every 30 seconds in the authenticator app.
+
+### Client-Side Redirect
+
+The auth client handles the redirect to verification automatically:
+
+```typescript {% title="packages/better-auth/src/auth-client.ts" %}
+twoFactorClient({
+  onTwoFactorRedirect() {
+    const redirect = new URLSearchParams(location.search).get('redirect');
+    window.location.href = '/auth/verify' + (redirect ? `?redirect=${redirect}` : '');
+  },
+}),
+```
+
+### Verification Component
+
+The MFA challenge is handled by `MultiFactorChallengeContainer`:
+
+```tsx {% title="packages/auth/src/components/multi-factor-challenge-container.tsx" %}
+<MultiFactorChallengeContainer
+  paths={{
+    signIn: '/auth/sign-in',
+  }}
+/>
+```
+
+## Configuration
+
+MFA is enabled through the Better Auth two-factor plugin:
+
+```typescript {% title="packages/better-auth/src/plugins/two-factor.ts" %}
+import { twoFactor } from 'better-auth/plugins/two-factor';
+
+export function createTwoFactorPlugin() {
+  return twoFactor({
+    issuer: env('NEXT_PUBLIC_PRODUCT_NAME'),  // Shows in authenticator app
+  });
+}
+```
+
+The `issuer` appears in the authenticator app alongside the account, helping users identify which service the code is for.
+
+## Programmatic MFA
+
+### Enable MFA
+
+```typescript
+'use client';
+
+import { authClient } from '@kit/better-auth/client';
+
+async function enableMFA() {
+  const result = await authClient.twoFactor.enable();
+
+  if (result.error) {
+    console.error(result.error.message);
+    return;
+  }
+
+  // result.data contains the TOTP secret and QR code URL
+  return result.data;
+}
+```
+
+### Verify MFA Code
+
+```typescript
+'use client';
+
+import { authClient } from '@kit/better-auth/client';
+
+async function verifyMFACode(code: string) {
+  const result = await authClient.twoFactor.verifyTotp({
+    code,
+  });
+
+  if (result.error) {
+    console.error(result.error.message);
+    return;
+  }
+
+  // MFA verified, session created
+  window.location.href = '/dashboard';
+}
+```
+
+### Disable MFA
+
+```typescript
+'use client';
+
+import { authClient } from '@kit/better-auth/client';
+
+async function disableMFA(code: string) {
+  const result = await authClient.twoFactor.disable({
+    code,  // Requires current TOTP code to disable
+  });
+
+  if (result.error) {
+    console.error(result.error.message);
+    return;
+  }
+
+  // MFA disabled
+}
+```
+
+## MFA and Other Auth Methods
+
+### Magic Links
+
+Magic link authentication **bypasses MFA**. If you require MFA for all users, consider disabling magic links:
+
+```bash {% title="apps/web/.env.local" %}
+NEXT_PUBLIC_AUTH_MAGIC_LINK=false
+```
+
+This is by design since the email itself serves as a second factor (possession of the email account).
+
+### Social Providers
+
+Social provider authentication **bypasses MFA**. The assumption is that social providers (Google, GitHub) have their own security measures. If you need stricter security, you may want to limit sign-in methods.
+
+### Password-Only MFA
+
+Only email/password authentication enforces MFA. This provides a balance between security and convenience:
+
+| Auth Method | MFA Required? |
+|-------------|---------------|
+| Email/Password | Yes (if enabled) |
+| Magic Link | No |
+| Google OAuth | No |
+| GitHub OAuth | No |
+
+## Security Considerations
+
+### Rate Limiting
+
+MFA verification attempts are rate-limited to prevent brute-force attacks. After several failed attempts, the user may need to wait before trying again.
+
+### Session Security
+
+When MFA verification succeeds, a new session is created. The session inherits the same security properties (HTTP-only cookies, secure flag in production).
+
+### Recovery
+
+If users lose access to their authenticator app:
+
+1. They can use backup codes (if saved)
+2. An admin can disable MFA for their account
+3. They can contact support for manual verification
+
+## Common Issues
+
+### "Invalid code" Error
+
+1. Code has expired (they change every 30 seconds)
+2. Device time is out of sync with server time
+3. Wrong account selected in authenticator app
+
+### QR Code Won't Scan
+
+1. Ensure good lighting and camera focus
+2. Try entering the secret manually in the authenticator app
+3. Check that the QR code is fully visible
+
+### MFA Locked Out
+
+If a user is locked out:
+
+1. Check for backup codes
+2. Admin can query the database and update the user's MFA status
+3. Consider implementing an account recovery flow
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Is MFA required for all users?", "answer": "No, MFA is optional. Users enable it from their security settings. You can encourage or require MFA through your onboarding flow, but the kit does not enforce it by default."},
+     {"question": "What authenticator apps are supported?", "answer": "Any TOTP-compatible authenticator app works: Google Authenticator, Authy, 1Password, Microsoft Authenticator, and many others. The kit uses the standard TOTP algorithm (RFC 6238)."},
+     {"question": "Does MFA work with magic links?", "answer": "No, magic link authentication bypasses MFA. This is intentional since the email link itself serves as a possession factor. If you require MFA for all logins, disable magic links."},
+     {"question": "Can I require MFA for certain roles?", "answer": "Not out of the box, but you can implement this by checking the user's role and MFA status in protected pages, then redirecting to MFA setup if needed."},
+     {"question": "How do I reset MFA for a user?", "answer": "An admin can update the user's record in the database to disable MFA. The user can then set up MFA again from their security settings."}
+   ]
+/%}
+
+---
+
+**Previous:** [Session Handling ←](./session-handling) | **Next:** [Personal Accounts →](../personal-accounts/overview)

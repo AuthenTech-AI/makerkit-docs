@@ -1,139 +1,196 @@
 ---
 status: "published"
-title: "Creating and assigning permissions using the Supamode UI"
+title: "Managing Roles and Permissions in the UI"
 label: "Roles and Permissions"
 order: 3
-description: "Learn how to create and assign roles, permissions and permission groups"
+description: "Create and assign roles, permissions, and permission groups using Supamode's visual interface. No SQL required."
 ---
 
-The easiest way to create and assign permissions is to use the Supamode UI. To do so, you need to be signed in as a Super Admin user.
+Supamode provides a visual interface for managing your entire permission structure. This guide covers creating roles, permissions, and permission groups through the UI.
 
-We assume you are the database admin/developer of the Supabase project, have used one of the pre-defined seed files to assign yourself a Super Admin role, and are signed in as that user - so that you have the required permissions to create and assign permissions.
+**Prerequisites:** You must be signed in with a role that has system permissions for `role`, `permission`, and `account` resources (typically Super Admin or Root).
 
-## Creating a new role
+## Managing Roles
 
-Roles are foundational to the Supamode permission system. Each account in Supamode has exactly one role (or none). Roles dictate the permissions that an account has and their level of access to the application as defined by your settings.
+Roles define what users can do in Supamode. Every admin account has exactly one role, and that role determines their permissions.
 
-### Roles List
+### Viewing Roles
 
-At `/settings/permissions?tab=roles` you can see the list of roles that are currently defined in the application.
+Navigate to **Settings > Permissions** and select the **Roles** tab (`/settings/permissions?tab=roles`).
 
-{% img src="/images/supamode/roles.webp" alt="Roles List" width="1724" height="292" /%}
+{% img src="/images/supamode/roles.webp" alt="Roles list showing all defined roles with their ranks" width="1724" height="292" /%}
 
-You can click on a role to view its details.
+Click any role to view its details, including assigned permissions and permission groups.
 
-{% img src="/images/supamode/role-details.webp" alt="Role Details" width="1724" height="292" /%}
+{% img src="/images/supamode/role-details.webp" alt="Role details showing permissions and groups" width="1724" height="292" /%}
 
-In the role details page, you can see the permissions and the permission groups that are assigned to the role.
+### Creating a Role
 
-Roles can have assigned to the both permissions and permission groups:
-- **Permissions**: Permissions are the individual access rights that an account can have. For example, the ability to view a table, or to create a new record in a table.
-- **Permission Groups**: Permission groups are collections of permissions that can be assigned to a role. For example, the ability to view all tables, or to create a new record in all tables.
+1. Click **New Role** in the top right
+2. Fill in the role details:
+   - **Name**: A descriptive name (e.g., "Content Editor", "Support Agent")
+   - **Description**: What this role is for
+   - **Rank**: The role's position in the hierarchy (0-100)
 
-### Creating a new role
+{% img src="/images/supamode/create-role-dialog.webp" alt="Create role dialog with name, description, and rank fields" width="1724" height="292" /%}
 
-To create a new role, click on the **New Role** button at the top right of the page.
+### Understanding Role Rank
 
-{% img src="/images/supamode/create-role-dialog.webp" alt="New Role" width="1724" height="292" /%}
+Rank determines who can manage whom:
+- Higher rank users can manage lower rank users
+- A rank 70 user cannot modify a rank 80 account
+- Use this to prevent junior admins from elevating privileges
 
-The dialog allows you to create a new role with a name and a description, and a rank.
+**Recommended rank structure:**
+- Root/Super Admin: 100
+- Admin: 90
+- Developer: 80
+- Manager: 70
+- Support: 60
+- Viewer: 50
 
-#### Role rank
+## Creating Permissions
 
-The rank is used to determine the hierarchy of the role in the application. The rank is unique for each role. A role with a lower rank than another role cannot action an account with the higher rank role.
+Navigate to **Settings > Permissions** and select the **Permissions** tab (`/settings/permissions?tab=permissions`).
 
-## Permissions
+Click **New Permission** to create a new permission.
 
-Once you've created a role, you can assign permissions to it. Let's start by creating a new permission.
+{% img src="/images/supamode/create-permission-dialog.webp" alt="Permission creation dialog" width="1724" height="292" /%}
 
-### Creating a new permission
+### Permission Fields
 
-To create a new permission, click on the **New Permission** button at the top right of the page from the "Permissions" tab at '/settings/permissions?tab=permissions'.
+| Field | Description |
+|-------|-------------|
+| **Name** | Descriptive name (e.g., "Edit Blog Posts") |
+| **Description** | What this permission allows |
+| **Type** | System (admin features) or Data (database access) |
+| **Scope** | For data permissions: Table or Storage |
+| **Action** | What operations are allowed |
 
-{% img src="/images/supamode/create-permission-dialog.webp" alt="New Permission" width="1724" height="292" /%}
+### System Permissions
 
-When you open the dialog, you can see the following fields:
+System permissions control access to Supamode's admin features. Use these for managing users, roles, and system settings.
 
-- **Name**: The name of the permission.
-- **Description**: The description of the permission.
-- **Type**: The type of the permission (System or Data)
-- **Scope**: The scope of the permission.
-- **Action**: The action of the permission.
+**System resources:**
+- `account` - Manage Supamode accounts
+- `role` - Create and edit roles
+- `permission` - Manage permissions
+- `auth_user` - Manage Supabase Auth users
+- `table` - Configure table metadata
+- `log` - Access audit logs
+- `system_setting` - Modify system settings
 
-#### System Permissions
+### Data Permissions
 
-System Permissions are permissions related to the application itself, such as the ability to view the settings page, or to create a new role.
+Data permissions control access to your database tables and storage buckets.
 
-#### Data Permissions
+#### Table Permissions
 
-Data Permissions are permissions related to the data in the application, such as the ability to view a table, or to create a new record in a table.
+Configure access to specific tables:
 
-When you select Type as "Data", you can see the following new scope fields:
+{% img src="/images/supamode/data-permission-form.webp" alt="Data permission form with schema and table fields" width="1724" height="292" /%}
 
-- **Table**: The scope of the permission is a table (for accessing data in the table)
-- **Storage**: The scope of the permission is a storage bucket (for accessing files in the storage bucket)
+| Field | Description | Example |
+|-------|-------------|---------|
+| **Schema** | Database schema | `public`, `billing`, `*` |
+| **Table** | Table name | `posts`, `users`, `*` |
+| **Action** | Operation type | `select`, `insert`, `update`, `delete`, `*` |
 
-##### Table Permissions
+Use `*` as a wildcard:
+- `public.*` grants access to all tables in public schema
+- `*.*` grants access to all tables (use sparingly)
 
-When you select Table as the scope, you can see the following new fields:
+#### Storage Permissions
 
-- **Schema**: The schema of the table.
-- **Table**: The table of the permission.
+Configure access to Supabase Storage buckets:
 
-Both fields support the `*` wildcard, so you can select all tables in a schema, or all tables in the entire database (not recommended).
+{% img src="/images/supamode/storage-permission-form.webp" alt="Storage permission form with bucket and path fields" width="1724" height="292" /%}
 
-You can also select the action of the permission.
+| Field | Description | Example |
+|-------|-------------|---------|
+| **Bucket** | Storage bucket name | `avatars`, `documents`, `*` |
+| **Path Pattern** | File path pattern | `users/*`, `public/*`, `*` |
+| **Action** | Operation type | `select`, `insert`, `update`, `delete`, `*` |
 
-- **Action**: The action of the permission, which can be one of the following:
-  - **Select**: The ability to read the table.
-  - **Delete**: The ability to delete the table.
-  - **Insert**: The ability to create a new record in the table.
-  - **Update**: The ability to update an existing record in the table.
-  - **All**: The ability to do all of the above, by using the `*` wildcard.
+Path patterns work like SQL `LIKE`:
+- `users/*` matches all files in the users folder
+- `*` matches all files in the bucket
 
-{% img src="/images/supamode/data-permission-form.webp" alt="Data Permission Form" width="1724" height="292" /%}
+## Assigning Permissions to Roles
 
-##### Storage Permissions
+You can assign permissions to roles in two ways:
 
-When you select Storage as the scope, you can see the following new fields:
+1. **Direct assignment** - Add individual permissions to a role
+2. **Permission groups** - Create reusable bundles of permissions
 
-- **Storage Bucket**: The bucket of the permission.
-- **Storage Path Pattern**: The path of the permission. This supports the `*` wildcard, so you can select all files in a bucket, or all files in the entire storage bucket (not recommended). It works exactly like `%` in SQL. To select all files under a specific path, you can use `%path%`, such as `/users/*` will select all files under the `/users/` path. To give permissions to all files in a bucket, use the wildcard `*` as the path.
-- **Action**: The action of the permission, just like the table permissions.
+### Direct Assignment
 
-{% img src="/images/supamode/storage-permission-form.webp" alt="Storage Permission Form" width="1724" height="292" /%}
+1. Navigate to a role's detail page
+2. Click **Manage Permissions**
+3. Select the permissions to assign
 
-### Assigning permissions to a role
+{% img src="/images/supamode/manage-permissions.webp" alt="Manage permissions dialog showing available permissions" width="1724" height="292" /%}
 
-To assign a permission to a role, you have two options:
+### Using Permission Groups
 
-1. **Direct Assignment**: Assign a permission directly to the role
-2. **Permission Group Assignment**: Assign a permission group to the role
+Permission groups bundle related permissions together. Assign a group to multiple roles, and updating the group updates all roles using it.
 
-Permission groups are collections of permissions that can be assigned to a role, so you can batch them together for different roles.
+#### Creating a Permission Group
 
-#### Direct Assignment
+1. Go to **Settings > Permissions > Permission Groups** tab
+2. Click **New Permission Group**
+3. Add a name and description
 
-To assign a permission directly to a role, navigate to a role from the roles tab at '/settings/permissions?tab=roles' and you can click on the **Manage Permissions** button at the top right of the page.
+{% img src="/images/supamode/permission-groups.webp" alt="Permission groups list" width="1724" height="292" /%}
 
-{% img src="/images/supamode/manage-permissions.webp" alt="Manage Permissions" width="1724" height="292" /%}
+#### Adding Permissions to a Group
 
-From the same page, you can also assign a permission group to the role by clicking on the **Manage Permission Groups** button at the top right of the page.
+1. Click on a permission group to view details
+2. Click **Manage Permissions**
+3. Select permissions to include
 
-{% img src="/images/supamode/manage-permissions-group.webp" alt="Manage Permissions Group" width="1724" height="292" /%}
+{% img src="/images/supamode/permission-group-details.webp" alt="Permission group details with assigned permissions" width="1724" height="292" /%}
 
-#### Permission Group Assignment
+{% img src="/images/supamode/manage-group-permissions.webp" alt="Adding permissions to a group" width="1724" height="292" /%}
 
-To assign a permissions to a permission group, you can create a new permission group from the "Permission Groups" tab at '/settings/permissions?tab=permission-groups' or select an existing permission group from the list.
+#### Assigning Groups to Roles
 
-{% img src="/images/supamode/permission-groups.webp" alt="Permission Groups" width="1724" height="292" /%}
+1. Navigate to a role's detail page
+2. Click **Manage Permission Groups**
+3. Select groups to assign
 
-Once you've selected a permission group, you can see the details of the permission group, including the permissions and the roles that are assigned to it.
+{% img src="/images/supamode/manage-permissions-group.webp" alt="Assigning permission groups to a role" width="1724" height="292" /%}
 
-{% img src="/images/supamode/permission-group-details.webp" alt="Permission Group Details" width="1724" height="292" /%}
+## Example: Setting Up a Content Editor Role
 
-You can assign permissions to it by clicking on the **Manage Permissions** button at the top right of the page.
+Here's a practical example of creating a role for content editors:
 
-{% img src="/images/supamode/manage-group-permissions.webp" alt="Manage Group Permissions" width="1724" height="292" /%}
+1. **Create the role:**
+   - Name: "Content Editor"
+   - Description: "Can manage blog posts and media"
+   - Rank: 60
+2. **Create permissions:**
+   - "Read All Posts" (Data, Table: `public.posts`, Action: select)
+   - "Edit Posts" (Data, Table: `public.posts`, Action: update)
+   - "Create Posts" (Data, Table: `public.posts`, Action: insert)
+   - "Manage Media" (Data, Storage: `media`, Path: `*`, Action: `*`)
+3. **Create a permission group:**
+   - Name: "Content Management"
+   - Add all four permissions above
+4. **Assign to role:**
+   - Open the Content Editor role
+   - Click Manage Permission Groups
+   - Add the Content Management group
 
-After assigning permissions to a permission group, make sure that the role you've also added the permission group to the role you want to customize.
+Now any user assigned the Content Editor role can manage posts and media, but cannot access other tables or admin features.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Should I use direct permissions or permission groups?", "answer": "Permission groups are recommended for most cases. They make it easier to manage permissions across multiple roles and keep your permission structure organized. Use direct assignment only for one-off permissions specific to a single role."},
+     {"question": "Can I use wildcards safely?", "answer": "Use wildcards carefully. Schema-level wildcards (public.*) are reasonable for admin roles. Database-level wildcards (*.*) should only be used for Super Admin/Root roles. Always prefer specific table permissions when possible."},
+     {"question": "How do I see which roles have a specific permission?", "answer": "Open the permission's detail page. It shows all roles that have this permission, either directly or through permission groups."},
+     {"question": "What happens if I delete a permission that's assigned to roles?", "answer": "The permission is removed from all roles and permission groups that had it. Users with those roles lose that specific access immediately."},
+     {"question": "Can I duplicate a role?", "answer": "There's no direct duplicate feature, but you can create a new role and assign the same permission groups. This is why permission groups are useful - you can reuse them across multiple roles."}
+   ]
+/%}

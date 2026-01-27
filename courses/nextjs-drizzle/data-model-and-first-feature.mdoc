@@ -1,0 +1,1545 @@
+---
+status: "published"
+title: "Data Model and First Feature with Drizzle ORM"
+label: "Data Model & First Feature"
+order: 3
+description: "Design a multi-tenant database schema with Drizzle ORM and build complete CRUD for feedback boards using Next.js server actions, Zod validation, and React Hook Form."
+---
+
+With your Makerkit environment configured, it's time to build something real. In this module, you'll design the TeamPulse database schema and build your first complete feature: feedback boards with full CRUD operations.
+
+Feedback boards are the foundation of TeamPulse. Each organization creates boards to collect feedback from their team - think of them as categorized containers for feature requests, bug reports, and ideas. 
+
+By the end of this module, you'll have a working boards feature that demonstrates the patterns you'll use throughout the rest of the application.
+
+**What you'll accomplish:**
+- Design and create database tables with proper multi-tenant relationships
+- Build a boards list page that fetches data on the server
+- Implement create, edit, and delete functionality with server actions
+- Learn the form patterns that Makerkit uses throughout the codebase
+
+**Technologies used:**
+- [Drizzle ORM](https://orm.drizzle.team) - Type-safe database toolkit
+- [Zod](https://zod.dev) - Schema validation
+- [next-safe-action](https://next-safe-action.dev) - Type-safe server actions
+- [React Hook Form](https://react-hook-form.com) - Form state management
+
+---
+
+## What We're Building
+
+TeamPulse needs two core tables: `board` to organize feedback by category, and `feedback_item` to store individual pieces of feedback. The `organizationId` foreign key ensures that each board belongs to a specific organization - this is how Makerkit enforces multi-tenancy at the database level.
+
+```
+board                      feedback_item
+├── id                      ├── id
+├── organizationId (FK)     ├── boardId (FK)
+├── name                    ├── authorId (FK)
+├── description             ├── title
+├── slug                    ├── description
+├── createdAt               ├── type (bug/feature/idea)
+├── updatedAt               ├── status
+                            ├── voteCount
+                            ├── createdAt
+                            ├── updatedAt
+```
+
+In this module, we'll focus on **boards** - the parent entity that contains feedback items. You'll build the feedback items feature in [Module 4: Feedback Items](./feedback-items).
+
+---
+
+## Step 1: Design the Schema
+
+Let's start by defining the database schema for our boards feature. Drizzle schema files live in the `packages/database/src/schema/` directory, where each file defines one or more tables using Drizzle's type-safe table builder. Create a new file for the `board` table:
+
+```typescript {% title="packages/database/src/schema/boards.ts" %}
+import { relations } from 'drizzle-orm';
+import { boolean, index, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+
+import { organization } from './core';
+
+export const board = pgTable(
+  'board',
+  {
+    id: text('id').primaryKey(),
+    organizationId: text('organization_id')
+      .notNull()
+      .references(() => organization.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    description: text('description'),
+    slug: text('slug').notNull(),
+    // Public access fields
+    isPublic: boolean('is_public').notNull().default(false),
+    allowAnonymous: boolean('allow_anonymous').notNull().default(true),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at')
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index('board_organization_id_idx').on(table.organizationId),
+    index('board_slug_idx').on(table.slug),
+    index('board_is_public_idx').on(table.isPublic),
+  ],
+);
+```
+
+**Key design decisions:**
+- **Multi-tenancy via `organizationId`**: Every board belongs to an organization. This foreign key is the foundation of data isolation - queries always filter by organization to prevent data leakage between tenants.
+- **Cascade deletes**: The `onDelete: 'cascade'` option ensures that when an organization is deleted, all its boards are automatically removed. This prevents orphaned records in the database.
+- **Performance indexes**: Indexes on `organizationId` and `slug` speed up the most common queries - listing boards for an organization and looking up boards by their URL slug.
+- **Automatic timestamps**: The `$onUpdate()` modifier tells Drizzle to automatically set `updatedAt` to the current time whenever a row is modified.
+
+---
+
+## Step 2: Add Relations
+
+Foreign keys define database-level constraints, but Drizzle relations serve a different purpose: they enable the query builder's `with` syntax for eager loading related data. Add this relation definition to your `boards.ts` file after the table definition:
+
+```typescript {% title="packages/database/src/schema/boards.ts" %}
+// Add after the board table definition
+export const boardRelations = relations(board, ({ one }) => ({
+  organization: one(organization, {
+    fields: [board.organizationId],
+    references: [organization.id],
+  }),
+}));
+```
+
+---
+
+## Step 3: Export the Schema
+
+Makerkit uses a barrel file to re-export all schema definitions from a single entry point. Add your new table to this file so it's available throughout the application:
+
+```typescript {% title="packages/database/src/schema/schema.ts" %}
+export * from './core';
+// Add this export alongside the existing ones
+export * from './boards';
+```
+
+---
+
+## Step 4: Run the Migration
+
+Migrations translate your schema changes into SQL that modifies the database. Drizzle compares your current schema files against the database state and generates the necessary `CREATE TABLE`, `ALTER TABLE`, or other SQL statements.
+
+```bash
+# Generate migration from schema changes
+pnpm --filter @kit/database drizzle:generate
+```
+
+This will create a migration file in the `migrations` directory. Drizzle generates the migration file by diffing the current schema with the new schema, and will update the snapshots file to reflect the changes.
+
+You should see the following output:
+```
+> drizzle-kit generate --config drizzle.config.mjs
+
+11 tables
+account 13 columns 1 indexes 1 fks
+invitation 8 columns 2 indexes 2 fks
+member 5 columns 2 indexes 2 fks
+organization_role 6 columns 2 indexes 1 fks
+organization 6 columns 0 indexes 0 fks
+session 10 columns 1 indexes 1 fks
+subscription 12 columns 0 indexes 0 fks
+two_factor 4 columns 2 indexes 1 fks
+user 13 columns 0 indexes 0 fks
+verification 6 columns 1 indexes 0 fks
+board 7 columns 2 indexes 1 fks
+
+[✓] Your SQL migration file ➜ ../../packages/database/src/schema/0001_white_karma.sql 🚀
+```
+
+**Note**: the actual name of the migration file will be different.
+
+Now, push the migration to the database by running the following command:
+
+```bash
+pnpm --filter @kit/database drizzle:migrate
+```
+
+This will apply the migration to the database.
+
+You should see the following output:
+
+```
+[✓] migrations applied successfully! 
+```
+
+**Verify it worked:**
+
+```bash
+# Open Drizzle Studio to view tables
+pnpm --filter @kit/database drizzle:studio
+```
+
+You should see the `board` table with all columns.
+
+---
+
+## Step 5: Create the Validation Schema
+
+While the database schema defines what columns exist, Zod schemas define what input is valid. 
+
+Keeping validation separate from the database gives you precise control over error messages and lets you transform data (like trimming whitespace) before it reaches the database.
+
+```typescript {% title="apps/web/lib/boards/boards.schema.ts" %}
+import * as z from 'zod';
+
+export const createBoardSchema = z.object({
+  name: z
+    .string()
+    .min(3, 'Name must be at least 3 characters')
+    .max(100, 'Name must be less than 100 characters')
+    .transform((val) => val.trim()),
+  description: z
+    .string()
+    .max(500, 'Description must be less than 500 characters')
+    .optional()
+    .transform((val) => val?.trim()),
+});
+
+// Extend the create schema to include the board ID for updates
+export const updateBoardSchema = createBoardSchema.extend({
+  id: z.string().min(1, 'Board ID is required'),
+  isPublic: z.boolean().optional(),
+  allowAnonymous: z.boolean().optional(),
+});
+
+// Delete only needs the ID
+export const deleteBoardSchema = z.object({
+  id: z.string().min(1, 'Board ID is required'),
+});
+
+export type CreateBoardInput = z.output<typeof createBoardSchema>;
+export type UpdateBoardInput = z.output<typeof updateBoardSchema>;
+```
+
+---
+
+## Step 6: Create the Server Actions
+
+Server actions handle data mutations in Next.js. They run exclusively on the server, which means they can safely access the database and perform privileged operations.
+
+Makerkit's `authenticatedActionClient` wraps your actions with authentication checks and schema validation.
+
+```typescript {% title="apps/web/lib/boards/boards-server-actions.ts" %}
+'use server';
+
+import { revalidatePath } from 'next/cache';
+
+import { and, count, eq } from 'drizzle-orm';
+
+import { authenticatedActionClient } from '@kit/action-middleware';
+import { auth } from '@kit/better-auth';
+import { getActiveOrganizationId } from '@kit/better-auth/context';
+import { getBilling } from '@kit/billing-api';
+import { db, board } from '@kit/database';
+import { getLogger } from '@kit/shared/logger';
+import { generateSlug, generateId } from '@kit/shared/utils';
+
+import {
+  createBoardSchema,
+  updateBoardSchema,
+  deleteBoardSchema,
+} from './boards.schema';
+
+export const createBoardAction = authenticatedActionClient
+  .inputSchema(createBoardSchema)
+  .action(async ({ parsedInput: data, ctx }) => {
+    const userId = ctx.user.id;
+    const organizationId = await getActiveOrganizationId();
+
+    if (!organizationId) {
+      throw new Error('No active organization');
+    }
+
+    const logger = (await getLogger()).child({
+      name: 'create-board',
+      userId,
+      organizationId,
+      boardName: data.name,
+    });
+
+    // Check billing limit before creating
+    const [{ value: boardCount }] = await db
+      .select({ value: count() })
+      .from(board)
+      .where(eq(board.organizationId, organizationId));
+
+    const billing = await getBilling(auth);
+    const { allowed, limit } = await billing.checkPlanLimit({
+      referenceId: organizationId,
+      limitKey: 'boards',
+      currentUsage: boardCount,
+    });
+
+    if (!allowed) {
+      throw new Error(
+        `Board limit reached. Your plan allows ${limit} boards. Please upgrade to create more.`,
+      );
+    }
+
+    logger.info('Creating board');
+
+    const [boardRecord] = await db
+      .insert(board)
+      .values({
+        id: generateId(),
+        organizationId,
+        name: data.name,
+        description: data.description ?? null,
+        slug: generateSlug(data.name),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .returning();
+
+    logger.info({ boardId: boardRecord.id }, 'Board created successfully');
+
+    revalidatePath('/boards', 'layout');
+
+    return { board: boardRecord };
+  });
+
+export const updateBoardAction = authenticatedActionClient
+  .inputSchema(updateBoardSchema)
+  .action(async ({ parsedInput: data, ctx }) => {
+    const userId = ctx.user.id;
+    const organizationId = await getActiveOrganizationId();
+
+    if (!organizationId) {
+      throw new Error('No active organization');
+    }
+
+    const logger = (await getLogger()).child({ 
+      name: 'update-board',
+      userId,
+      organizationId,
+      boardId: data.id,
+      boardName: data.name,
+    });
+
+    logger.info('Updating board...');
+
+    const [boardRecord] = await db
+      .update(board)
+      .set({
+        name: data.name,
+        description: data.description ?? null,
+        slug: generateSlug(data.name),
+        isPublic: data.isPublic,
+        allowAnonymous: data.allowAnonymous,
+      })
+      .where(
+        and(eq(board.id, data.id), eq(board.organizationId, organizationId)),
+      )
+      .returning();
+
+    if (!boardRecord) {
+      throw new Error('Board not found');
+    }
+
+    logger.info('Board updated successfully');
+
+    revalidatePath('/boards', 'layout');
+
+    return { board: boardRecord };
+  });
+
+export const deleteBoardAction = authenticatedActionClient
+  .inputSchema(deleteBoardSchema)
+  .action(async ({ parsedInput: data, ctx }) => {
+    const userId = ctx.user.id;
+    const organizationId = await getActiveOrganizationId();
+
+    if (!organizationId) {
+      throw new Error('No active organization');
+    }
+
+    const logger = (await getLogger()).child({ 
+      name: 'delete-board',
+      userId,
+      organizationId,
+      boardId: data.id,
+    });
+
+    logger.info('Deleting board...');
+
+    const [deleted] = await db
+      .delete(board)
+      .where(
+        and(
+          eq(board.id, data.id),
+          eq(board.organizationId, organizationId),
+        ),
+      )
+      .returning();
+
+    if (!deleted) {
+      throw new Error('Board not found');
+    }
+
+    logger.info('Board deleted successfully');
+
+    revalidatePath('/boards', 'layout');
+
+    return { success: true };
+  });
+```
+
+**Key patterns:**
+- **`authenticatedActionClient`**: This wrapper ensures the user is logged in before the action runs. If the user isn't authenticated, the action returns an error without executing your code.
+- **`getActiveOrganizationId()`**: Retrieves the current organization from the user's session. Every database operation includes this ID to enforce multi-tenant data isolation.
+- **`getBilling(auth).checkPlanLimit()`**: Checks if the organization's subscription allows creating more boards. The billing config defines limits per plan (e.g., Starter: 3 boards, Pro: 10 boards). Always enforce limits server-side, not just in the UI.
+- **`revalidatePath('/path', 'layout')`**: Next.js caches server component output. After a mutation, this function tells Next.js to re-render the page with fresh data. The `'layout'` parameter ensures localized routes are also revalidated.
+- **Organization scoping**: Every query includes an `organizationId` check. This prevents users from accessing or modifying boards that belong to other organizations.
+
+#### Server Actions Documentation
+
+**Tip**: to learn more about server actions, please refer to the [Server Actions Documentation](/docs/next-supabase-turbo/data-fetching/server-actions).
+
+## Step 7: Create the Data Loader
+
+While server actions handle writes, loaders handle reads. This separation keeps your code organized and makes it clear which functions modify data versus which functions only fetch it. 
+
+Loaders are called from server components to fetch the initial page data. These are not an actual Next.js entity, it's just a convention to name these simple functions that fetch data from the database in a Server Component. Whether you want to call them loaders or anything else, it's up to you and has no impact on the functionality.
+
+```typescript {% title="apps/web/lib/boards/boards-page.loader.ts" %}
+import 'server-only';
+
+import { cache } from 'react';
+
+import { and, count, desc, eq } from 'drizzle-orm';
+
+import { auth } from '@kit/better-auth';
+import { getActiveOrganizationId } from '@kit/better-auth/context';
+import { getBilling } from '@kit/billing-api';
+import { board, db } from '@kit/database';
+
+export const loadBoards = cache(async () => {
+  const organizationId = await getActiveOrganizationId();
+
+  if (!organizationId) {
+    return [];
+  }
+
+  return db
+    .select()
+    .from(board)
+    .where(eq(board.organizationId, organizationId))
+    .orderBy(desc(board.createdAt));
+});
+
+export const checkBoardsLimit = cache(async () => {
+  const organizationId = await getActiveOrganizationId();
+
+  if (!organizationId) {
+    return { allowed: false, limit: 0, current: 0, remaining: 0 };
+  }
+
+  const [{ value: boardCount }] = await db
+    .select({ value: count() })
+    .from(board)
+    .where(eq(board.organizationId, organizationId));
+
+  const billing = await getBilling(auth);
+  const result = await billing.checkPlanLimit({
+    referenceId: organizationId,
+    limitKey: 'boards',
+    currentUsage: boardCount,
+  });
+
+  return result;
+});
+
+export const loadBoard = cache(async (boardId: string) => {
+  const organizationId = await getActiveOrganizationId();
+
+  if (!organizationId) {
+    return null;
+  }
+
+  const [boardRecord] = await db
+    .select()
+    .from(board)
+    .where(
+      and(eq(board.id, boardId), eq(board.organizationId, organizationId)),
+    )
+    .limit(1);
+
+  return boardRecord;
+});
+
+export type Board = NonNullable<Awaited<ReturnType<typeof loadBoard>>>;
+export type Boards = Awaited<ReturnType<typeof loadBoards>>;
+```
+
+**Key patterns:**
+- **`'server-only'`**: This import causes a build error if the file is accidentally imported in a client component. While Next.js should take care of separating server and client code, it's a safeguard against leaking server-side code to the browser and it's recommended to use it.
+- **`cache()`**: React's cache function deduplicates requests during a single render. If multiple components call `loadBoards()`, the database is only queried once.
+- **`checkBoardsLimit()`**: Queries the current board count and checks it against the organization's billing plan limits. Returns `{ allowed, limit, current, remaining }` for use in the UI.
+- **Organization filtering**: Like server actions, loaders always filter by `organizationId` to ensure users only see their own organization's data.
+- **Type exports**: Exporting `Board` and `Boards` types at the bottom lets other files use these types without importing the loader functions directly.
+
+---
+
+## Step 8: Create the Form Component
+
+Forms in Makerkit combine [React Hook Form](https://react-hook-form.com/) for state management with [Zod](https://zod.dev/) for validation. 
+
+The `zodResolver` bridges these two libraries, automatically validating input against your schema and displaying field-level error messages.
+
+```typescript {% title="apps/web/app/[locale]/(internal)/boards/_components/create-board-form.tsx" %}
+'use client';
+
+import { zodResolver } from '@hookform/resolvers/zod';
+import { createBoardAction } from '@lib/boards/boards-server-actions';
+import {
+  type CreateBoardInput,
+  createBoardSchema,
+} from '@lib/boards/boards.schema';
+import { useAction } from 'next-safe-action/hooks';
+import { useForm } from 'react-hook-form';
+
+import { Button } from '@kit/ui/button';
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@kit/ui/form';
+import { Input } from '@kit/ui/input';
+import { toast } from '@kit/ui/sonner';
+import { Textarea } from '@kit/ui/textarea';
+
+interface CreateBoardFormProps {
+  onSuccess?: () => void;
+}
+
+export function CreateBoardForm({ onSuccess }: CreateBoardFormProps) {
+  const { executeAsync, status } = useAction(createBoardAction);
+
+  const form = useForm({
+    resolver: zodResolver(createBoardSchema),
+    defaultValues: {
+      name: '',
+      description: '',
+    },
+  });
+
+  const isPending = status === 'executing';
+
+  // Using executeAsync with manual error handling
+  const onSubmit = async (data: CreateBoardInput) => {
+    const result = await executeAsync(data);
+
+    if (result?.serverError) {
+      toast.error(result.serverError);
+      return;
+    }
+
+    if (result?.validationErrors) {
+      toast.error('Please check your input');
+      return;
+    }
+
+    toast.success('Board created successfully');
+    form.reset();
+    onSuccess?.();
+  };
+
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <FormField
+          name="name"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Board Name</FormLabel>
+
+              <FormControl 
+                render={<Input
+                  placeholder="Product Feedback"
+                  disabled={isPending}
+                  data-testid="create-board-name-input"
+                  {...field}
+                />} 
+              />
+
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          name="description"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Description (optional)</FormLabel>
+
+              <FormControl render={<Textarea
+                placeholder="Collect feedback from users about our product"
+                disabled={isPending}
+                data-testid="create-board-description-input"
+                {...field}
+              />} />
+
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <Button
+          type="submit"
+          disabled={isPending}
+          data-testid="create-board-submit"
+        >
+          {isPending ? 'Creating...' : 'Create Board'}
+        </Button>
+      </form>
+    </Form>
+  );
+}
+```
+
+**Key patterns:**
+- **`'use client'`**: Forms require client-side interactivity, so this directive marks the component as a client component.
+- **`zodResolver`**: Connects your Zod schema to React Hook Form, enabling automatic validation as users type.
+- **`useAction`**: The next-safe-action hook that calls your server action. It provides `status` to track loading state and `executeAsync` to run the action.
+- **Error handling**: Server actions can return `serverError` (unexpected errors) or `validationErrors` (schema validation failures). Handle both to give users clear feedback.
+- **Pending state**: Disable form inputs and show loading text while the action is executing to prevent double submissions.
+
+---
+
+## Step 9: Create the Dialog Component
+
+We will use the `Dialog` component from the `@kit/ui/dialog` package to create a dialog component that will be used to create a new board. The dialog wraps the form and can be used in any page or component.
+
+Using controlled state (`open` and `onOpenChange`) lets you close the dialog programmatically after a successful form submission.
+
+```typescript {% title="apps/web/app/[locale]/(internal)/boards/_components/create-board-dialog.tsx" %}
+'use client';
+
+import { useState } from 'react';
+
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@kit/ui/dialog';
+
+import { CreateBoardForm } from './create-board-form';
+
+export function CreateBoardDialog({ children }: React.PropsWithChildren) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger render={children as React.ReactElement} />
+
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Create Feedback Board</DialogTitle>
+          <DialogDescription>
+            Create a new board to collect feedback from your team.
+          </DialogDescription>
+        </DialogHeader>
+
+        <CreateBoardForm onSuccess={() => setOpen(false)} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+```
+
+## Step 10: Create the Boards Page and Layout
+
+Now that we have server actions and a form component, we can create the boards page and layout, so that there's an actual page to display the boards.
+
+### Creating the Boards Layout
+
+The boards page needs its own layout. You can use the same structure as the Dashboard layout at `(internal)/dashboard/layout.tsx`.
+
+```tsx {% title="apps/web/app/[locale]/(internal)/boards/layout.tsx" %}
+import { AppSidebar } from '../_components/app-sidebar';
+
+export default function BoardsLayout({
+  children,
+}: React.PropsWithChildren) {
+  return <AppSidebar>{children}</AppSidebar>;
+}
+```
+
+This layout wraps the page with the sidebar and main navigation, while the children are placed in the main content area.
+
+The `AppSidebar` component is a wrapper around the sidebar that displays the navigation items. It's a simple component that wraps the children with the `SidebarProvider` component. 
+
+#### Adding the Boards Navigation Item
+
+To add the boards navigation item, we need to update the `apps/web/app/[locale]/(internal)/_config/navigation.config.tsx` file and add the boards route to the routes array.
+
+```tsx {% title="apps/web/app/[locale]/(internal)/_config/navigation.config.tsx" %}
+import { HelpCircleIcon, Home, MessageSquare } from 'lucide-react';
+import * as z from 'zod';
+
+import { env } from '@kit/shared/env';
+import { NavigationConfigSchema } from '@kit/ui/navigation-schema';
+
+const iconClasses = 'w-4';
+
+export const routes: z.output<typeof NavigationConfigSchema>['routes'] = [
+  {
+    label: 'common.routes.application',
+    children: [
+      {
+        label: 'common.routes.dashboard',
+        path: env('NEXT_PUBLIC_APP_HOME_PATH') ?? '/dashboard',
+        Icon: <Home className={iconClasses} />,
+      },
+      {
+        label: 'Boards',
+        path: '/boards',
+        Icon: <MessageSquare className={iconClasses} />,
+        context: 'organization',
+      },
+    ],
+  },
+  {
+    label: 'Support',
+    children: [
+      {
+        label: 'Help',
+        path: '/help?returnPath=/dashboard',
+        Icon: <HelpCircleIcon className={iconClasses} />,
+      },
+    ],
+  },
+];
+```
+
+The `MessageSquare` icon from `lucide-react` serves as the icon for the boards route.
+
+This example uses plain English strings for simplicity. To support translations, use i18n keys instead by adding the translation to the `locales/en/common.json` file:
+
+```json {% title="apps/web/i18n/messages/en/common.json" %}
+{
+  "routes": {
+    "boards": "Boards"
+  }
+}
+```
+
+## RBAC (Role-Based Access Control)
+
+RBAC (Role-Based Access Control) is a way to control access to resources based on the role of the user.
+
+In Makerkit, we use the `@kit/rbac` package to implement RBAC. We will do a deep dive into RBAC in the [Organizations and Teams Module](./organizations-and-teams). For the sake of this module, we want to define the RBAC configuration for the boards feature, so you can actually create boards and interact with them.
+
+To continue, let's define the RBAC configuration for the boards feature in the `packages/rbac/src/rbac.config.ts` file:
+
+```typescript {% title="packages/rbac/src/rbac.config.ts" %}
+export default defineRBACConfig({
+  resources: {
+    BOARD: 'board',
+    FEEDBACK: 'feedback',
+  },
+
+  accessController: {
+    board: ['create', 'read', 'update', 'delete'],
+    feedback: ['create', 'read', 'update', 'delete'],
+  },
+
+  permissions: {
+    owner: {
+      board: ['create', 'read', 'update', 'delete'],
+      feedback: ['create', 'read', 'update', 'delete'],
+    },
+    admin: {
+      board: ['create', 'read', 'update', 'delete'],
+      feedback: ['create', 'read', 'update', 'delete'],
+    },
+    member: {
+      board: ['read'],
+      feedback: ['create', 'read'],
+    },
+  },
+});
+```
+
+Please don't worry about the details of the RBAC configuration for now. We will do a deep dive into RBAC in the [Organizations and Teams Module](./organizations-and-teams) and you will learn how to configure RBAC for your own features.
+
+### Creating the Page to display the boards
+
+This is a React Server Component that fetches data directly during render - no `useEffect` or client-side fetching needed. 
+
+The page calls the loader to get boards, then renders either an empty state or a grid of board cards.
+
+```typescript {% title="apps/web/app/[locale]/(internal)/boards/page.tsx" %}
+import type { Metadata } from 'next';
+import { headers } from 'next/headers';
+import Link from 'next/link';
+
+import {
+  checkBoardsLimit,
+  loadBoards,
+} from '@lib/boards/boards-page.loader';
+import { Plus } from 'lucide-react';
+
+import { auth } from '@kit/better-auth';
+import { Alert, AlertDescription, AlertTitle } from '@kit/ui/alert';
+import { AppBreadcrumbs } from '@kit/ui/app-breadcrumbs';
+import { Button } from '@kit/ui/button';
+import {
+  CardButton,
+  CardButtonHeader,
+  CardButtonTitle,
+} from '@kit/ui/card-button';
+import {
+  EmptyState,
+  EmptyStateButton,
+  EmptyStateHeading,
+  EmptyStateText,
+} from '@kit/ui/empty-state';
+import { If } from '@kit/ui/if';
+import { PageBody, PageHeader } from '@kit/ui/page';
+
+import { CreateBoardDialog } from './_components/create-board-dialog';
+
+export const metadata: Metadata = {
+  title: 'Feedback Boards',
+  description: 'Manage your feedback boards',
+};
+
+export default async function BoardsPage() {
+  const [boards, { success: hasPermission }, billingLimit] = await Promise.all([
+    loadBoards(),
+    auth.api.hasPermission({
+      headers: await headers(),
+      body: {
+        permissions: {
+          board: ['create'],
+        },
+      },
+    }),
+    checkBoardsLimit(),
+  ]);
+
+  // User can create if they have RBAC permission AND billing limit allows
+  const canCreateBoard = hasPermission && billingLimit.allowed;
+
+  return (
+    <PageBody>
+      <PageHeader>
+        <div className="flex-1">
+          <AppBreadcrumbs />
+        </div>
+
+        <If condition={canCreateBoard}>
+          <CreateBoardDialog>
+            <Button size="sm">
+              <Plus className="mr-2 h-4 w-4" />
+              Create Board
+            </Button>
+          </CreateBoardDialog>
+        </If>
+      </PageHeader>
+
+      <If condition={hasPermission && !billingLimit.allowed}>
+        <Alert variant="warning" className="mb-4">
+          <AlertTitle>Board limit reached</AlertTitle>
+          <AlertDescription>
+            You&apos;ve reached your plan&apos;s limit of {billingLimit.limit} boards.{' '}
+            <Link href="/settings/billing" className="underline">
+              Upgrade your plan
+            </Link>{' '}
+            to create more boards.
+          </AlertDescription>
+        </Alert>
+      </If>
+
+      {boards.length === 0 ? (
+        <EmptyStateSection canCreateBoard={canCreateBoard} />
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+          {boards.map((board) => (
+            <BoardCard key={board.id} board={board} />
+          ))}
+        </div>
+      )}
+    </PageBody>
+  );
+}
+
+function EmptyStateSection({ canCreateBoard }: { canCreateBoard: boolean }) {
+  return (
+    <EmptyState>
+      <EmptyStateHeading>No boards yet</EmptyStateHeading>
+
+      <EmptyStateText>
+        Create your first feedback board to start collecting feedback.
+      </EmptyStateText>
+
+      <If condition={canCreateBoard}>
+        <CreateBoardDialog>
+          <EmptyStateButton
+            render={
+              <Button size="sm">
+                <Plus className="mr-2 h-4 w-4" />
+                Create Board
+              </Button>
+            }
+          />
+        </CreateBoardDialog>
+      </If>
+    </EmptyState>
+  );
+}
+
+function BoardCard({
+  board,
+}: {
+  board: Awaited<ReturnType<typeof loadBoards>>[number];
+}) {
+  return (
+    <CardButton
+      render={
+        <Link className="w-full" href={`/boards/${board.id}`}>
+          <CardButtonHeader className="text-left">
+            <CardButtonTitle>{board.name}</CardButtonTitle>
+
+            {board.description && (
+              <span className="text-muted-foreground max-w-full text-xs">
+                {board.description}
+              </span>
+            )}
+          </CardButtonHeader>
+        </Link>
+      }
+    />
+  );
+}
+```
+
+When the list is empty, we should see the empty state prompting to create a board:
+
+{% img src="/assets/courses/next-drizzle/teampulse-empty-boards.webp" width="1000" height="1000" alt="Teampulse Empty Boards" /%}
+
+When we click on the "Create Board" button, we should see the create board dialog:
+
+{% img src="/assets/courses/next-drizzle/teampulse-create-board.webp" width="1000" height="1000" alt="Teampulse Create Board" /%}
+
+When we fill the form and submit it, we should see the board created and the list updated:
+
+{% img src="/assets/courses/next-drizzle/teampulse-boards-grid.webp" 
+alt="Teampulse Boards Grid" width="1000" height="1000" /%}
+
+
+## Step 11: Editing and Deleting Boards functionality
+
+Now that create functionality is working, we can add the edit and delete operations. 
+
+The edit form reuses the same form structure as create, while delete uses an `AlertDialog` component to require explicit confirmation before destroying data. AlertDialogs cannot be dismissed by clicking outside, preventing accidental data loss.
+
+### Edit Board Form
+
+The edit form is nearly identical to the create form, but it pre-populates fields with existing values and calls `updateBoardAction` instead of `createBoardAction`.
+
+```typescript {% title="apps/web/app/[locale]/(internal)/boards/_components/edit-board-form.tsx" %}
+'use client';
+
+import { useAction } from 'next-safe-action/hooks';
+
+import { zodResolver } from '@hookform/resolvers/zod';
+import type { Board } from '@lib/boards/boards-page.loader';
+import { updateBoardAction } from '@lib/boards/boards-server-actions';
+import {
+  type UpdateBoardInput,
+  updateBoardSchema,
+} from '@lib/boards/boards.schema';
+import { useForm } from 'react-hook-form';
+
+import { Button } from '@kit/ui/button';
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@kit/ui/form';
+import { Input } from '@kit/ui/input';
+import { toast } from '@kit/ui/sonner';
+import { Switch } from '@kit/ui/switch';
+import { Textarea } from '@kit/ui/textarea';
+
+interface EditBoardFormProps {
+  board: Board;
+  onSuccess?: () => void;
+}
+
+export function EditBoardForm({ board, onSuccess }: EditBoardFormProps) {
+  const { executeAsync, status } = useAction(updateBoardAction);
+
+  const form = useForm({
+    resolver: zodResolver(updateBoardSchema),
+    defaultValues: {
+      id: board.id,
+      name: board.name,
+      description: board.description ?? '',
+      isPublic: board.isPublic,
+      allowAnonymous: board.allowAnonymous,
+    },
+  });
+
+  const isPending = status === 'executing';
+
+  const onSubmit = async (data: UpdateBoardInput) => {
+    const result = await executeAsync(data);
+
+    if (result?.serverError) {
+      toast.error(`Board update failed`);
+      return;
+    }
+
+    if (result?.validationErrors) {
+      toast.error('Please check your input');
+      return;
+    }
+
+    toast.success('Board updated successfully');
+    onSuccess?.();
+  };
+
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <FormField
+          name="name"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Board Name</FormLabel>
+
+              <FormControl
+                render={
+                  <Input
+                    placeholder="Product Feedback"
+                    disabled={isPending}
+                    data-testid="edit-board-name-input"
+                    {...field}
+                  />
+                }
+              />
+
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          name="description"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Description (optional)</FormLabel>
+
+              <FormControl
+                render={
+                  <Textarea
+                    placeholder="Collect feedback from users about our product"
+                    disabled={isPending}
+                    data-testid="edit-board-description-input"
+                    {...field}
+                  />
+                }
+              />
+
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          name="isPublic"
+          render={({ field }) => (
+            <FormItem className="flex items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <FormLabel>Public Board</FormLabel>
+                <FormDescription>
+                  Allow anyone to view the board
+                </FormDescription>
+              </div>
+
+              <FormControl
+                render={
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                    disabled={isPending}
+                    data-testid="edit-board-is-public-switch"
+                  />
+                }
+              />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          name="allowAnonymous"
+          render={({ field }) => (
+            <FormItem className="flex items-center justify-between rounded-lg border p-4">
+              <div className="space-y-0.5">
+                <FormLabel>Allow Anonymous submissions</FormLabel>
+                <FormDescription>
+                  Allow public board submissions from anonymous users
+                </FormDescription>
+              </div>
+
+              <FormControl
+                render={
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                    disabled={isPending}
+                    data-testid="edit-board-allow-anonymous-switch"
+                  />
+                }
+              />
+            </FormItem>
+          )}
+        />
+
+        <Button
+          type="submit"
+          disabled={isPending}
+          data-testid="edit-board-submit"
+        >
+          {isPending ? 'Saving...' : 'Save Changes'}
+        </Button>
+      </form>
+    </Form>
+  );
+}
+```
+
+### Edit Board Dialog
+
+Like the create dialog, this wraps the form in a modal. 
+
+It receives the current board as a prop so the form can display existing values and update the board when the form is submitted.
+
+Separating the form into its own component enables reuse and lazy rendering - the form only instantiates when the dialog opens, improving performance and ensuring proper state cleanup when the dialog closes.
+
+Let's create the edit board dialog component now:
+
+```typescript {% title="apps/web/app/[locale]/(internal)/boards/_components/edit-board-dialog.tsx" %}
+'use client';
+
+import { useState } from 'react';
+
+import type { Board } from '@lib/boards/boards-page.loader';
+import { Pencil } from 'lucide-react';
+
+import { Button } from '@kit/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@kit/ui/dialog';
+
+import { EditBoardForm } from './edit-board-form';
+
+interface EditBoardDialogProps {
+  board: Board;
+}
+
+export function EditBoardDialog({ board }: EditBoardDialogProps) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger
+        render={
+          <Button variant="outline" size="sm" data-testid="edit-board-button">
+            <Pencil className="mr-2 h-4 w-4" />
+            Edit
+          </Button>
+        }
+      />
+
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit Board</DialogTitle>
+          <DialogDescription>
+            Update your feedback board details.
+          </DialogDescription>
+        </DialogHeader>
+
+        <EditBoardForm board={board} onSuccess={() => setOpen(false)} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+```
+
+### Delete Board Dialog
+
+For destructive actions, use `AlertDialog` instead of `Dialog`. The AlertDialog pattern requires users to explicitly confirm their intent, reducing the chance of accidental data loss.
+
+After successful deletion, the dialog closes and the boards list updates via server-side revalidation.
+
+```typescript {% title="apps/web/app/[locale]/(internal)/boards/_components/delete-board-dialog.tsx" %}
+'use client';
+
+import { useState } from 'react';
+
+import { Trash2 } from 'lucide-react';
+import { useAction } from 'next-safe-action/hooks';
+
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@kit/ui/alert-dialog';
+import { Button } from '@kit/ui/button';
+import { toast } from '@kit/ui/sonner';
+
+import { deleteBoardAction } from '@lib/boards/boards-server-actions';
+
+interface DeleteBoardDialogProps {
+  boardId: string;
+  boardName: string;
+}
+
+export function DeleteBoardDialog({
+  boardId,
+  boardName,
+}: DeleteBoardDialogProps) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger
+        render={
+          <Button
+            variant="destructive"
+            size="sm"
+            data-testid="delete-board-button"
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            Delete
+          </Button>
+        }
+      />
+
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete Board</AlertDialogTitle>
+          <AlertDialogDescription>
+            Are you sure you want to delete <b>{boardName}</b>? This action
+            cannot be undone and will delete all feedback items in this board.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <DeleteBoardForm boardId={boardId} onSuccess={() => setOpen(false)} />
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+function DeleteBoardForm({
+  boardId,
+  onSuccess,
+}: {
+  boardId: string;
+  onSuccess: () => void;
+}) {
+  const { executeAsync, status } = useAction(deleteBoardAction);
+  const isPending = status === 'executing';
+
+  const handleDelete = async () => {
+    const promise = executeAsync({ id: boardId }).then((result) => {
+      if (result?.serverError || result?.validationErrors) {
+        throw new Error(result.serverError);
+      }
+
+      return result;
+    });
+
+    await toast
+      .promise(promise, {
+        loading: 'Deleting board...',
+        success: 'Board deleted successfully',
+        error: 'Failed to delete board',
+      })
+      .unwrap();
+
+    onSuccess();
+  };
+
+  return (
+    <AlertDialogFooter>
+      <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
+
+      <AlertDialogAction
+        onClick={handleDelete}
+        disabled={isPending}
+        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+      >
+        {isPending ? 'Deleting...' : 'Delete Board'}
+      </AlertDialogAction>
+    </AlertDialogFooter>
+  );
+}
+```
+
+## Step 12: Create the Board Detail Page
+
+With the components for edit and delete board created, we can now create the board detail page and put everything together.
+
+Dynamic route segments like `[boardId]` capture URL parameters. The page fetches the specific board and renders a 404 if it doesn't exist or doesn't belong to the current organization. 
+
+The `generateMetadata` function sets the page title dynamically based on the board name.
+
+```typescript {% title="apps/web/app/[locale]/(internal)/boards/[boardId]/page.tsx" %}
+import type { Metadata } from 'next';
+
+import { notFound } from 'next/navigation';
+
+import { AppBreadcrumbs } from '@kit/ui/app-breadcrumbs';
+import { PageBody, PageHeader } from '@kit/ui/page';
+
+import { loadBoard } from '@lib/boards/boards-page.loader';
+
+import { DeleteBoardDialog } from '../_components/delete-board-dialog';
+import { EditBoardDialog } from '../_components/edit-board-dialog';
+
+interface BoardPageProps {
+  params: Promise<{ boardId: string }>;
+}
+
+export async function generateMetadata({
+  params,
+}: BoardPageProps): Promise<Metadata> {
+  const { boardId } = await params;
+  const board = await loadBoard(boardId);
+
+  return {
+    title: board?.name ?? 'Board Not Found',
+  };
+}
+
+export default async function BoardPage({ params }: BoardPageProps) {
+  const { boardId } = await params;
+  const board = await loadBoard(boardId);
+
+  if (!board) {
+    notFound();
+  }
+
+  return (
+    <PageBody>
+      <PageHeader>
+        <div className="flex-1">
+          <AppBreadcrumbs
+            values={{
+              boards: 'Boards',
+              [board.id]: board.name,
+            }}
+          />
+        </div>
+
+        <div className="flex gap-2">
+          <EditBoardDialog board={board} />
+
+          <DeleteBoardDialog boardId={board.id} boardName={board.name} />
+        </div>
+      </PageHeader>
+
+      {/* Feedback items list will go here - see Module 4 */}
+    </PageBody>
+  );
+}
+```
+
+Here's the current state of the board detail page:
+
+{% img src="/assets/courses/next-drizzle/teampulse-board-page.webp" width="1000" height="1000" alt="Teampulse Board Detail" /%}
+
+Clicking the "Edit" button opens the edit board dialog. Test the edit functionality and verify that the board updates correctly.
+
+You can also test the delete functionality by clicking on the "Delete" button and confirming the deletion.
+
+## Checkpoint: Verify It Works
+
+Before moving on, test each piece of functionality to ensure everything works correctly. If any step fails, check the console for errors and review the relevant code:
+
+- [ ] `boards` table exists in database
+- [ ] `/boards` page loads without errors
+- [ ] Can create a new board
+- [ ] New board appears in list
+- [ ] Can view board details
+- [ ] Can edit board name/description
+- [ ] Can delete board
+- [ ] Boards are scoped to organization (switch organization in the sidebar to verify)
+
+Before committing your work, it's always a good idea to run the following commands to ensure everything is working correctly:
+
+```bash
+pnpm typecheck
+pnpm lint:fix
+pnpm format:fix
+```
+
+You can also run this individual command that runs all of the above checks:
+
+```bash
+pnpm run healthcheck
+```
+
+---
+
+## Patterns Reference
+
+These are the core patterns you'll use throughout TeamPulse and any Makerkit application. Bookmark this section for quick reference when building new features.
+
+### Server Action Pattern
+```typescript
+export const myAction = authenticatedActionClient
+  .inputSchema(mySchema)
+  .action(async ({ parsedInput: data, ctx }) => {
+    const organizationId = await getActiveOrganizationId();
+    // ... implementation
+    revalidatePath('/path', 'layout');
+    return { result };
+  });
+```
+
+### Loader Pattern
+```typescript
+export const loadData = cache(async () => {
+  const organizationId = await getActiveOrganizationId();
+  return db.select().from(table).where(eq(table.organizationId, organizationId));
+});
+```
+
+### Form Pattern
+```typescript
+const form = useForm({
+  resolver: zodResolver(schema),
+  defaultValues: { ... },
+});
+
+const { executeAsync, status } = useAction(action);
+```
+
+---
+
+## Module Complete
+
+You've built a complete feature from database to UI. The patterns you learned here - schema design, server actions, loaders, forms, and dialogs - are the building blocks you'll use for every feature in the application.
+
+You now have:
+- [x] Database schema for boards with multi-tenant relationships
+- [x] Server actions for create, update, and delete operations
+- [x] Data loader with request deduplication
+- [x] Form with validation and error handling
+- [x] List page with server-side data fetching
+- [x] Edit and delete dialogs with confirmation
+- [x] Navigation integration with i18n support
+
+**Next:** In [Module 4: Feedback Items](./feedback-items), you'll build the core feature - feedback submission with voting and status workflow. This module will introduce parent-child relationships in Drizzle and more complex form patterns.
+
+---
+
+## Learn More
+
+Dive deeper into the technologies used in this module:
+
+### Drizzle ORM
+- [Schema Declaration](https://orm.drizzle.team/docs/sql-schema-declaration) - Defining tables and columns
+- [Relations](https://orm.drizzle.team/docs/relations) - Setting up table relationships
+- [Migrations](https://orm.drizzle.team/docs/migrations) - Database migration workflow
+- [Queries](https://orm.drizzle.team/docs/select) - Select, insert, update, delete
+
+### Zod
+- [Basic Usage](https://zod.dev/?id=basic-usage) - Creating schemas
+- [Primitives](https://zod.dev/?id=primitives) - String, number, etc.
+- [Objects](https://zod.dev/?id=objects) - Object schemas
+- [Error Handling](https://zod.dev/?id=error-handling) - Validation errors
+
+### next-safe-action
+- [Getting Started](https://next-safe-action.dev/docs/getting-started) - Setup and basics
+- [Action Client](https://next-safe-action.dev/docs/safe-action-client) - Creating action clients
+- [useAction Hook](https://next-safe-action.dev/docs/execution/hooks/useaction) - Client-side execution
+
+### React Hook Form
+- [Getting Started](https://react-hook-form.com/get-started) - Basic setup
+- [useForm](https://react-hook-form.com/docs/useform) - Main hook API
+- [Schema Validation](https://react-hook-form.com/get-started#SchemaValidation) - Zod integration
+
+---
+
+## Troubleshooting
+
+### Migration Generation Fails
+
+If `drizzle:generate` fails with schema errors:
+
+1. Check for TypeScript errors: `pnpm --filter @kit/database typecheck`
+2. Ensure all imports are correct in your schema file
+3. Verify the schema is exported from `schema.ts`
+
+### "Board not found" After Creating
+
+If boards don't appear after creation:
+
+1. Verify `revalidatePath` is called in the server action
+2. Check browser console for errors
+3. Confirm the organization ID matches (switch orgs and back)
+
+### Form Validation Not Working
+
+If Zod validation seems ignored:
+
+1. Ensure `zodResolver` is imported from `@hookform/resolvers/zod`
+2. Check that schema is passed to `zodResolver(schema)` not `zodResolver`
+3. Verify field names match between schema and form
+
+---
+
+## Frequently Asked Questions
+
+{% faq
+   title="Data Model FAQ"
+   items=[
+     {"question": "How do I add a new field to an existing table?", "answer": "Add the field to your schema file, run drizzle:generate to create a migration, then drizzle:migrate to apply it. For required fields on existing data, either make it nullable with a default, or run a data migration first."},
+     {"question": "Why cache() on loader functions?", "answer": "React's cache() deduplicates calls during a single render. If multiple components call loadBoards(), the database query runs once. This is request-scoped, not persistent caching. It prevents unnecessary duplicate queries."}
+   ]
+/%}
+
+---
+
+## Learn More
+
+- [Database Documentation](/docs/nextjs-drizzle/database/overview)
+
+---
+
+**Next:** In the next module, [Feedback Items](./feedback-items), you'll build the core feature - feedback submission with voting and status workflow. This module will introduce parent-child relationships in Drizzle and more complex form patterns.

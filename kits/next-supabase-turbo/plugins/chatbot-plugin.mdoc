@@ -6,6 +6,10 @@ order: 4
 description: 'Add an AI chatbot to your Next.js Supabase SaaS Starter kit to provide instant support to your users.'
 ---
 
+{% alert type="warning" %}
+This plugin is deprecated.
+{% /alert %}
+
 This plugin allows you to create a chatbot for your app. Users can interact with the chatbot to get information about
 your app.
 
@@ -38,7 +42,7 @@ You can now import the Chatbot component in your app:
 ```tsx
 import { Chatbot } from '@kit/chatbot';
 
-<Chatbot sitename={'Makerkit'} />
+<Chatbot siteName={'Makerkit'} />
 ```
 
 ## Create the API route handler
@@ -87,7 +91,7 @@ export default {
 
 The above is not required if you are using TailwindCSS v4.
 
-If using TailwindCSS v4, please add the following style to `apps/wer/styles/globals.css`:
+If using TailwindCSS v4, please add the following style to `apps/web/styles/globals.css`:
 
 ```css {% title="apps/web/styles/globals.css" %}
 @import '@kit/chatbot/style';
@@ -206,7 +210,7 @@ If you use an OpenAI-compatible model, you can set the `LLM_BASE_URL` to the URL
 
 In addition, we need to provide the following environment variables for the chatbot indexer:
 
-{% alert type="info" %}
+{% alert type="default" %}
 The chatbot indexer is a separate service that indexes your app's content and provides answers to user queries. As such, the `.env.local` file is located in the `packages/plugins/chatbot` directory, not in `apps/web`.
 {% /alert %}
 

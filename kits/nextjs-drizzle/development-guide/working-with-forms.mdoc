@@ -1,0 +1,746 @@
+---
+status: "published"
+title: "Working with Forms"
+label: "Forms"
+order: 5
+description: "Build type-safe forms with react-hook-form, Zod validation, and next-safe-action server actions in your Next.js Drizzle SaaS application."
+---
+
+Forms connect your UI to server actions. The Next.js Drizzle kit uses a powerful form stack that provides type safety from schema definition through to the server:
+
+- **react-hook-form**: Form state management with minimal re-renders
+- **@kit/ui/form**: Pre-styled Shadcn form components
+- **Zod**: Schema validation shared between client and server
+- **next-safe-action**: Type-safe server action calls with automatic error handling
+
+This guide shows you the complete pattern used throughout the application.
+
+## The Complete Form Pattern
+
+### 1. Define Zod Schema
+
+The first step is to define the Zod schema for the form. This schema will be used to validate the form data on the server and client sides.
+
+**File:** `_lib/schemas/feature.schema.ts`
+
+```typescript
+import { z } from 'zod';
+
+export const createProjectSchema = z.object({
+  name: z.string().min(3, 'Name must be at least 3 characters'),
+  description: z.string().optional(),
+});
+
+export type CreateProjectInput = z.output<typeof createProjectSchema>;
+```
+
+### 2. Create Server Action
+
+Next, we need to create the server action that will be used to create the project. This action will be used to validate the form data on the server side and insert the data into the database.
+
+The convention I recommend is to create a server action for each feature. This will make the code more modular and easier to maintain - and we can name the action after the feature. Make sure to suffix each action function with the word "Action". This makes it explicit that the function is a server action.
+
+**File:** `_lib/actions/feature-server-actions.ts`
+
+```typescript
+'use server';
+
+import { revalidatePath } from 'next/cache';
+
+import { authenticatedActionClient } from '@kit/action-middleware';
+import { getActiveOrganizationId } from '@kit/better-auth/context';
+import { db, project } from '@kit/database';
+import { getLogger } from '@kit/shared/logger';
+import { generateId } from '@kit/shared/uuid';
+
+import { createProjectSchema } from '../schemas/feature.schema';
+
+export const createProjectAction = authenticatedActionClient
+  .inputSchema(createProjectSchema)
+  .action(async ({ parsedInput: data, ctx }) => {
+    // ctx.user is available from authenticated middleware
+    const userId = ctx.user.id;
+    const organizationId = await getActiveOrganizationId();
+
+    const logger = (await getLogger()).child({
+      userId,
+      projectName: data.name,
+      organizationId,
+    });
+
+    logger.info('User attempting to create project...');
+
+
+    if (!organizationId) {
+      logger.error('No active organization found');
+      throw new Error('No active organization found');
+    }
+
+    const [project] = await db
+      .insert(project)
+      .values({
+        // uuidv7 is a good choice for the id because it's a unique identifier and it's easy to generate. alternatively, you can use the built-in `gen_random_uuid()` function to generate a random UUID when defining the schema.
+        id: generateId(),
+        name: data.name,
+        description: data.description,
+        organizationId,
+      })
+      .returning();
+
+    logger.info({
+      projectId: project.id,
+    }, 'Project created successfully');
+
+    // make sure to revalidate the projects page so that the new project is displayed immediately.
+    revalidatePath('/projects');
+
+    return {
+      projectId: project.id,
+    };
+  });
+```
+
+### 3. Build Form Component
+
+Next, we need to build the form component that will be used to create the project. This component will be used to display the form and handle the form submission.
+
+**File:** `_components/feature-form.tsx`
+
+```typescript
+'use client';
+
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useAction } from 'next-safe-action/hooks';
+import { useForm } from 'react-hook-form';
+
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@kit/ui/form';
+import { Input } from '@kit/ui/input';
+import { Textarea } from '@kit/ui/textarea';
+import { Button } from '@kit/ui/button';
+import { toast } from '@kit/ui/sonner';
+
+import { createProjectAction } from '../_lib/actions/feature-server-actions';
+import { createProjectSchema, type CreateProjectInput } from '../_lib/schemas/feature.schema';
+
+export function ProjectForm() {
+  const form = useForm({
+    resolver: zodResolver(createProjectSchema),
+    defaultValues: {
+      name: '',
+      description: '',
+    },
+  });
+
+  const { executeAsync, status } = useAction(createProjectAction);
+
+  const isPending = status === 'executing';
+
+  const onSubmit = async (data: CreateProjectInput) => {
+    return toast
+      .promise(
+        executeAsync(data).then((response) => {
+          // always check for errors and validation errors.
+          if (response.serverError || response.validationErrors) {
+            throw new Error(
+              response.serverError || 'An unknown error occurred',
+            );
+          }
+
+          // reset the form after a successful submission.
+          form.reset();
+        }),
+        {
+          loading: 'Creating project...',
+          success: 'Project created successfully!',
+          error: 'Failed to create project',
+        },
+      )
+      .unwrap();
+  };
+
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <FormField
+          control={form.control}
+          name="name"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Project Name</FormLabel>
+
+              <FormControl
+                render={
+                  <Input
+                    {...field}
+                    placeholder="Enter project name"
+                    disabled={isPending}
+                    data-testid="project-name-input"
+                  />
+                }
+              />
+
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="description"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Description (Optional)</FormLabel>
+
+              <FormControl
+                render={
+                  <Textarea
+                    {...field}
+                    rows={4}
+                    placeholder="Describe your project"
+                    disabled={isPending}
+                  />
+                }
+              />
+
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <Button type="submit" disabled={isPending} data-testid="submit-button">
+          {isPending ? 'Creating...' : 'Create Project'}
+        </Button>
+      </form>
+    </Form>
+  );
+}
+```
+
+**Note**: adding `data-testid` attributes to the form fields is a good practice for end-to-end testing. It's going to be very helpful to have these attributes when writing tests.
+
+## Server Actions with next-safe-action
+
+### Authenticated Action Client
+
+All server actions use the authenticated action client which ensures the user is logged in:
+
+```typescript
+'use server';
+
+import { authenticatedActionClient } from '@kit/action-middleware';
+import { z } from 'zod';
+
+const mySchema = z.object({
+  name: z.string().min(3),
+});
+
+export const myAction = authenticatedActionClient
+  .inputSchema(mySchema)
+  .action(async ({ parsedInput, ctx }) => {
+    // parsedInput: validated input from schema
+    // ctx.user: current authenticated user
+
+    const user = ctx.user; // { id, email, ... }
+
+    return { success: true };
+  });
+```
+
+**Key Points:**
+- Import from `@kit/action-middleware` not `@kit/next/actions`
+- `ctx.user` is available from middleware
+
+### Action with Permission Checks
+
+Use the `withFeaturePermission` middleware for declarative permission checks:
+
+```typescript
+'use server';
+
+import { z } from 'zod';
+
+import { authenticatedActionClient } from '@kit/action-middleware';
+import { withFeaturePermission } from '@kit/action-middleware';
+
+const schema = z.object({
+  name: z.string(),
+});
+
+export const protectedAction = authenticatedActionClient
+  .use(withFeaturePermission({ project: ['create'] }))
+  .inputSchema(schema)
+  .action(async ({ parsedInput, ctx }) => {
+    // Permission already verified by middleware
+    // ctx.organizationId is available
+    return { success: true };
+  });
+```
+
+### Action with Logging
+
+Logging is super important for debugging and monitoring. 
+
+It's a good practice to log the user id, the action name, the input data (but careful to sensitive information), and each step of an async operation, (before executing, after executing, and in case of errors).
+
+```typescript
+'use server';
+
+import { authenticatedActionClient } from '@kit/action-middleware';
+import { getLogger } from '@kit/shared/logger';
+
+export const myAction = authenticatedActionClient
+  .inputSchema(mySchema)
+  .action(async ({ parsedInput, ctx }) => {
+    const logger = (await getLogger()).child({
+      userId: ctx.user.id,
+      action: 'my-action',
+    });
+
+    logger.info('Action started');
+
+    try {
+      // Do work
+      logger.info('Action completed successfully');
+      return { success: true };
+    } catch (error) {
+      logger.error('Action failed', { error });
+      throw error;
+    }
+  });
+```
+
+## Form Patterns
+
+### Pattern 1: With toast.promise (Recommended)
+
+Best for most forms - provides automatic toast notifications:
+
+```typescript
+'use client';
+
+import { useAction } from 'next-safe-action/hooks';
+import { toast } from '@kit/ui/sonner';
+
+export function MyForm() {
+  const form = useForm({ /* ... */ });
+  const { executeAsync, status } = useAction(myAction);
+
+  const isPending = status === 'executing';
+
+  const onSubmit = async (data) => {
+    return toast
+      .promise(
+        executeAsync(data).then((response) => {
+          // Check for errors
+          if (response.serverError || response.validationErrors) {
+            throw new Error(
+              response.serverError || 'Validation failed'
+            );
+          }
+
+          // Success
+          form.reset();
+        }),
+        {
+          loading: 'Saving...',
+          success: 'Saved successfully!',
+          error: 'Failed to save',
+        },
+      )
+      .unwrap();
+  };
+
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)}>
+        {/* Form fields */}
+        <Button disabled={isPending}>
+          {isPending ? 'Saving...' : 'Save'}
+        </Button>
+      </form>
+    </Form>
+  );
+}
+```
+
+### Pattern 2: With execute and callbacks
+
+Use when you need custom success/error handling:
+
+```typescript
+'use client';
+
+import { useAction } from 'next-safe-action/hooks';
+
+export function MyForm({ onSuccess }: { onSuccess: () => void }) {
+  const form = useForm({ /* ... */ });
+
+  const { execute, status, result } = useAction(myAction, {
+    onSettled: onSuccess,
+  });
+
+  const isPending = status === 'executing';
+
+  const errorData = result.data as
+    | { success: false; error: string }
+    | undefined;
+
+  const error = result.serverError || errorData?.error;
+
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(execute)}>
+        {error && <Alert variant="destructive">{error}</Alert>}
+
+        {/* Form fields */}
+
+        <Button disabled={isPending}>
+          {isPending ? 'Saving...' : 'Save'}
+        </Button>
+      </form>
+    </Form>
+  );
+}
+```
+
+## Form Dialogs
+
+Combining forms with dialogs (the actual pattern used in the codebase):
+
+```typescript
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@kit/ui/dialog';
+import { useState } from 'react';
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@kit/ui/form';
+import { Input } from '@kit/ui/input';
+import { Button } from '@kit/ui/button';
+import { toast } from '@kit/ui/sonner';
+import { createProjectSchema } from '../_lib/schemas/project.schema';
+import { createProjectAction } from '../_lib/actions/project-server-actions';
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useAction } from 'next-safe-action/hooks';
+
+export function CreateProjectDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        onEscapeKeyDown={(e) => e.preventDefault()}
+        onInteractOutside={(e) => e.preventDefault()}
+      >
+        <DialogHeader>
+          <DialogTitle>Create New Project</DialogTitle>
+          <DialogDescription>
+            Enter the details for your new project.
+          </DialogDescription>
+        </DialogHeader>
+
+        <CreateProjectForm onOpenChange={onOpenChange} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function CreateProjectForm({
+  onOpenChange,
+}: {
+  onOpenChange: (open: boolean) => void;
+}) {
+  const form = useForm({
+    resolver: zodResolver(createProjectSchema),
+    defaultValues: {
+      name: '',
+    },
+  });
+
+  const { executeAsync, status } = useAction(createProjectAction);
+
+  const onSubmit = async (data) => {
+    return toast
+      .promise(
+        executeAsync(data).then((response) => {
+          if (response.serverError || response.validationErrors) {
+            throw new Error(
+              response.serverError || 'An unknown error occurred',
+            );
+          }
+
+          form.reset();
+          onOpenChange(false);
+        }),
+        {
+          loading: 'Creating project...',
+          success: 'Project created successfully!',
+          error: 'Failed to create project',
+        },
+      )
+      .unwrap();
+  };
+
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <FormField
+          control={form.control}
+          name="name"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Project Name</FormLabel>
+              <FormControl
+                render={
+                  <Input
+                    {...field}
+                    disabled={status === 'executing'}
+                    data-testid="project-name-input"
+                  />
+                }
+              />
+
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <div className="flex justify-end gap-2">
+          <DialogClose asChild>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={status === 'executing'}
+              onClick={() => form.reset()}
+            >
+              Cancel
+            </Button>
+          </DialogClose>
+
+          <Button
+            type="submit"
+            disabled={status === 'executing'}
+            data-testid="submit-button"
+          >
+            {status === 'executing' ? 'Creating...' : 'Create'}
+          </Button>
+        </div>
+      </form>
+    </Form>
+  );
+}
+```
+
+It's a good practice to declare the form component outside the dialog component. This will make the code more readable and maintainable - but also make sure to instantiate the form component only when the dialog gets opened.
+
+## Form Best Practices
+
+### 1. Always Use Zod Schemas
+
+```typescript
+// ✅ Good - shared schema for client and server
+export const schema = z.object({
+  email: z.string().email(),
+});
+
+// Form uses schema
+const form = useForm({ resolver: zodResolver(schema) });
+
+// Server action uses same schema
+export const action = authenticatedActionClient
+  .inputSchema(schema)
+  .action(...);
+```
+
+### 2. Add data-testid for E2E Tests
+
+```typescript
+<Input {...field} data-testid="email-input" />
+<Button type="submit" data-testid="submit-button">
+  Submit
+</Button>
+```
+
+### 3. Use toast.promise for Better UX
+
+```typescript
+return toast
+  .promise(
+    executeAsync(data).then(/* ... */),
+    {
+      loading: 'Processing...',
+      success: 'Success!',
+      error: 'Failed',
+    },
+  )
+  .unwrap();
+```
+
+### 4. Show Loading States
+
+```typescript
+const { status } = useAction(myAction);
+const isPending = status === 'executing';
+
+<Button disabled={isPending}>
+  {isPending ? 'Saving...' : 'Save'}
+</Button>
+```
+
+### 5. Always Validate on Server
+
+```typescript
+'use server';
+
+export const myAction = authenticatedActionClient
+  .inputSchema(mySchema) // Server-side validation
+  .action(async ({ parsedInput }) => {
+    // Input is already validated and typed
+  });
+```
+
+### 6. Use FormMessage for Errors
+
+```typescript
+<FormField
+  control={form.control}
+  name="email"
+  render={({ field }) => (
+    <FormItem>
+      <FormLabel>Email</FormLabel>
+      <FormControl
+        render={
+          <Input {...field} />
+        }
+      />
+      <FormMessage /> {/* Shows validation errors */}
+    </FormItem>
+  )}
+/>
+```
+
+## Common Form Patterns
+
+### Controlled vs Uncontrolled Inputs
+
+React Hook Form uses uncontrolled inputs by default for performance. The `FormControl` component handles the connection:
+
+```typescript
+<FormField
+  name="email"
+  render={({ field }) => (
+    <FormItem>
+      <FormLabel>Email</FormLabel>
+      <FormControl
+        render={<Input {...field} />}
+      />
+      <FormMessage />
+    </FormItem>
+  )}
+/>
+```
+
+### Conditional Fields
+
+Show or hide fields based on other field values:
+
+```typescript
+const watchType = form.watch('type');
+
+return (
+  <Form {...form}>
+    <FormField name="type" render={...} />
+
+    {watchType === 'organization' && (
+      <FormField name="organizationName" render={...} />
+    )}
+  </Form>
+);
+```
+
+### Field Arrays
+
+For dynamic lists of fields (like tags or team members):
+
+```typescript
+import { useFieldArray } from 'react-hook-form';
+
+function TeamMembersForm() {
+  const form = useForm({
+    defaultValues: {
+      members: [{ email: '' }],
+    },
+  });
+
+  const { fields, append, remove } = useFieldArray({
+    control: form.control,
+    name: 'members',
+  });
+
+  return (
+    <Form {...form}>
+      {fields.map((field, index) => (
+        <div key={field.id} className="flex gap-2">
+          <FormField
+            name={`members.${index}.email`}
+            render={({ field }) => (
+              <FormItem>
+                <FormControl render={<Input {...field} />} />
+              </FormItem>
+            )}
+          />
+          <Button type="button" onClick={() => remove(index)}>
+            Remove
+          </Button>
+        </div>
+      ))}
+      <Button type="button" onClick={() => append({ email: '' })}>
+        Add Member
+      </Button>
+    </Form>
+  );
+}
+```
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Why use toast.promise instead of try/catch?", "answer": "toast.promise automatically shows loading, success, and error states. It reduces boilerplate and provides a consistent user experience. The .unwrap() at the end ensures errors propagate correctly for redirect handling."},
+     {"question": "When should I use execute vs executeAsync?", "answer": "Use executeAsync when you need to await the result and handle it in your code (like with toast.promise). Use execute when you're handling results through the useAction callbacks (onSuccess, onError, onSettled)."},
+     {"question": "How do I handle file uploads?", "answer": "For file uploads, use the native FormData approach or a dedicated upload component. The Zod schema can validate file metadata, but the actual file should be handled separately from the form data."},
+     {"question": "Can I use the same schema for create and update forms?", "answer": "Yes. Use .partial() for update schemas to make all fields optional, then extend with required fields like id: updateProjectSchema = createProjectSchema.partial().extend({ id: z.string() })"}
+   ]
+/%}
+
+## Related Documentation
+
+- [Server Actions Guide](./server-actions)
+- [Action Middleware](./action-middleware)
+- [UI Components](../ui-components/overview)
+- [Adding Features](./adding-features)
+
+---
+
+**Next:** [Database Operations →](./database-operations)

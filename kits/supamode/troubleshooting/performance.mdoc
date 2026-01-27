@@ -1,0 +1,259 @@
+---
+status: "published"
+title: "Performance Issues"
+label: "Performance"
+order: 3
+description: "Optimize Supamode performance for large datasets. Add indexes, configure pagination, and reduce query complexity."
+---
+
+If Supamode feels slow when loading tables, searching, or navigating, this guide helps identify and fix performance bottlenecks.
+
+## Slow Table Loading
+
+### Symptoms
+
+- Data Explorer takes several seconds to load a table
+- Spinner shows for extended periods
+- Browser becomes unresponsive
+
+### Diagnosis
+
+1. Open browser DevTools → Network tab
+2. Reload the page
+3. Look for slow API requests (sort by Time column)
+4. Check the request time in the Timing tab
+
+### Fixes
+
+**1. Add database indexes**
+
+For columns you frequently filter or sort on, add indexes:
+
+```sql
+-- Add index for commonly filtered column
+CREATE INDEX idx_orders_status ON orders(status);
+
+-- Add index for date columns used in filters
+CREATE INDEX idx_orders_created_at ON orders(created_at);
+
+-- Composite index for common filter combinations
+CREATE INDEX idx_orders_status_created ON orders(status, created_at);
+```
+
+**2. Limit default data**
+
+Configure the table to show fewer records by default. In **Settings > Tables**, set a default filter or limit.
+
+**3. Disable full-text search on large tables**
+
+In **Settings > Tables**, disable searchability for tables with millions of rows. Use specific filters instead.
+
+## Slow Global Search
+
+### Cause
+
+Global search queries all searchable tables. With many tables or large datasets, this becomes slow.
+
+### Fixes
+
+**1. Disable search on non-essential tables**
+
+In **Settings > Tables**, disable searchability for:
+- Audit logs
+- System tables
+- Large historical data tables
+
+**2. Add text search indexes**
+
+For tables that need search, add GIN indexes:
+
+```sql
+-- Full-text search index
+CREATE INDEX idx_posts_search ON posts
+USING GIN (to_tsvector('english', title || ' ' || content));
+```
+
+## Slow Record Detail View
+
+### Cause
+
+Loading a record with many relationships (one-to-many, many-to-many) triggers multiple queries.
+
+### Fixes
+
+**1. Check relationship cardinality**
+
+If a record has thousands of related records, consider:
+- Paginating relationship views
+- Hiding high-cardinality relationships in the detail view
+
+**2. Add foreign key indexes**
+
+Ensure foreign keys have indexes:
+
+```sql
+-- Index on foreign key columns
+CREATE INDEX idx_order_items_order_id ON order_items(order_id);
+CREATE INDEX idx_posts_author_id ON posts(author_id);
+```
+
+## Slow Dashboard Widgets
+
+### Symptoms
+
+Dashboard widgets show stale data or take long to refresh.
+
+### Fixes
+
+**1. Add time-based filters**
+
+When creating widgets, add filters like "last 30 days" to limit the data scanned.
+
+**2. Create materialized views for complex metrics**
+
+For dashboards with complex aggregations:
+
+```sql
+-- Materialized view for daily metrics
+CREATE MATERIALIZED VIEW daily_order_stats AS
+SELECT
+  date_trunc('day', created_at) as day,
+  COUNT(*) as order_count,
+  SUM(total) as revenue
+FROM orders
+GROUP BY 1;
+
+-- Refresh periodically
+REFRESH MATERIALIZED VIEW daily_order_stats;
+```
+
+Then sync this view into Supamode and use it for widgets.
+
+## API Server Performance
+
+### Symptoms
+
+- High latency on all requests
+- Server CPU or memory usage is high
+
+### Diagnosis
+
+Enable performance logging:
+
+```bash
+# In apps/api/.env
+PERF_LOG_LEVEL=detailed
+```
+
+### Fixes
+
+**1. Use connection pooling**
+
+Use Supabase's connection pooler (Supavisor) instead of direct connections:
+
+```bash
+# Use pooler URL
+SUPABASE_DATABASE_URL=postgresql://postgres.YOUR_PROJECT:PASSWORD@aws-0-us-east-1.pooler.supabase.com:5432/postgres
+```
+
+**2. Scale horizontally**
+
+For production, run multiple API instances behind a load balancer.
+
+**3. Add caching**
+
+Supamode caches some queries. For custom implementations, consider Redis for frequently accessed data.
+
+## Database-Level Optimization
+
+### Check Slow Queries
+
+Use PostgreSQL's query analyzer:
+
+```sql
+-- Enable query logging
+ALTER SYSTEM SET log_min_duration_statement = 1000; -- Log queries > 1s
+
+-- Find slow queries
+SELECT query, calls, mean_time, total_time
+FROM pg_stat_statements
+ORDER BY mean_time DESC
+LIMIT 10;
+```
+
+### Analyze Query Plans
+
+For specific slow queries:
+
+```sql
+EXPLAIN ANALYZE
+SELECT * FROM orders
+WHERE status = 'pending'
+ORDER BY created_at DESC
+LIMIT 100;
+```
+
+Look for:
+- Sequential scans on large tables (add index)
+- High row estimates (add filters)
+- Nested loops (check join conditions)
+
+### Vacuum and Analyze
+
+Keep table statistics updated:
+
+```sql
+-- Update statistics for query planner
+ANALYZE orders;
+
+-- Clean up dead tuples
+VACUUM orders;
+
+-- Or do both
+VACUUM ANALYZE orders;
+```
+
+## Browser Performance
+
+### Symptoms
+
+- UI is sluggish even after data loads
+- Scrolling is choppy
+- High memory usage
+
+### Fixes
+
+**1. Reduce visible columns**
+
+In table settings, hide columns users don't need. Fewer columns means less rendering.
+
+**2. Use pagination**
+
+Avoid loading thousands of records. Use pagination controls to limit visible data.
+
+**3. Clear browser cache**
+
+Sometimes stale cached data causes issues:
+
+```
+Cmd+Shift+R (Mac) or Ctrl+Shift+R (Windows) for hard refresh
+```
+
+## Monitoring
+
+### Track Performance Over Time
+
+1. Use Supabase Dashboard → Reports for database metrics
+2. Check API response times in your hosting platform's metrics
+3. Set up alerting for slow responses
+
+### Performance Checklist
+
+Before production:
+
+- [ ] All filtered columns have indexes
+- [ ] Foreign keys have indexes
+- [ ] Searchability disabled on large tables
+- [ ] Connection pooling enabled
+- [ ] Time-based filters on dashboard widgets
+- [ ] Pagination configured for large tables

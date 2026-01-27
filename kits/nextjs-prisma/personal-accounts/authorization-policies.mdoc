@@ -1,0 +1,209 @@
+---
+status: "published"
+title: "Account Deletion Policies"
+label: "Authorization Policies"
+order: 5
+description: "Customize account deletion authorization rules."
+---
+
+Account deletion policies are authorization hooks that run before a user can delete their account. Use them to enforce business rules - like requiring subscription cancellation or data export - or to perform cleanup tasks before deletion proceeds. The system ships with sensible defaults (block if active subscriptions, block if sole org owner) that you can extend, replace, or cherry-pick.
+
+Account deletion policies are pluggable authorization rules that evaluate whether a user can delete their account, returning allow/deny with optional remediation instructions.
+
+- **Use policies when:** you need to enforce business rules before account deletion (subscription status, data retention, ownership transfer).
+- **Extend defaults when:** the built-in subscription and organization checks are correct but you need additional rules.
+- **Replace policies when:** your business logic differs significantly from the defaults (e.g., auto-cancel subscriptions instead of blocking).
+
+## Default Policies
+
+The `@kit/account-hooks` package includes two default policies:
+
+| Policy | ID | Behavior |
+|--------|-----|----------|
+| `checkSubscriptionsPolicy` | `account-deletion.check-subscriptions` | Blocks if user has active subscriptions |
+| `checkOrganizationsPolicy` | `account-deletion.check-organizations` | Blocks if sole owner of orgs with other members |
+
+## Adding Custom Policies
+
+### 1. Create Your Policy
+
+```typescript
+// In your app or a custom package
+import { definePolicy, allow, deny } from '@kit/policies';
+import type { AccountDeleteContext } from '@kit/account-hooks';
+
+export const gracePeriodPolicy = definePolicy<AccountDeleteContext>({
+  id: 'account-deletion.grace-period',
+  evaluate: async (context) => {
+    const user = await getUser(context.userId);
+    const daysSinceCreation = daysBetween(user.createdAt, new Date());
+
+    if (daysSinceCreation < 7) {
+      return deny({
+        code: 'ACCOUNT_TOO_NEW',
+        message: 'Accounts must be at least 7 days old before deletion',
+        remediation: `Please wait ${7 - daysSinceCreation} more days`,
+      });
+    }
+
+    return allow();
+  },
+});
+```
+
+### 2. Register Your Policy
+
+Extend the default registry:
+
+```typescript
+import { accountDeletionRegistry } from '@kit/account-hooks';
+import { gracePeriodPolicy } from './my-policies';
+
+// Add to existing defaults
+accountDeletionRegistry.registerPolicy(gracePeriodPolicy);
+```
+
+## Context Type
+
+```typescript
+interface AccountDeleteContext {
+  userId: string;      // User attempting to delete account
+  timestamp: string;   // ISO timestamp
+}
+```
+
+## Customization Patterns
+
+### Use Defaults As-Is
+
+```typescript
+import { accountDeletion } from '@kit/account-hooks';
+
+const result = await accountDeletion.run({
+  userId: user.id,
+  timestamp: new Date().toISOString(),
+});
+```
+
+### Extend Defaults
+
+```typescript
+import { accountDeletionRegistry } from '@kit/account-hooks';
+import { myCustomPolicy } from './policies';
+
+accountDeletionRegistry.registerPolicy(myCustomPolicy);
+```
+
+### Cherry-Pick Policies
+
+```typescript
+import { createPolicyRegistry, createPolicyRuntime } from '@kit/policies';
+import { checkOrganizationsPolicy } from '@kit/account-hooks';
+
+const registry = createPolicyRegistry();
+// Only check organizations, skip subscriptions
+registry.registerPolicy(checkOrganizationsPolicy);
+
+const runtime = createPolicyRuntime(registry);
+```
+
+### Replace a Policy
+
+```typescript
+import { createPolicyRegistry, createPolicyRuntime } from '@kit/policies';
+import { checkOrganizationsPolicy } from '@kit/account-hooks';
+import { mySubscriptionPolicy } from './policies';
+
+const registry = createPolicyRegistry();
+registry.registerPolicy(checkOrganizationsPolicy);
+registry.registerPolicy(mySubscriptionPolicy); // Your replacement
+
+const runtime = createPolicyRuntime(registry);
+```
+
+## Example: Auto-Cancel Subscriptions
+
+Instead of blocking deletion, auto-cancel subscriptions:
+
+```typescript
+import { definePolicy, allow } from '@kit/policies';
+
+export const autoCancelPolicy = definePolicy<AccountDeleteContext>({
+  id: 'account-deletion.auto-cancel-subscriptions',
+  evaluate: async (context) => {
+    const subscriptions = await getActiveSubscriptions(context.userId);
+
+    for (const sub of subscriptions) {
+      await cancelSubscription(sub.id);
+    }
+
+    return allow({
+      cancelledSubscriptions: subscriptions.length,
+    });
+  },
+});
+```
+
+## Example: Require Data Export
+
+```typescript
+export const dataExportPolicy = definePolicy<AccountDeleteContext>({
+  id: 'account-deletion.require-export',
+  evaluate: async (context) => {
+    const hasExported = await checkDataExportStatus(context.userId);
+
+    if (!hasExported) {
+      return deny({
+        code: 'DATA_NOT_EXPORTED',
+        message: 'Please export your data before deleting your account',
+        remediation: 'Go to Settings > Privacy > Export Data',
+      });
+    }
+
+    return allow();
+  },
+});
+```
+
+## Integration
+
+The policies are evaluated in the Better Auth `beforeDeleteUser` hook:
+
+```typescript
+// packages/account/hooks/src/before-delete.ts
+import { accountDeletion } from './policies/registry';
+
+export async function beforeAccountDelete(userId: string) {
+  const result = await accountDeletion.run({
+    userId,
+    timestamp: new Date().toISOString(),
+  });
+
+  if (!result.allowed) {
+    throw new Error('Account deletion blocked');
+  }
+}
+```
+
+## Common Pitfalls
+
+- **Policy order matters**: Policies run in registration order. Put blocking checks (subscriptions, ownership) before transformations (auto-cancel, data export). A failed early policy short-circuits later ones.
+- **Async policies that throw don't roll back**: If a policy throws an exception mid-execution, previous policy side effects (like canceling a subscription) aren't reversed. Handle errors gracefully with `deny()`.
+- **Remediation messages not shown to users**: The `remediation` field in `deny()` should contain user-facing instructions. Don't put technical error codes here - tell users what to do.
+- **Testing in production**: Failed deletion policies can leave accounts in limbo. Always test policy combinations in development with real scenarios (active subscription + sole org owner).
+- **Forgetting to register custom policies**: Creating a policy isn't enough - call `registry.registerPolicy()` before the runtime is used. Registration typically happens in a setup module.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Can I remove the default subscription check policy?", "answer": "Yes. Create a new registry with createPolicyRegistry() and only register the policies you want. Don't use the default accountDeletionRegistry if you want full control."},
+     {"question": "How do I show policy denial reasons to users?", "answer": "The deny() function accepts a remediation field with user-facing instructions. The UI component reads this from the policy result and displays it to users."},
+     {"question": "Do policies run in a transaction?", "answer": "No. Each policy runs independently. If a later policy fails, earlier policy side effects (like canceling subscriptions) are not rolled back. Design policies to be idempotent."},
+     {"question": "Can I run policies asynchronously?", "answer": "Policies are async by default. The evaluate function returns a Promise. All policies run sequentially in registration order - not in parallel."},
+     {"question": "How do I test policies in development?", "answer": "Create test users with different states (active subscription, sole org owner, etc.) and attempt account deletion. Check that the correct denial messages appear."}
+   ]
+/%}
+
+---
+
+**Next:** [Organizations →](../organizations/overview)

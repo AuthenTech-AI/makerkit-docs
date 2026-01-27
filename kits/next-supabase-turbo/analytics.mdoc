@@ -1,48 +1,69 @@
 ---
 status: "published"
-title: 'Using the Analytics API in your Makerkit project'
+title: 'Analytics in MakerKit: Track User Behavior in Your Next.js SaaS'
 label: 'Analytics'
 order: 13
-description: 'Learn how to use the Analytics API in your Makerkit project to track user behavior and app usage.'
+description: 'Set up analytics in your MakerKit application to track page views, user events, and product usage with Google Analytics, PostHog, Umami, or custom providers.'
 collapsible: true
 collapsed: true
 ---
 
-Makerkit provides a powerful and flexible Analytics API that integrates seamlessly with the App Events system. This API allows you to track user behavior and app usage easily and consistently across your SaaS application.
+MakerKit provides a provider-agnostic analytics system that integrates with the App Events architecture.
 
-{% sequence %}
+You can track page views, identify users, and record custom events using any analytics service. Out of the box, MakerKit supports Google Analytics, PostHog, and Umami.
 
-[Core Concepts of the Analytics API](#core-concepts-of-the-analytics-api)
+## Quick Start
 
-[Using the Analytics API](#using-the-analytics-api)
+To add analytics to your MakerKit application:
 
-[Integration with App Events](#integration-with-app-events)
+1. **Install a provider** using the MakerKit CLI
+2. **Configure environment variables** for your chosen service
+3. **Register the provider** in the analytics package
 
-[Extending the Analytics API](#extending-the-analytics-api)
+The analytics system automatically tracks page views and integrates with the App Events system for centralized event handling.
 
-[Extending the Analytics API](#extending-the-analytics-api)
+## Choosing an Analytics Provider
 
-[Server Side Usage](#server-side-usage)
+| Provider | Best For | Privacy | Server-Side | Self-Hosted |
+|----------|----------|---------|-------------|-------------|
+| **Google Analytics** | Marketing teams, conversion tracking | Third-party cookies | No | No |
+| **PostHog** | Product analytics, feature flags, session replay | Configurable | Yes | Yes |
+| **Umami** | Privacy-focused, simple metrics | No cookies | No | Yes |
 
-[Best Practices](#best-practices)
+**Recommendation**: Use PostHog if you need product analytics with feature flags. Use Umami for GDPR-compliant, privacy-first analytics. Use Google Analytics if your marketing team requires it.
 
-{% /sequence %}
+## Architecture Overview
 
-## Core Concepts of the Analytics API
+The analytics system consists of three layers:
 
-The Analytics API is built around three main concepts:
+```
+┌─────────────────────────────────────────────────────┐
+│                  Your Components                     │
+│            emit({ type: 'user.signedUp' })          │
+└─────────────────────┬───────────────────────────────┘
+                      │
+┌─────────────────────▼───────────────────────────────┐
+│               App Events System                      │
+│         Centralized event bus (client-side)         │
+└─────────────────────┬───────────────────────────────┘
+                      │
+┌─────────────────────▼───────────────────────────────┐
+│             Analytics Manager                        │
+│   Routes events to all registered providers          │
+└───────┬─────────────┬─────────────────┬─────────────┘
+        │             │                 │
+   ┌────▼────┐   ┌────▼────┐      ┌────▼────┐
+   │ PostHog │   │   GA4   │      │  Umami  │
+   └─────────┘   └─────────┘      └─────────┘
+```
 
-1. **Identify**: Associate user data with a unique user ID.
-2. **Track Events**: Record specific events or actions taken by users.
-3. **Track Page Views**: Record when users view specific pages in your application.
+**Key insight**: Emit events once through App Events, and all configured providers receive them automatically.
 
-### Using the Analytics API
+## Core Concepts
 
-The Analytics API is available through the `analytics` object imported from `@kit/analytics`, which runs exclusively on the client side.
+### 1. Identify Users
 
-#### Identifying Users
-
-Use the `identify` method to associate a user with their actions:
+Associate a user ID with all subsequent events:
 
 ```typescript
 import { analytics } from '@kit/analytics';
@@ -50,93 +71,106 @@ import { analytics } from '@kit/analytics';
 void analytics.identify(userId, {
   email: user.email,
   plan: user.subscriptionPlan,
-  // ... other user properties
 });
 ```
 
-#### Tracking Events
+### 2. Track Events
 
-Use the `trackEvent` method to record specific actions or events:
+Record specific user actions:
 
 ```typescript
-void analytics.trackEvent('Button Clicked', {
-  buttonName: 'Submit',
-  page: 'Sign Up',
+void analytics.trackEvent('Feature Used', {
+  featureName: 'AI Assistant',
+  credits: '5',
 });
 ```
 
-#### Tracking Page Views
+### 3. Track Page Views
 
-**Makerkit automatically tracks page views for you.** However, you can also manually track page views if needed.
-
-Use the `trackPageView` method to record when users view specific pages:
+Page views are tracked automatically when routes change. For manual tracking:
 
 ```typescript
-void analytics.trackPageView('Sign Up');
+void analytics.trackPageView('/dashboard');
 ```
 
-NB: The `trackPageView` method is automatically called when the route changes in a Next.js application.
+## Using Multiple Providers
 
-### Integration with App Events
+MakerKit supports running multiple analytics providers simultaneously. Events dispatch to all registered providers:
 
-While you can use these methods directly, we recommend leveraging the App Events system for a more centralized approach. Makerkit automatically maps common app events to analytics tracking:
+```typescript {% title="packages/analytics/src/index.ts" %}
+import { createPostHogAnalyticsService } from '@kit/posthog/client';
+import { createGoogleAnalyticsService } from '@kit/google-analytics';
+
+import { createAnalyticsManager } from './analytics-manager';
+
+export const analytics = createAnalyticsManager({
+  providers: {
+    posthog: createPostHogAnalyticsService,
+    'google-analytics': createGoogleAnalyticsService,
+  },
+});
+```
+
+This pattern is useful when your marketing team needs Google Analytics while your product team uses PostHog.
+
+## Integration with App Events
+
+The recommended approach is to emit events through the App Events system rather than calling `analytics.trackEvent()` directly. This centralizes your event logic:
 
 ```typescript
 import { useAppEvents } from '@kit/shared/events';
 
-function SomeComponent() {
+function CheckoutButton() {
   const { emit } = useAppEvents();
 
-  const handleSignUp = (userId: string) => {
-    emit({ type: 'user.signedUp', payload: { userId } });
-    // This automatically calls analytics.identify and analytics.trackEvent
+  const handleClick = () => {
+    emit({ type: 'checkout.started', payload: { planId: 'pro' } });
   };
 
-  // ...
+  return <button onClick={handleClick}>Upgrade</button>;
 }
 ```
 
-### Extending the Analytics API
+The `AnalyticsProvider` component automatically maps App Events to analytics calls.
 
-You can extend the analytics functionality by creating custom event mappings:
+## Default Events
+
+MakerKit tracks these events automatically:
+
+| Event | Trigger | Data |
+|-------|---------|------|
+| `user.signedIn` | User logs in | `userId` |
+| `user.signedUp` | User registers | `method` |
+| `checkout.started` | Billing checkout | `planId`, `account` |
+| `user.updated` | Profile update | - |
+| Page view | Route change | URL path |
+
+## Server-Side Analytics
+
+For server-side tracking (API routes, Server Actions), use the server export:
 
 ```typescript
-import { analytics } from '@kit/analytics';
-import { useAppEvents } from '@kit/shared/events';
-
-interface MyAppEvents {
-  'feature.used': { featureName: string };
-}
-
-export function useMyAnalytics() {
-  const { emit } = useAppEvents<MyAppEvents>();
-
-  return {
-    trackFeatureUse: (featureName: string) => {
-      emit({ type: 'feature.used', payload: { featureName } });
-      // If you need additional tracking logic:
-      void analytics.trackEvent('Feature Used', { featureName });
-    },
-  };
-}
-```
-
-## Server Side Usage
-
-If you need to use the Analytics API on the server side (provided your analytics provider is server side compatible), you can use the `analytics` object from the `@kit/analytics/server` package.
-
-```tsx
 import { analytics } from '@kit/analytics/server';
+
+export async function myServerAction() {
+  await analytics.trackEvent('server.action', { action: 'createProject' });
+}
 ```
 
-## Best Practices
+**Note**: Only PostHog supports server-side analytics out of the box.
 
-When implementing analytics in your Makerkit project, consider the following best practices:
+## Next Steps
 
-1. **Use App Events**: Whenever possible, use the App Events system instead of calling analytics methods directly. This keeps your analytics logic centralized and easier to maintain.
-2. **Consistent Naming**: Use consistent naming conventions for your events and properties across your application.
-3. **Relevant Data**: Only track data that's relevant and useful for your business goals. Avoid tracking sensitive or personal information.
-4. **Testing**: Always test your analytics implementation to ensure events are being tracked correctly.
-5. **Documentation**: Keep a record of all the events and properties you're tracking. This will be invaluable as your application grows.
+{% sequence %}
 
-By leveraging Makerkit's Analytics API in conjunction with the App Events system, you can create a robust, maintainable analytics setup that grows with your SaaS application. This approach provides the flexibility to track the data you need while keeping your codebase clean and organized.
+[Understand Analytics and App Events](analytics/analytics-and-events)
+
+[Set up Google Analytics](analytics/google-analytics-provider)
+
+[Set up PostHog](/docs/next-supabase-turbo/analytics/posthog-analytics-provider)
+
+[Set up Umami](analytics/umami-analytics-provider)
+
+[Create a Custom Provider](analytics/custom-analytics-provider)
+
+{% /sequence %}

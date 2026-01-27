@@ -1,0 +1,1030 @@
+---
+status: "published"
+title: "Public Boards and Anonymous Feedback in Makerkit Next.js Prisma"
+label: "Public Boards"
+order: 5
+description: "Create public-facing pages for collecting customer feedback without authentication. Learn Next.js route groups, anonymous submissions and SEO optimization."
+---
+
+This is the [Prisma SaaS Starter Kit course](./course). Start with the [Architecture & Technologies](./architecture-and-technologies) module to get the fundamentals in place.
+
+---
+
+This module creates public-facing board pages where anyone can view feedback and submit ideas without creating an account. You'll learn how Next.js route groups separate public from authenticated routes, and how to handle anonymous submissions safely.
+
+**What you'll accomplish:**
+- Create public routes outside the authentication boundary
+- Build public board pages with proper SEO metadata
+- Implement anonymous feedback submission with a system user
+- Give organization admins control over board visibility
+
+**Technologies used:**
+- [Next.js Route Groups](https://nextjs.org/docs/app/building-your-application/routing/route-groups) - Public vs internal routes
+- [Next.js Metadata](https://nextjs.org/docs/app/building-your-application/optimizing/metadata) - SEO optimization
+
+**Prerequisites:** Complete [Module 4: Feedback Items](./feedback-items) first.
+
+---
+
+When an organization marks a board as public, it becomes accessible at a shareable URL.
+
+Customers can view all feedback on the board, submit their own ideas, and optionally vote on existing items.
+
+The URL structure includes both the organization slug and board slug, making each public board uniquely addressable and SEO-friendly.
+
+```
+Public URL: /feedback/[orgSlug]/[boardSlug]
+
+Features:
+├── View feedback list (sorted by votes)
+├── Submit new feedback (anonymous or with email)
+├── Vote on feedback (requires email or sign in)
+└── Organization branding
+```
+
+Each board has visibility controls: `isPublic` enables public access, `allowAnonymous` controls whether email is required for submissions.
+
+---
+
+## Step 1: Add Public Fields to Board Schema
+
+Extend the boards schema with fields that control visibility and submission rules.
+
+```prisma {% title="packages/database/src/prisma/schema.prisma" %}
+model Board {
+  id              String       @id
+  organizationId  String       @map("organization_id")
+  name            String
+  description     String?
+  slug            String
+  // New public access fields
+  isPublic        Boolean      @default(false) @map("is_public")
+  allowAnonymous  Boolean      @default(true) @map("allow_anonymous")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  feedbackItems   FeedbackItem[]
+
+  @@index([organizationId], name: "boards_organization_id_idx")
+  @@index([slug], name: "boards_slug_idx")
+  @@index([isPublic], name: "boards_is_public_idx")
+  @@map("boards")
+}
+```
+
+- `isPublic`: enables public access to the board
+- `allowAnonymous`: allows submissions without authentication
+
+Run the migration:
+
+```bash
+pnpm --filter @kit/database prisma:migrate
+pnpm --filter @kit/database prisma:generate
+```
+
+---
+
+## Step 2: Create the Public Route Group
+
+Route groups (directories in parentheses) organize routes without affecting the URL. The `(public)` group uses a layout without authentication UI.
+
+```
+apps/web/app/[locale]/
+├── (internal)/          # Authenticated routes (existing)
+│   └── boards/
+└── (public)/            # New public routes
+    └── feedback/
+        └── [orgSlug]/
+            └── [boardSlug]/
+                └── page.tsx
+```
+
+The public layout is minimal:
+
+```typescript {% title="apps/web/app/[locale]/(public)/feedback/layout.tsx" %}
+import type { ReactNode } from 'react';
+
+interface PublicLayoutProps {
+  children: ReactNode;
+}
+
+export default function PublicLayout({ children }: PublicLayoutProps) {
+  return (
+    <div className="bg-background min-h-screen">
+      <main className="container mx-auto px-4 py-8">{children}</main>
+    </div>
+  );
+}
+```
+
+---
+
+## Step 3: Create the Public Board Loader
+
+The public loader doesn't require authentication and only returns boards marked as public.
+
+```tsx {% title="apps/web/lib/feedback/public-board.loader.ts" %}
+import 'server-only';
+
+import { cache } from 'react';
+
+import { db } from '@kit/database';
+
+export const loadPublicBoard = cache(
+  async (orgSlug: string, boardSlug: string) => {
+    const board = await db.board.findFirst({
+      where: {
+        slug: boardSlug,
+        isPublic: true,
+        organization: {
+          slug: orgSlug,
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        description: true,
+        slug: true,
+        isPublic: true,
+        allowAnonymous: true,
+        organization: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+          },
+        },
+      },
+    });
+
+    if (!board) {
+      return null;
+    }
+
+    // Return structured object for cleaner component access
+    return {
+      board: {
+        id: board.id,
+        name: board.name,
+        description: board.description,
+        slug: board.slug,
+        isPublic: board.isPublic,
+        allowAnonymous: board.allowAnonymous,
+      },
+      organization: board.organization,
+    };
+  },
+);
+
+export const loadPublicFeedbackItems = cache(async (boardId: string) => {
+  const items = await db.feedbackItem.findMany({
+    where: { boardId },
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      type: true,
+      status: true,
+      voteCount: true,
+      createdAt: true,
+      author: {
+        select: {
+          name: true,
+        },
+      },
+    },
+    orderBy: { voteCount: 'desc' },
+  });
+
+  return items;
+});
+
+export type PublicBoard = NonNullable<
+  Awaited<ReturnType<typeof loadPublicBoard>>
+>;
+
+export type PublicFeedbackItems = Awaited<
+  ReturnType<typeof loadPublicFeedbackItems>
+>;
+```
+
+---
+
+## Step 4: Create the Public Board Page
+
+The page generates SEO metadata dynamically and returns 404 if the board doesn't exist or isn't public.
+
+- **Public boards** display the feedback list
+- **Anonymous submissions** (if enabled) show the submission form
+
+```tsx {% title="apps/web/app/[locale]/(public)/feedback/[orgSlug]/[boardSlug]/page.tsx" %}
+import type { Metadata } from 'next';
+import { notFound } from 'next/navigation';
+
+import {
+  loadPublicBoard,
+  loadPublicFeedbackItems,
+} from '@lib/feedback/public-board.loader';
+
+import { Badge } from '@kit/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@kit/ui/card';
+import { If } from '@kit/ui/if';
+
+import { PublicFeedbackCard } from './_components/public-feedback-card';
+import { PublicFeedbackForm } from './_components/public-feedback-form';
+
+interface PublicBoardPageProps {
+  params: Promise<{
+    orgSlug: string;
+    boardSlug: string;
+  }>;
+}
+
+export async function generateMetadata({
+  params,
+}: PublicBoardPageProps): Promise<Metadata> {
+  const { orgSlug, boardSlug } = await params;
+  const result = await loadPublicBoard(orgSlug, boardSlug);
+
+  if (!result) {
+    notFound();
+  }
+
+  return {
+    title: `${result.board.name} - ${result.organization.name} Feedback`,
+    description:
+      result.board.description ?? `Submit feedback for ${result.board.name}`,
+    openGraph: {
+      title: result.board.name,
+      description:
+        result.board.description ?? `Submit feedback for ${result.board.name}`,
+      type: 'website',
+    },
+  };
+}
+
+export default async function PublicBoardPage({
+  params,
+}: PublicBoardPageProps) {
+  const { orgSlug, boardSlug } = await params;
+  const result = await loadPublicBoard(orgSlug, boardSlug);
+
+  if (!result) {
+    notFound();
+  }
+
+  const { board, organization } = result;
+
+  return (
+    <div className="mx-auto max-w-3xl space-y-8">
+      {/* Header */}
+      <div className="text-center">
+        <Badge variant="outline" className="mb-2">
+          {organization.name}
+        </Badge>
+
+        <h1 className="text-3xl font-bold">{board.name}</h1>
+        {board.description && (
+          <p className="text-muted-foreground mt-2">{board.description}</p>
+        )}
+      </div>
+
+      {/* Submit Feedback */}
+      <If condition={board.allowAnonymous}>
+        <Card>
+          <CardHeader>
+            <CardTitle>Submit Feedback</CardTitle>
+          </CardHeader>
+
+          <CardContent>
+            <PublicFeedbackForm boardId={board.id} />
+          </CardContent>
+        </Card>
+      </If>
+
+      {/* Feedback List */}
+      <div className="space-y-4">
+        <h2 className="text-xl font-semibold">Feedback</h2>
+
+        <FeedbackList boardId={board.id} />
+      </div>
+    </div>
+  );
+}
+
+async function FeedbackList({ boardId }: { boardId: string }) {
+  const feedbackItems = await loadPublicFeedbackItems(boardId);
+
+  if (feedbackItems.length === 0) {
+    return (
+      <Card className="p-8 text-center">
+        <p className="text-muted-foreground">
+          No feedback yet. Be the first to share your thoughts!
+        </p>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {feedbackItems.map((item) => (
+        <PublicFeedbackCard key={item.id} item={item} />
+      ))}
+    </div>
+  );
+}
+```
+
+---
+
+## Step 5: Create Public Feedback Card
+
+A simplified card with read-only vote counts. Anonymous authors display as "Anonymous".
+
+```tsx {% title="apps/web/app/[locale]/(public)/feedback/[orgSlug]/[boardSlug]/_components/public-feedback-card.tsx" %}
+'use client';
+
+import { Bug, ChevronUp, Lightbulb, Sparkles } from 'lucide-react';
+import type { PublicFeedbackItems } from '@lib/feedback/public-board.loader';
+
+import { Badge } from '@kit/ui/badge';
+import { Card, CardContent, CardHeader, CardTitle } from '@kit/ui/card';
+import { cn } from '@kit/ui/utils';
+
+type FeedbackItem = PublicFeedbackItems[number];
+
+const typeIcons = {
+  bug: Bug,
+  feature: Sparkles,
+  idea: Lightbulb,
+};
+
+const typeColors = {
+  bug: 'text-red-500',
+  feature: 'text-purple-500',
+  idea: 'text-yellow-500',
+};
+
+const statusColors = {
+  new: 'bg-gray-100 text-gray-800',
+  planned: 'bg-blue-100 text-blue-800',
+  in_progress: 'bg-yellow-100 text-yellow-800',
+  done: 'bg-green-100 text-green-800',
+  closed: 'bg-gray-100 text-gray-500',
+};
+
+const statusLabels = {
+  new: 'New',
+  planned: 'Planned',
+  in_progress: 'In Progress',
+  done: 'Done',
+  closed: 'Closed',
+};
+
+interface PublicFeedbackCardProps {
+  item: FeedbackItem;
+}
+
+export function PublicFeedbackCard({ item }: PublicFeedbackCardProps) {
+  const TypeIcon = typeIcons[item.type];
+
+  return (
+    <Card>
+      <div className="flex">
+        {/* Vote count (view-only) */}
+        <div className="bg-muted/30 flex flex-col items-center justify-start border-r p-4">
+          <ChevronUp className="text-muted-foreground h-5 w-5" />
+          <span className="text-sm font-semibold">{item.voteCount}</span>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1">
+          <CardHeader className="pb-2">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <TypeIcon className={cn('h-4 w-4', typeColors[item.type])} />
+                <CardTitle className="text-base">{item.title}</CardTitle>
+              </div>
+              <Badge className={statusColors[item.status]} variant="secondary">
+                {statusLabels[item.status]}
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {item.description && (
+              <p className="text-muted-foreground mb-2 line-clamp-3 text-sm">
+                {item.description}
+              </p>
+            )}
+            <div className="text-muted-foreground flex items-center gap-2 text-xs">
+              <span>{item.author?.name ?? 'Anonymous'}</span>
+
+              <span>•</span>
+              <span>{item.createdAt.toLocaleDateString()}</span>
+            </div>
+          </CardContent>
+        </div>
+      </div>
+    </Card>
+  );
+}
+```
+
+---
+
+## Step 6: Create Public Feedback Form
+
+The form includes name and email fields and calls a server action for unauthenticated submissions.
+
+The public feedback form includes optional name and email fields. If the board allows anonymous submissions, these fields are optional; otherwise, email is required.
+
+Let's create the public feedback form schema:
+
+```tsx {% title="apps/web/lib/feedback/public-board-form.schema.ts" %}
+import * as z from 'zod';
+
+export const publicFeedbackSchema = z.object({
+  boardId: z.string().min(1, 'Board ID is required'),
+  title: z.string().min(1, 'Title is required'),
+  description: z.string().optional(),
+  type: z.enum(['bug', 'feature', 'idea']),
+});
+
+export type PublicFeedbackInput = z.output<typeof publicFeedbackSchema>;
+```
+
+Now, let's create the public feedback form component:
+
+```tsx {% title="apps/web/app/[locale]/(public)/feedback/[orgSlug]/[boardSlug]/_components/public-feedback-form.tsx" %}
+'use client';
+
+import { useAction } from 'next-safe-action/hooks';
+
+import { zodResolver } from '@hookform/resolvers/zod';
+import {
+  PublicFeedbackInput,
+  publicFeedbackSchema,
+} from '@lib/feedback/public-board-form.schema';
+import { submitPublicFeedbackAction } from '@lib/feedback/public-feedback-actions';
+import { useForm } from 'react-hook-form';
+
+import { Button } from '@kit/ui/button';
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@kit/ui/form';
+import { Input } from '@kit/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@kit/ui/select';
+import { toast } from '@kit/ui/sonner';
+import { Textarea } from '@kit/ui/textarea';
+
+interface PublicFeedbackFormProps {
+  boardId: string;
+}
+
+export function PublicFeedbackForm({ boardId }: PublicFeedbackFormProps) {
+  const { executeAsync, status } = useAction(submitPublicFeedbackAction);
+
+  const form = useForm({
+    resolver: zodResolver(publicFeedbackSchema),
+    defaultValues: {
+      boardId,
+      title: '',
+      description: '',
+      type: 'idea',
+    },
+  });
+
+  const isPending = status === 'executing';
+
+  const onSubmit = async (data: PublicFeedbackInput) => {
+    const result = await executeAsync(data);
+
+    if (result?.serverError) {
+      toast.error(`There was an error submitting your feedback`);
+      return;
+    }
+
+    if (result?.validationErrors) {
+      toast.error('Please check your input');
+      return;
+    }
+
+    toast.success('Thank you for your feedback!');
+    form.reset();
+  };
+
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <FormField
+            name="name"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Your Name</FormLabel>
+
+                <FormControl
+                  render={
+                    <Input
+                      placeholder="Jane Doe"
+                      disabled={isPending}
+                      {...field}
+                    />
+                  }
+                />
+
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            name="email"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Email</FormLabel>
+
+                <FormControl
+                  render={
+                    <Input
+                      required
+                      type="email"
+                      placeholder="jane@example.com"
+                      disabled={isPending}
+                      {...field}
+                    />
+                  }
+                />
+
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
+
+        <FormField
+          name="type"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Type</FormLabel>
+              <Select
+                onValueChange={field.onChange}
+                defaultValue={field.value}
+                disabled={isPending}
+              >
+                <FormControl
+                  render={
+                    <SelectTrigger>
+                      <SelectValue>
+                        {(value) => value || 'Select type'}
+                      </SelectValue>
+                    </SelectTrigger>
+                  }
+                />
+
+                <SelectContent>
+                  <SelectItem value="bug">Bug Report</SelectItem>
+                  <SelectItem value="feature">Feature Request</SelectItem>
+                  <SelectItem value="idea">Idea</SelectItem>
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          name="title"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Title</FormLabel>
+
+              <FormControl
+                render={
+                  <Input
+                    placeholder="Brief summary of your feedback"
+                    disabled={isPending}
+                    {...field}
+                  />
+                }
+              />
+
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          name="description"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Details (optional)</FormLabel>
+
+              <FormControl
+                render={
+                  <Textarea
+                    placeholder="Provide more context..."
+                    disabled={isPending}
+                    rows={4}
+                    {...field}
+                  />
+                }
+              />
+
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <Button type="submit" disabled={isPending} className="w-full">
+          {isPending ? 'Submitting...' : 'Submit Feedback'}
+        </Button>
+      </form>
+    </Form>
+  );
+}
+```
+
+{% img src="/assets/courses/next-drizzle/teampulse-public-board-page.webp" alt="Public Board Page" width="1000" height="1000" /%}
+
+---
+
+## Step 7: Create Public Feedback Action
+
+Use `publicActionClient` instead of `authenticatedActionClient` to accept unauthenticated requests. The action validates that the board exists and is public.
+
+```typescript {% title="apps/web/lib/feedback/public-feedback-actions.ts" %}
+'use server';
+
+import { revalidatePath } from 'next/cache';
+import { createSafeActionClient } from 'next-safe-action';
+
+import { db } from '@kit/database';
+import { getLogger } from '@kit/shared/logger';
+import { generateId } from '@kit/shared/utils';
+
+import { publicFeedbackSchema } from './public-board-form.schema';
+
+// Note: We create a separate action client because authenticatedActionClient
+// from '@kit/action-middleware' requires a logged-in user.
+// For public submissions, we need an unauthenticated client.
+const publicActionClient = createSafeActionClient();
+
+export const submitPublicFeedbackAction = publicActionClient
+  .inputSchema(publicFeedbackSchema)
+  .action(async ({ parsedInput: data }) => {
+    const logger = await getLogger();
+
+    // Verify board exists and is public
+    const board = await db.board.findUnique({
+      where: { id: data.boardId },
+      select: {
+        id: true,
+        isPublic: true,
+        allowAnonymous: true,
+        organizationId: true,
+        slug: true,
+      },
+    });
+
+    if (!board) {
+      throw new Error('Board not found');
+    }
+
+    if (!board.isPublic) {
+      throw new Error('This board is not public');
+    }
+
+    if (!board.allowAnonymous) {
+      throw new Error('Anonymous submissions are not allowed for this board');
+    }
+
+    const feedback = await db.feedbackItem.create({
+      data: {
+        id: generateId(),
+        boardId: data.boardId,
+        title: data.title,
+        description: data.description ?? null,
+        type: data.type,
+        status: 'new',
+        voteCount: 0,
+      },
+    });
+
+    logger.info(
+      { feedbackId: feedback.id },
+      'Public feedback submitted successfully',
+    );
+
+    revalidatePath(`/feedback/[orgSlug]/[boardSlug]`, 'page');
+
+    return { success: true };
+  });
+```
+
+---
+
+## Step 8: Add Board Visibility Toggle
+
+Update the board form schema and add Switch components to the edit form. Display the shareable URL when a board is public.
+
+```typescript {% title="apps/web/lib/boards/boards.schema.ts" %}
+export const updateBoardSchema = createBoardSchema.extend({
+  id: z.string().min(1, 'Board ID is required'),
+  isPublic: z.boolean().optional(),
+  allowAnonymous: z.boolean().optional(),
+});
+```
+
+Add visibility toggles to the edit board form:
+
+```tsx {% title="apps/web/app/[locale]/(internal)/boards/_components/edit-board-form.tsx" %}
+import { Switch } from '@kit/ui/switch';
+
+// In the form, add these fields after the description FormField
+<FormField
+  name="isPublic"
+  render={({ field }) => (
+    <FormItem className="flex items-center justify-between rounded-lg border p-4">
+      <div className="space-y-0.5">
+        <FormLabel>Public Board</FormLabel>
+        <FormDescription>
+          Allow anyone to view the board
+        </FormDescription>
+      </div>
+
+      <FormControl
+        render={
+          <Switch
+            checked={field.value}
+            onCheckedChange={field.onChange}
+            disabled={isPending}
+          />
+        }
+      />
+    </FormItem>
+  )}
+/>
+
+<FormField
+  name="allowAnonymous"
+  render={({ field }) => (
+    <FormItem>
+      <div className="space-y-0.5">
+        <FormLabel>Allow Anonymous submissions</FormLabel>
+
+        <FormDescription>
+          Allow public board submissions from anonymous users
+        </FormDescription>
+      </div>
+
+      <FormControl
+        render={
+          <Switch
+            checked={field.value}
+            onCheckedChange={field.onChange}
+            disabled={isPending}
+          />
+        }
+      />
+    </FormItem>
+  )}
+/>
+```
+
+Update the server action:
+
+```tsx {% title="apps/web/lib/boards/boards-server-actions.ts" %}
+const board = await db.board.update({
+  where: {
+    id: data.id,
+    organizationId,
+  },
+  data: {
+    name: data.name,
+    description: data.description ?? null,
+    slug: generateSlug(data.name),
+    isPublic: data.isPublic,
+    allowAnonymous: data.allowAnonymous,
+  },
+});
+```
+
+{% img src="/assets/courses/next-drizzle/teampulse-edit-board-update.webp" alt="Board Detail Page" width="1000" height="1000" /%}
+
+Update the board detail page to display the shareable public URL:
+
+```tsx {% title="apps/web/app/[locale]/(internal)/boards/[boardId]/page.tsx" %}
+import type { Metadata } from 'next';
+import { notFound } from 'next/navigation';
+
+import { loadFeedbackItems } from '@lib/feedback/feedback-page.loader';
+import { Plus } from 'lucide-react';
+import { loadBoard } from '@lib/boards/boards-page.loader';
+
+import { getActiveOrganization } from '@kit/better-auth/context';
+import { AppBreadcrumbs } from '@kit/ui/app-breadcrumbs';
+import { Button } from '@kit/ui/button';
+import { CopyToClipboard } from '@kit/ui/copy-to-clipboard';
+import {
+  EmptyState,
+  EmptyStateButton,
+  EmptyStateHeading,
+  EmptyStateText,
+} from '@kit/ui/empty-state';
+import { PageBody, PageHeader } from '@kit/ui/page';
+
+import { DeleteBoardDialog } from '../_components/delete-board-dialog';
+import { EditBoardDialog } from '../_components/edit-board-dialog';
+import { CreateFeedbackDialog } from './_components/create-feedback-dialog';
+import { FeedbackDataTable } from './_components/feedback-data-table';
+import { FeedbackFilters } from './_components/feedback-filters';
+
+interface FeedbackFilters {
+  page?: number;
+  search?: string;
+  type?: 'bug' | 'feature' | 'idea';
+  status?: 'new' | 'planned' | 'in_progress' | 'done' | 'closed';
+  sort?: string;
+}
+
+interface BoardPageProps {
+  params: Promise<{ boardId: string }>;
+  searchParams: Promise<FeedbackFilters>;
+}
+
+export async function generateMetadata({
+  params,
+}: BoardPageProps): Promise<Metadata> {
+  const { boardId } = await params;
+  const board = await loadBoard(boardId);
+
+  return {
+    title: board?.name ?? 'Board Not Found',
+  };
+}
+
+export default async function BoardPage({
+  params,
+  searchParams,
+}: BoardPageProps) {
+  const { boardId } = await params;
+  const filters = await searchParams;
+
+  const [
+    board,
+    { items: feedbackItems, total, pageIndex, pageSize, pageCount },
+    organization,
+  ] = await Promise.all([
+    loadBoard(boardId),
+    loadFeedbackItems(boardId, filters),
+    getActiveOrganization(),
+  ]);
+
+  if (!board) {
+    notFound();
+  }
+
+  const publicUrl = `${process.env.NEXT_PUBLIC_SITE_URL}/feedback/${organization?.slug}/${board.slug}`;
+
+  return (
+    <PageBody>
+      <PageHeader>
+        <div className="flex-1">
+          <AppBreadcrumbs
+            values={{
+              boards: 'Boards',
+              [board.id]: board.name,
+            }}
+          />
+        </div>
+
+        <div className="flex gap-2">
+          <EditBoardDialog board={board} />
+
+          <DeleteBoardDialog boardId={board.id} boardName={board.name} />
+        </div>
+      </PageHeader>
+
+      <div className="flex flex-1 flex-col space-y-4 pb-4">
+        {board.isPublic && (
+          <div className="bg-muted/50 flex items-center gap-2.5 rounded-lg p-2 text-sm">
+            <span className="text-muted-foreground">Public URL: </span>
+            <code className="bg-muted rounded px-2 py-1">
+              <CopyToClipboard value={publicUrl}>{publicUrl}</CopyToClipboard>
+            </code>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between">
+          <FeedbackFilters />
+
+          <CreateFeedbackDialog boardId={boardId}>
+            <Button size="sm">
+              <Plus className="mr-2 h-4 w-4" />
+              Add Feedback
+            </Button>
+          </CreateFeedbackDialog>
+        </div>
+
+        {feedbackItems.length === 0 ? (
+          <EmptyState>
+            <EmptyStateHeading>No feedback yet</EmptyStateHeading>
+
+            <EmptyStateText>
+              Be the first to submit feedback for this board.
+            </EmptyStateText>
+
+            <CreateFeedbackDialog boardId={boardId}>
+              <EmptyStateButton>
+                <Plus className="mr-2 h-4 w-4" />
+                Create Feedback
+              </EmptyStateButton>
+            </CreateFeedbackDialog>
+          </EmptyState>
+        ) : (
+          <FeedbackDataTable
+            data={feedbackItems}
+            total={total}
+            pageIndex={pageIndex}
+            pageSize={pageSize}
+            pageCount={pageCount}
+          />
+        )}
+      </div>
+    </PageBody>
+  );
+}
+```
+
+{% img src="/assets/courses/next-drizzle/teampulse-updated-board-page.webp" alt="Updated Board Page" width="1000" height="1000" /%}
+
+---
+
+## Checkpoint: Verify It Works
+
+Test both as an authenticated user and as an unauthenticated visitor:
+
+- [ ] Enable "Public" on an existing board
+- [ ] Visit `/feedback/[orgSlug]/[boardSlug]` (logged out)
+- [ ] Verify you can view feedback items
+- [ ] Submit new feedback as anonymous user
+- [ ] Check that feedback appears in the list
+
+```bash
+pnpm run healthcheck
+```
+
+---
+
+## Architecture Notes
+
+### Why a Separate Route Group?
+- **No auth layout** - Public pages don't wrap in authenticated layout
+- **SEO friendly** - Proper metadata for search engines
+- **Performance** - No session checks on public pages
+- **Clear separation** - Easy to reason about public vs internal
+
+### Security Considerations
+1. **Board-level control** - Each board opts into public access
+2. **Anonymous user** - Tracks submissions without real accounts
+3. **Input validation** - Same validation as internal forms
+4. **CSRF protection** - Server actions are CSRF-safe by default
+
+Public endpoints can be abused. Consider adding:
+- Captcha (Turnstile)
+- OTP verification (`@kit/otp` package)
+- Rate limiting (Redis/Upstash)
+
+**Homework**: Use the OTP API to verify user email before submitting feedback.
+
+---
+
+## Module Complete
+
+You now have:
+- [x] Public route group with a minimal, unauthenticated layout
+- [x] Public board pages with dynamic SEO and Open Graph metadata
+- [x] Anonymous feedback submission using a system user pattern
+- [x] Admin controls for board visibility and submission rules
+
+**Next:** In [Module 6: Authentication](./authentication), you'll explore Makerkit's authentication system, configure social login providers, and understand how sessions work across your application.
+
+---
+
+## Learn More
+
+- [Next.js Route Groups](https://nextjs.org/docs/app/building-your-application/routing/route-groups) - Organizing routes
+- [Next.js Metadata](https://nextjs.org/docs/app/building-your-application/optimizing/metadata) - SEO optimization

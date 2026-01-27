@@ -1,43 +1,188 @@
 ---
 status: "published"
-title: "Creating, editing and deleting Supabase database records using the Data Explorer"
+title: "Data Explorer CRUD Operations"
 label: "Data Explorer - Operations"
 order: 2
-description: "Learn how to perform operations such as inserting, updating or deleting data in your Supabase database"
+description: "Create, read, update, and delete records in your Supabase database. Learn inline editing, bulk operations, and managing related records through smart forms."
 ---
 
-In this section, we focus on the different ways to insert, edit, create and delete your data in Supamode.
+The Data Explorer provides full CRUD (Create, Read, Update, Delete) capabilities through smart forms that adapt to your column types. No SQL required.
 
-## Record Details
+**What you can do:**
+- View records with automatic relationship resolution
+- Create records with type-aware validation
+- Edit inline (single field) or full-page (multiple fields)
+- Delete individual or batch records
+- Manage one-to-many and many-to-many relationships
 
-The Data Explorer allows you to view the details of a record by clicking on it.
+## Viewing Record Details
 
-**NB**: if you configured a column not to be visible in the details page, it will not be displayed in the record details page.
+Click any row in the Data Explorer table to open the record detail view.
 
-{% img src="/images/supamode/record-details.webp" alt="Record Details" width="1724" height="292" /%}
+{% img src="/images/supamode/record-details.webp" alt="Record Details page showing all fields and related data" width="1724" height="292" /%}
 
-The record details page allows you to view the details of a record, and to edit it.
+The detail view shows:
+- All visible columns with their values
+- Related records (foreign key references)
+- One-to-many relationships (e.g., a user's orders)
+- Many-to-many relationships (e.g., a post's tags)
+- Timestamps and metadata
 
-You can edit any field inline by clicking on the pencil icon that appears when hovering over the field.
+{% alert type="default" title="Column Visibility" %}
+If a column is configured as hidden in [table settings](../configuration/tables), it won't appear in the detail view. Use this to hide internal fields like `updated_at` or system columns.
+{% /alert %}
 
-{% img src="/images/supamode/edit-record-inline.webp" alt="Edit Record Inline" width="1724" height="292" /%}
+## Creating Records
 
-**NB**: if you configured a column not to be editable, the pencil icon will not appear.
+Click the **New Record** button in the top-right corner of any table view.
 
-## Creating records
+{% img src="/images/supamode/create-record.webp" alt="Create Record form with smart field types" width="1724" height="292" /%}
 
-To create a new record, you can click on the **New Record** button at the top right of the page.
+### Smart Form Fields
 
-{% img src="/images/supamode/create-record.webp" alt="Create Record" width="1724" height="292" /%}
+Supamode generates form fields based on your column types:
 
-## Editing records
+| Column Type | Form Field |
+|-------------|------------|
+| `text`, `varchar` | Text input |
+| `text` (long) | Textarea or rich text editor |
+| `integer`, `numeric` | Number input with validation |
+| `boolean` | Toggle switch |
+| `date`, `timestamp` | Date/time picker |
+| `uuid` (foreign key) | Searchable dropdown with display format |
+| `enum` | Select dropdown with defined values |
+| `json`, `jsonb` | JSON editor with syntax highlighting |
 
-From the record details page, you can click on the **Edit** button at the top right of the page to edit the record.
+### Validation
 
-{% img src="/images/supamode/update-record.webp" alt="Edit Record" width="1724" height="292" /%}
+Forms validate data before submission:
+- Required fields (non-nullable columns)
+- Type constraints (numbers, dates, etc.)
+- Unique constraints (prevents duplicates)
+- Foreign key constraints (valid references only)
 
-In this page, you can update all the fields of the record at once, which is ideal for larger, multi-record updates.
+Validation errors appear inline next to the field.
 
-## Deleting records
+### Default Values
 
-To delete a record, you can click on the **Delete** button at the top right of the page. Before deleting the record, you will always be prompted to confirm the action.
+If a column has a database default (like `now()` for timestamps or `gen_random_uuid()` for IDs), the field is optional and the default applies on insert.
+
+## Editing Records
+
+Supamode offers two editing modes depending on your workflow.
+
+### Inline Editing
+
+For quick, single-field updates, hover over any field in the detail view and click the pencil icon.
+
+{% img src="/images/supamode/edit-record-inline.webp" alt="Inline editing with pencil icon on hover" width="1724" height="292" /%}
+
+Inline editing:
+- Updates one field at a time
+- Saves immediately on blur or Enter
+- Shows validation errors inline
+- Ideal for quick corrections
+
+{% alert type="default" title="Edit Permissions" %}
+The pencil icon only appears for columns the user has `update` permission on. If you don't see the icon, check your [role permissions](../configuration/permissions).
+{% /alert %}
+
+### Full-Page Editing
+
+For complex updates or multiple fields, click the **Edit** button to open the full edit form.
+
+{% img src="/images/supamode/update-record.webp" alt="Full edit page with all fields" width="1724" height="292" /%}
+
+Full-page editing:
+- Shows all editable fields at once
+- Validates all changes before saving
+- Supports rich text and JSON editors
+- Ideal for comprehensive updates
+
+## Deleting Records
+
+To delete a record, click the **Delete** button in the record detail view or use the row action menu.
+
+**Confirmation required**: Supamode always prompts for confirmation before deleting. This prevents accidental data loss.
+
+### Batch Deletion
+
+To delete multiple records at once:
+
+1. Enable selection mode by clicking the checkbox column header
+2. Select the records to delete
+3. Click **Delete Selected** in the batch actions bar
+
+{% img src="/images/supamode/batch-actions.png" alt="Batch actions bar for bulk operations" width="1724" height="292" /%}
+
+{% alert type="warning" title="Cascade Deletes" %}
+If your database has `ON DELETE CASCADE` constraints, deleting a record also deletes related records. Supamode shows a warning when cascade deletes will occur.
+{% /alert %}
+
+## Managing Relationships
+
+### One-to-Many Relationships
+
+When viewing a record that has related records (e.g., a customer with orders), the detail view shows a nested table of related items.
+
+You can:
+- View related records inline
+- Click through to the related record's detail view
+- Create new related records directly
+- Edit the foreign key to reassign relationships
+
+### Many-to-Many Relationships
+
+For many-to-many relationships (e.g., posts and tags), Supamode shows a multi-select interface.
+
+You can:
+- Add existing items to the relationship
+- Remove items from the relationship
+- Create new items and link them simultaneously
+
+### Reference Fields
+
+Foreign key columns display the referenced record's [display format](../configuration/tables#display-format) instead of raw UUIDs.
+
+Example: Instead of `550e8400-e29b-41d4-a716-446655440000`, you see "John Smith" or "Order #1234".
+
+Click any reference to navigate to that record's detail view.
+
+## Audit Trail
+
+All create, update, and delete operations are logged in the [audit log](./audit-logs). Each log entry includes:
+- Who made the change
+- When it occurred
+- What changed (before and after values)
+- Which record was affected
+
+This provides accountability and the ability to track down issues.
+
+## Best Practices
+
+### Use Inline Editing for Simple Changes
+
+For correcting typos, updating statuses, or toggling flags, inline editing is faster than opening the full edit form.
+
+### Review Before Batch Operations
+
+When deleting multiple records, double-check your selection. Batch deletes cannot be undone without database backups or audit log data.
+
+### Configure Display Formats
+
+Set up meaningful [display formats](../configuration/tables#display-format) for your tables so reference fields show useful information instead of UUIDs.
+
+### Limit Editable Fields
+
+For sensitive columns, configure [column permissions](../configuration/permissions) to prevent accidental edits. Users can view but not modify protected fields.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Can I undo a delete operation?", "answer": "Supamode doesn't have a built-in undo. Deleted records are logged in the audit trail, but restoration requires database-level backup restoration or custom recovery scripts. For critical data, implement soft deletes in your schema."},
+     {"question": "Why can't I edit certain fields?", "answer": "Fields are read-only if: the column is configured as non-editable, your role lacks update permission for that column, or the column has a database-level immutability constraint (like auto-generated IDs)."},
+     {"question": "How do I edit JSON fields?", "answer": "JSON and JSONB columns open in a syntax-highlighted code editor. The editor validates JSON before saving. Invalid JSON cannot be submitted."},
+     {"question": "Can I import data in bulk?", "answer": "Supamode focuses on record-by-record management. For bulk imports, use Supabase's CSV import in Studio, pg_restore, or custom scripts. You can then view and edit the imported data in Supamode."},
+     {"question": "Why do some dropdowns take time to load?", "answer": "Reference field dropdowns query the related table. For tables with many records, this can take a moment. Supamode caches results and provides search-as-you-type to help find records quickly."}
+   ]
+/%}

@@ -1,0 +1,240 @@
+---
+status: "published"
+title: "Migrating from PostgreSQL to SQLite"
+label: "Migrating to SQLite"
+order: 6
+description: "Learn how to migrate from PostgreSQL to SQLite in your Next.js Drizzle SaaS application."
+---
+
+> **Important**: This kit uses PostgreSQL by default. This guide describes a **one-way migration** for users who want to switch to SQLite. Tests continue using PGlite (PostgreSQL in-memory) regardless of your production database.
+
+## Why SQLite?
+
+- **Local development**: No Docker or external database needed
+- **Edge deployment**: Compatible with Cloudflare D1, Turso, and other edge databases
+- **Small deployments**: Simpler infrastructure for low-traffic applications
+
+## When to Use PostgreSQL Instead
+
+- High concurrent write throughput
+- Row-level security (RLS) policies
+- Advanced PostgreSQL features (JSONB, full-text search)
+- Multi-instance deployments
+
+---
+
+## Architecture
+
+The database package uses an **adapters pattern**:
+
+```
+packages/database/src/
+  client.ts              # Re-exports from active adapter
+  adapters/
+    postgres.ts          # PostgreSQL adapter (default)
+  test-utils/
+    pglite-db.ts         # Tests always use PGlite (unchanged)
+```
+
+To use SQLite, you'll need to create an SQLite adapter following the pattern below.
+
+---
+
+## Quick Start
+
+### 1. Update Better Auth provider
+
+Edit `packages/better-auth/src/auth.ts`:
+
+```typescript
+const database = drizzleAdapter(db, {
+  provider: 'sqlite',  // Change from 'pg'
+  usePlural: true,
+});
+```
+
+### 2. Generate SQLite schema
+
+This regenerates `packages/database/src/schema/core.ts` with SQLite types:
+
+```bash
+pnpm --filter @kit/better-auth schema:generate
+```
+
+### 3. Create SQLite adapter
+
+Create `packages/database/src/adapters/sqlite.ts` with the following content, then update `packages/database/src/client.ts`:
+
+```typescript
+// Before
+export { db, type DatabaseSchema } from './adapters/postgres';
+
+// After
+export { db, type DatabaseSchema } from './adapters/sqlite';
+```
+
+### 4. Update Drizzle config
+
+Edit `packages/database/drizzle.config.mjs`:
+
+```javascript
+import { defineConfig } from 'drizzle-kit';
+
+const dialect = 'sqlite';  // Change from 'postgresql'
+
+export default defineConfig({
+  schema: '../../packages/database/src/schema/schema.ts',
+  out: '../../packages/database/src/schema',
+  dialect,
+  dbCredentials: {
+    url: process.env.DATABASE_URL ?? './data/local.db',
+  },
+  verbose: true,
+  strict: true,
+});
+```
+
+### 5. Regenerate migrations
+
+```bash
+mkdir -p data
+rm -rf packages/database/src/schema/meta
+pnpm --filter "@kit/database" drizzle:generate
+pnpm --filter "@kit/database" drizzle:migrate
+```
+
+---
+
+## Turso / Edge Deployment
+
+For Turso or edge runtimes, use `@libsql/client` instead of `better-sqlite3`.
+
+Install:
+
+```bash
+pnpm --filter @kit/database add @libsql/client
+```
+
+Create `packages/database/src/adapters/turso.ts`:
+
+```typescript
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+
+import { createClient } from '@libsql/client';
+import { type LibSQLDatabase, drizzle } from 'drizzle-orm/libsql';
+
+import * as schema from '../schema/schema';
+
+declare global {
+  var tursoDb: LibSQLDatabase<DatabaseSchema> | undefined;
+}
+
+export type DatabaseSchema = typeof schema;
+
+// Use process.cwd() since Next.js runs from apps/web
+const databaseUrl = process.env.SQLITE_DATABASE_URL ?? path.join(process.cwd(), 'data', 'local.db');
+
+let db: LibSQLDatabase<DatabaseSchema>;
+
+if (process.env.NODE_ENV === 'production') {
+  db = createDrizzle();
+} else {
+  if (!global.tursoDb) {
+    global.tursoDb = createDrizzle();
+  }
+  db = global.tursoDb;
+}
+
+export { db };
+
+function createDrizzle() {
+  // Ensure directory exists for local file
+  if (!databaseUrl.startsWith('libsql://')) {
+    const dir = path.dirname(databaseUrl);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  }
+
+  const client = createClient({
+    url: databaseUrl,
+    authToken: process.env.SQLITE_DATABASE_AUTH_TOKEN,
+  });
+
+  return drizzle(client, { schema });
+}
+```
+
+Update `client.ts` to export from `./adapters/turso`.
+
+---
+
+## Environment Variables
+
+### Local SQLite
+
+The adapter auto-discovers the database at `data/local.db` (relative to `process.cwd()`). To override:
+
+```bash
+SQLITE_DATABASE_URL=/absolute/path/to/local.db
+```
+
+### Turso
+
+```bash
+SQLITE_DATABASE_URL=libsql://your-database.turso.io
+SQLITE_DATABASE_AUTH_TOKEN=your-auth-token
+```
+
+---
+
+## Troubleshooting
+
+### "TRUNCATE is not supported"
+
+Use `DELETE FROM` instead of `TRUNCATE ... CASCADE`.
+
+### Boolean values as 0/1
+
+SQLite stores booleans as integers. Drizzle handles this with `{ mode: 'boolean' }`.
+
+### "database is locked"
+
+Enable WAL mode: `sqlite.pragma('journal_mode = WAL')`
+
+---
+
+## Common Mistakes to Avoid
+
+**Forgetting to update Better Auth provider**: If you only change the adapter but not the provider in `auth.ts`, the auth schema generation will produce PostgreSQL types.
+
+**Using TRUNCATE in SQLite**: SQLite doesn't support `TRUNCATE ... CASCADE`. Use `DELETE FROM` instead for clearing tables.
+
+**Running SQLite on serverless without edge storage**: Local SQLite files don't work with serverless platforms (each invocation might hit different instances). Use Turso or Cloudflare D1 for serverless.
+
+---
+
+## Cleanup
+
+Remove unused PostgreSQL packages:
+
+```bash
+pnpm --filter @kit/database remove postgres
+```
+
+Keep `@electric-sql/pglite` since it's used by tests.
+
+---
+
+**Previous:** [Client](./client) | **Next:** [Migrating to MySQL →](./mysql)
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "When should I choose SQLite over PostgreSQL?", "answer": "Choose SQLite for edge deployments (Cloudflare D1, Turso), simple single-server apps, or when you want to avoid database infrastructure. Stick with PostgreSQL for high write concurrency, row-level security, or advanced features like JSONB queries."},
+     {"question": "Can I use SQLite with serverless platforms?", "answer": "Local SQLite files do not work with serverless (each invocation might hit different instances). Use Turso or Cloudflare D1, which provide distributed SQLite. The libsql adapter in the docs supports both."},
+     {"question": "How do I handle SQLite's lack of boolean type?", "answer": "SQLite stores booleans as 0/1 integers. Drizzle handles this automatically with { mode: 'boolean' } on integer columns. Your TypeScript code still uses true/false."},
+     {"question": "What causes 'database is locked' errors?", "answer": "SQLite locks the entire database during writes. Enable WAL mode with sqlite.pragma('journal_mode = WAL') for better concurrent access. This allows readers while writes are happening."}
+   ]
+/%}

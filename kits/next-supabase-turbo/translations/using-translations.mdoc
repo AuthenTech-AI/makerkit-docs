@@ -2,86 +2,394 @@
 status: "published"
 title: "Using translations in your Next.js Supabase project"
 label: "Using translations"
-description: "Makerkit uses i18next to translate your project into multiple languages. This guide will show you how to use translations in your Next.js Supabase project."
+description: "Learn how to use translations in Server Components, Client Components, and Server Actions with Makerkit's i18next-based translation system."
 order: 0
 ---
 
-Makerkit uses the library `i18next` for translations, but it's abstracted behind the `@kit/i18n` package. This abstraction ensures that any future changes to the translation library won't impact your code.
+Makerkit uses `i18next` for internationalization, abstracted behind the `@kit/i18n` package. This abstraction ensures future changes to the translation library won't break your code.
 
 {% sequence title="Steps to use translations" description="Learn how to use translations in your Next.js Supabase project." %}
 
-[Using Translations in your Next.js Supabase Project](#using-translations-in-your-nextjs-supabase-project)
+[Understand the translation architecture](#translation-architecture)
 
-[Initializing i18n in Server Components](#initializing-i18n-in-server-components)
+[Use translations in Server Components](#using-translations-in-server-components)
 
-[Using Translations in Client Components](#using-translations-in-client-components)
+[Use translations in Client Components](#using-translations-in-client-components)
+
+[Work with translation keys and namespaces](#working-with-translation-keys)
 
 {% /sequence %}
 
-The translation system in Makerkit is versatile and can be used in:
+## Translation Architecture
 
-1. Server components (RSC)
-2. Client components
-3. Server-side rendering
+The translation system supports:
 
-## Using Translations in your Next.js Supabase Project
+1. **Server Components (RSC)** - Initialize translations per-request with `withI18n`
+2. **Client Components** - Access translations via React context with `useTranslation`
+3. **Server-side rendering** - Hydrate translations from server to client
 
-The guide below will show you how to use translations in your Next.js Supabase project in all the scenarios mentioned above.
+Translation files are stored in `apps/web/public/locales/[language]/[namespace].json`. The default structure includes:
 
-### Initializing i18n in Server Components
+```
+apps/web/public/locales/
+└── en/
+    ├── common.json      # Shared UI strings
+    ├── auth.json        # Authentication flows
+    ├── account.json     # Account settings
+    ├── teams.json       # Team management
+    ├── billing.json     # Billing and subscriptions
+    └── marketing.json   # Marketing pages
+```
 
-When creating a new page, ensure to wrap it with the `withI18n` function. This function initializes the translations before rendering the server component.
+## Using Translations in Server Components
 
-Given that server components are rendered in parallel, it's uncertain which one will render first. Therefore, it's crucial to initialize the translations before rendering the server component on each page/layout.
+Server Components require explicit initialization because they render in parallel. Without initialization, translations may not be available when the component renders.
 
-```tsx
+### Wrapping Pages with withI18n
+
+Always wrap your page components with `withI18n`:
+
+```tsx title="apps/web/app/home/page.tsx"
 import { withI18n } from '~/lib/i18n/with-i18n';
 
-const Page = () => {
-  return <div>My page</div>;
-};
+function HomePage() {
+  return <div>Your page content</div>;
+}
 
-export default withI18n(Page);
+export default withI18n(HomePage);
 ```
 
-### Implementing Translations in Server Components
+The `withI18n` higher-order component:
 
-After initializing the translations, you can use the `Trans` component to translate strings in your server components.
+1. Creates an i18n server instance before rendering
+2. Loads all configured namespaces
+3. Makes translations available to the component tree
 
-```tsx
-import { Trans } from '@kit/ui';
+### Using the Trans Component
 
-const Page = () => {
+After initialization, use the `Trans` component for translations:
+
+```tsx title="apps/web/app/home/page.tsx"
+import { Trans } from '@kit/ui/trans';
+import { withI18n } from '~/lib/i18n/with-i18n';
+
+function HomePage() {
   return (
     <div>
-      <Trans i18nKey="auth:signIn" />
+      <h1>
+        <Trans i18nKey="common:homeTabLabel" />
+      </h1>
+
+      <p>
+        <Trans i18nKey="common:homeTabDescription" />
+      </p>
     </div>
   );
-};
+}
 
-export default withI18n(Page);
+export default withI18n(HomePage);
 ```
 
-Ensure to import the `Trans` component from `@kit/ui` and not directly from `react-i18next`.
+**Import the `Trans` component from `@kit/ui/trans`** - not directly from `react-i18next`. The Makerkit wrapper handles server/client differences.
+
+### Using Translations in Metadata
+
+For page metadata, initialize the i18n instance directly:
+
+```tsx title="apps/web/app/home/page.tsx"
+import { Trans } from '@kit/ui/trans';
+
+import { withI18n } from '~/lib/i18n/with-i18n';
+import { createI18nServerInstance } from '~/lib/i18n/i18n.server';
+
+export async function generateMetadata() {
+  const i18n = await createI18nServerInstance();
+
+  return {
+    title: i18n.t('common:homeTabLabel'),
+  };
+}
+
+function HomePage() {
+  return (
+    <Trans i18nKey="common:homeTabLabel" />
+  );
+}
+
+export default withI18n(HomePage);
+```
 
 ## Using Translations in Client Components
 
-Besides simply using the `Trans` component, you can also use the `useTranslation` hook to translate strings in your client components.
+Client Components receive translations through the `I18nProvider` in the root layout.
 
 ### Using the useTranslation Hook
 
-The `useTranslation` hook is another way to translate strings in components that are not in the render path.
+The `useTranslation` hook provides access to the translation function:
 
-```tsx
+```tsx title="components/my-component.tsx"
+'use client';
+
 import { useTranslation } from 'react-i18next';
 
-const MyComponent = () => {
+export function MyComponent() {
   const { t } = useTranslation();
-  
-  return <div>{t('auth:signIn')}</div>;
-};
+
+  return (
+    <button onClick={() => alert(t('common:cancel'))}>
+      {t('common:cancel')}
+    </button>
+  );
+}
 ```
 
-### Conclusion
+### Specifying Namespaces
 
-By following these steps, you can easily add translations to your Next.js Supabase project. This approach ensures that your application is accessible to a global audience, providing a better user experience for all users.
+Load specific namespaces for better code splitting:
+
+```tsx title="components/billing-component.tsx"
+'use client';
+
+import { useTranslation } from 'react-i18next';
+
+export function BillingComponent() {
+  const { t } = useTranslation('billing');
+
+  // Keys without namespace prefix
+  return <span>{t('subscriptionSettingsTabLabel')}</span>;
+}
+```
+
+### Using Trans in Client Components
+
+The `Trans` component also works in Client Components:
+
+```tsx title="components/welcome-message.tsx"
+'use client';
+
+import { Trans } from '@kit/ui/trans';
+
+export function WelcomeMessage() {
+  return (
+    <p>
+      <Trans i18nKey="common:signedInAs" />
+    </p>
+  );
+}
+```
+
+## Working with Translation Keys
+
+### Key Format
+
+Translation keys follow the pattern `namespace:keyPath`:
+
+```tsx
+// Simple key
+<Trans i18nKey="common:cancel" />
+
+// Nested key
+<Trans i18nKey="common:routes.home" />
+
+// With default namespace in useTranslation
+const { t } = useTranslation('auth');
+t('signIn'); // Equivalent to 'auth:signIn'
+```
+
+### Interpolation
+
+Pass dynamic values to translations:
+
+```json title="apps/web/public/locales/en/common.json"
+{
+  "pageOfPages": "Page {{page}} of {{total}}",
+  "showingRecordCount": "Showing {{pageSize}} of {{totalCount}} rows"
+}
+```
+
+```tsx
+import { Trans } from '@kit/ui/trans';
+
+// Using Trans component
+<Trans
+  i18nKey="common:pageOfPages"
+  values={{ page: 1, total: 10 }}
+/>
+
+// Using t function
+const { t } = useTranslation();
+t('common:showingRecordCount', { pageSize: 25, totalCount: 100 });
+```
+
+### Nested Translations
+
+Access nested objects with dot notation:
+
+```json title="apps/web/public/locales/en/common.json"
+{
+  "routes": {
+    "home": "Home",
+    "account": "Account",
+    "billing": "Billing"
+  },
+  "roles": {
+    "owner": {
+      "label": "Owner"
+    },
+    "member": {
+      "label": "Member"
+    }
+  }
+}
+```
+
+```tsx
+<Trans i18nKey="common:routes.home" />
+<Trans i18nKey="common:roles.owner.label" />
+```
+
+### HTML in Translations
+
+For translations containing HTML, use the `Trans` component with components prop:
+
+```json title="apps/web/public/locales/en/auth.json"
+{
+  "clickToAcceptAs": "Click the button below to accept the invite as <b>{{email}}</b>"
+}
+```
+
+```tsx
+<Trans
+  i18nKey="auth:clickToAcceptAs"
+  values={{ email: user.email }}
+  components={{ b: <strong /> }}
+/>
+```
+
+## Common Patterns
+
+### Conditional Translations
+
+```tsx
+const { t, i18n } = useTranslation();
+
+// Check current language
+if (i18n.language === 'en') {
+  // English-specific logic
+}
+
+// Translate with fallback
+const label = t('optional:key', { defaultValue: 'Fallback text' });
+```
+
+### Pluralization
+
+```json title="apps/web/public/locales/en/common.json"
+{
+  "itemCount": "{{count}} item",
+  "itemCount_other": "{{count}} items"
+}
+```
+
+```tsx
+t('common:itemCount', { count: 1 }); // "1 item"
+t('common:itemCount', { count: 5 }); // "5 items"
+```
+
+### Date and Number Formatting
+
+For dates and numbers, use the standard `Intl` APIs alongside translations:
+
+```tsx
+const { i18n } = useTranslation();
+
+const formattedDate = new Intl.DateTimeFormat(i18n.language).format(date);
+const formattedNumber = new Intl.NumberFormat(i18n.language).format(1234.56);
+```
+
+## Server Actions
+
+For Server Actions, initialize translations at the start:
+
+```tsx title="apps/web/lib/server/actions.ts"
+'use server';
+
+import { createI18nServerInstance } from '~/lib/i18n/i18n.server';
+
+export async function myServerAction() {
+  const i18n = await createI18nServerInstance();
+  const t = i18n.t;
+
+  // Use translations
+  const message = t('common:genericServerError');
+
+  return { error: message };
+}
+```
+
+## Environment Variables
+
+Configure language behavior with these environment variables:
+
+```bash title=".env"
+# Default language (fallback when user preference unavailable)
+NEXT_PUBLIC_DEFAULT_LOCALE=en
+
+# Language priority: 'user' or 'application'
+# 'user': Respect browser Accept-Language header
+# 'application': Always use default locale
+NEXT_PUBLIC_LANGUAGE_PRIORITY=application
+```
+
+When `languagePriority` is set to `user`, the system checks:
+
+1. The `lang` cookie (set when user changes language)
+2. The browser's `Accept-Language` header
+3. Falls back to `NEXT_PUBLIC_DEFAULT_LOCALE`
+
+## Troubleshooting
+
+### Missing Translation Warning
+
+If you see `Missing interpolation value for key`, check:
+
+1. The key exists in your translation file
+2. All interpolation values are provided
+3. The namespace is loaded
+
+### Translations Not Updating
+
+If translations don't update after editing JSON files:
+
+1. Restart the development server
+2. Clear browser cache
+3. Check for JSON syntax errors in translation files
+
+### Server Component Translation Missing
+
+Ensure the page is wrapped with `withI18n`:
+
+```tsx
+// Wrong - translations may not be available
+export default function Page() { ... }
+
+// Correct
+export default withI18n(Page);
+```
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "How do I switch languages programmatically?", "answer": "Use i18n.changeLanguage('es') from the useTranslation hook, then call window.location.reload() to refresh with the new language. The language is persisted in the 'lang' cookie automatically."},
+     {"question": "Why are my translations not showing?", "answer": "Check that the namespace is registered in defaultI18nNamespaces in i18n.settings.ts, the JSON file exists in public/locales/[language]/, and for Server Components, verify the page is wrapped with withI18n."},
+     {"question": "Can I use translations in Server Actions?", "answer": "Yes, import createI18nServerInstance from ~/lib/i18n/i18n.server and call it at the start of your server action. Then use the returned i18n.t function for translations."},
+     {"question": "What's the difference between Trans component and useTranslation hook?", "answer": "Trans is a React component that renders translated strings directly in JSX, supporting interpolation and HTML. useTranslation is a hook that returns a t() function for programmatic access to translations, useful for attributes, conditionals, or non-JSX contexts."},
+     {"question": "How do I handle missing translations during development?", "answer": "Missing translations log warnings to the console. Use [TODO] prefixes in your JSON values to make untranslated strings searchable. The system falls back to the key name if no translation is found."}
+   ]
+/%}
+
+## Related Documentation
+
+- [Adding Translations](/docs/next-supabase-turbo/translations/adding-translations) - Add new languages and namespaces
+- [Language Selector](/docs/next-supabase-turbo/translations/language-selector) - Let users change their language
+- [Email Translations](/docs/next-supabase-turbo/translations/email-translations) - Translate email templates

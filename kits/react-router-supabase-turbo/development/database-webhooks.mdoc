@@ -3,7 +3,7 @@ status: "published"
 
 label: "Database Webhooks"
 order: 6
-title: "How to handle custom database webhooks in your React Router Supabase application"
+title: "Database Webhooks in React Router Supabase"
 description: "Learn how to handle custom database webhooks in your React Router Supabase application"
 ---
 
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
 
   try {
     // handle the webhook event
-    await service.handleWebhook(request, {
+    await service.handleWebhook(body, signature, {
       handleEvent(change) {
         if (change.type === 'INSERT' && change.table === 'invitations') {
           // do something with the invitation

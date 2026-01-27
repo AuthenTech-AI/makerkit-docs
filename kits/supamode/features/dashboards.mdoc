@@ -2,32 +2,30 @@
 status: "published"
 title: "Custom Dashboards"
 label: "Dashboards"
-order: 0
-description: "Learn how to create custom dashboards to visualize your data and share them with your team"
+order: 4
+description: "Build custom analytics dashboards with charts, metrics, and tables. Visualize your data and share dashboards with specific roles."
 ---
 
-Custom Dashboards in Supamode provide a powerful way to create personalized, interactive analytics interfaces tailored to your specific data visualization needs. Instead of being limited to pre-built views, you can build your own dashboards with drag-and-drop widgets, custom layouts, and real-time data visualization.
+Custom Dashboards let you build analytics views tailored to your data. Combine chart widgets, metric cards, and data tables into role-specific dashboards that update in real-time.
 
-## Getting Started
+**Key capabilities:**
+- Three widget types: Charts, Metrics, and Tables
+- Drag-and-drop layout with resizable widgets
+- Role-based sharing (view or edit access)
+- Automatic data caching with manual refresh option
 
-### Creating Your First Dashboard
+## Creating a Dashboard
 
-When you first access the Dashboards section, you'll see an empty state that encourages you to create your first dashboard.
+Navigate to **Dashboards** in the sidebar. Click **Create Dashboard** to get started.
 
-{% img src="/images/supamode/empty-dashboards.webp" alt="Empty Dashboards State" width="1920" height="1080" /%}
+{% img src="/images/supamode/empty-dashboards.webp" alt="Empty dashboards page with Create Dashboard button" width="1920" height="1080" /%}
 
-Click the **"Create Dashboard"** button to start building your first dashboard.
+In the creation dialog:
 
-### Dashboard Creation Dialog
+{% img src="/images/supamode/create-dashboard-dialog.webp" alt="Create dashboard dialog with name and sharing options" width="1920" height="1080" /%}
 
-The dashboard creation dialog allows you to set up your dashboard with a name and optional role-based sharing permissions.
-
-{% img src="/images/supamode/create-dashboard-dialog.webp" alt="Create Dashboard Dialog" width="1920" height="1080" /%}
-
-**Key features:**
-- **Name**: Give your dashboard a descriptive name (e.g., "Users", "Sales Analytics", "System Health")
-- **Share with Roles**: Optionally share the dashboard with specific roles like "Customer Support" with defined permission levels (View, Edit)
-- **Role Management**: Add multiple roles with different access levels using the "Add Role" button
+- **Name**: Descriptive name (e.g., "Sales Overview", "User Analytics")
+- **Share with Roles**: Optionally grant access to specific roles with View or Edit permissions
 
 ## Widget Types
 
@@ -302,3 +300,14 @@ Custom Dashboards support role-based sharing, allowing you to collaborate with t
 - Regularly review and update filters to ensure relevant data
 - Use descriptive widget names that clearly indicate their purpose
 - Consider creating separate dashboards for different use cases or audiences
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "How often do widgets refresh their data?", "answer": "Widgets cache data to optimize performance. The cache duration varies by widget type. Use the manual refresh action (three-dot menu) to force an immediate update when you need real-time data."},
+     {"question": "Can I embed dashboards in other applications?", "answer": "Dashboards are currently only viewable within Supamode. Embedding requires authentication. For external sharing, consider exporting data and using dedicated BI tools."},
+     {"question": "Is there a limit to widgets per dashboard?", "answer": "No hard limit, but performance degrades with many complex widgets. We recommend keeping dashboards focused with 6-12 widgets maximum. Create multiple dashboards for different use cases."},
+     {"question": "Can I use custom SQL for widgets?", "answer": "Widgets use Supamode's query builder, not raw SQL. This ensures queries respect permissions. For complex analytics, create PostgreSQL views and add them as tables in Supamode."},
+     {"question": "How do I track metrics over time?", "answer": "Use chart widgets with time-based grouping (by day, week, month). Combine with trend indicators in metric widgets to show period-over-period changes. Historical data is read from your database."}
+   ]
+/%}

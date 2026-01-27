@@ -1,0 +1,142 @@
+---
+status: "published"
+title: "Sign In"
+label: "Sign In"
+order: 1
+description: "Implement sign in with email/password, magic link, and OAuth authentication in your Next.js SaaS application."
+---
+
+Configure sign-in methods by setting environment variables. The pre-built forms adapt automatically to show email/password, magic links, OAuth providers, and MFA challenges.
+
+This page is part of the [Authentication documentation](./overview).
+
+Users sign in via email/password (default), magic link (passwordless), or OAuth providers (Google enabled by default). The sign-in form at `/auth/sign-in` reads environment variables to show available methods. When MFA is enabled for a user, they're prompted for a TOTP code after entering credentials. All methods are pre-built with Better Auth, and you toggle them on/off without code changes.
+
+Sign-in is the authentication flow where users prove their identity using credentials (password), a one-time link (magic link), or a third-party provider (OAuth) to establish a session stored in your PostgreSQL database via Prisma.
+
+**Use email/password when:** you want traditional authentication with password requirements you control.
+
+**Use magic links when:** you want passwordless authentication or your users frequently forget passwords.
+
+**Use OAuth when:** you want faster sign-in and your users already have Google, GitHub, or Apple accounts.
+
+**If unsure:** enable email/password and Google OAuth. Most SaaS apps use both.
+
+## Sign In Page
+
+- **Location:** `apps/web/app/[locale]/auth/sign-in/page.tsx`
+- **Route:** `/auth/sign-in`
+
+The sign-in page uses the `SignInMethodsContainer` component at `packages/auth/src/components/sign-in-methods-container.tsx`.
+
+## Email/Password Sign In
+
+The default authentication method. Users enter their email and password to sign in.
+
+{% img src="/images/docs/sign-in-email-password.webp" width="2388" height="1798" /%}
+
+Enable or disable email/password authentication:
+
+```bash {% title="apps/web/.env.local" %}
+NEXT_PUBLIC_AUTH_PASSWORD=true
+```
+
+When disabled, the password fields are hidden and users must use magic links or OAuth.
+
+## Magic Link Sign In
+
+Passwordless sign-in via email links. Users enter their email and receive a link that signs them in directly.
+
+{% img src="/images/docs/sign-in-magic-link.webp" width="2388" height="1798" /%}
+
+Enable magic link authentication:
+
+```bash {% title="apps/web/.env.local" %}
+NEXT_PUBLIC_AUTH_MAGIC_LINK=true
+```
+
+Magic links require a working mailer. See [Email Configuration](../emails/configuration) to set up your email provider.
+
+**Security note:** Magic link authentication bypasses MFA. Since the link verifies email ownership (a factor), combining it with TOTP would add friction without significant security benefit. If MFA is critical for your security requirements, consider disabling magic links.
+
+
+## OAuth Social Providers
+
+Users sign in with existing accounts from Google, GitHub, Apple, and other providers.
+
+{% img src="/images/docs/social-providers.webp" width="2388" height="1798" /%}
+
+Configure which providers appear on the sign-in form:
+
+```bash {% title="apps/web/.env.local" %}
+NEXT_PUBLIC_AUTH_OAUTH_PROVIDERS=google,github
+```
+
+Google OAuth is enabled by default. See [Social Providers](../better-auth/social-providers) for step-by-step setup of each provider including credential configuration.
+
+## MFA Challenge
+
+When users enable TOTP-based multi-factor authentication, they're prompted for a code after entering their primary credentials.
+
+{% img src="/images/docs/enable-mfa.webp" width="2388" height="1798" /%}
+
+Users enable MFA from their security settings at `/home/settings/security`. They scan a QR code with an authenticator app like Google Authenticator, Authy, or 1Password.
+
+{% img src="/images/docs/verify-mfa.webp" width="2388" height="1798" /%}
+
+After signing in with email/password, users with MFA enabled enter a 6-digit TOTP code from their authenticator app.
+
+For backend configuration, see [MFA Configuration](../better-auth/mfa-configuration).
+
+## CAPTCHA Protection
+
+Protect sign-in from bots and brute force attacks with Cloudflare Turnstile.
+
+```bash {% title="apps/web/.env.local" %}
+NEXT_PUBLIC_CAPTCHA_SITE_KEY=your-turnstile-site-key
+CAPTCHA_SECRET_KEY=your-turnstile-secret-key
+```
+
+When configured, the sign-in form displays a CAPTCHA challenge. Failed challenges block the sign-in attempt.
+
+See [Captcha Plugin](../better-auth/captcha-plugin) for complete setup instructions.
+
+## Redirect After Sign In
+
+After successful sign-in, users are redirected to the app home path:
+
+```bash {% title="apps/web/.env.local" %}
+NEXT_PUBLIC_APP_HOME_PATH=/home
+```
+
+For custom redirects (e.g., after a deep link), pass a `redirect` parameter to the sign-in page:
+
+```
+/auth/sign-in?redirect=/dashboard/projects
+```
+
+The auth system validates redirect URLs to prevent open redirect attacks. Only paths within your application are allowed.
+
+## Common Pitfalls
+
+- **Magic link bypasses MFA**: Users signing in with magic links skip the TOTP challenge. If MFA is critical for security, disable magic links.
+- **OAuth redirect URL mismatch**: The callback URL must exactly match what's configured in the OAuth provider dashboard. `localhost` is different from `127.0.0.1`.
+- **Forgetting to verify email configuration**: Magic links require a working mailer. Test email delivery before enabling them.
+- **Multiple sign-in methods without account linking**: Users who sign up with Google and later try email/password may create duplicate accounts. Better Auth handles linking, but test the flow.
+- **Not testing MFA recovery flow**: Users lose phones. Ensure recovery codes work before shipping MFA to production.
+- **CAPTCHA blocking legitimate users**: Test the CAPTCHA flow in development. Some users have browser extensions that interfere with Turnstile.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Can I customize the sign-in form?", "answer": "Yes. The form is at packages/auth/src/components/sign-in-methods-container.tsx. It uses @kit/ui components with Tailwind CSS. Modify the React components directly."},
+     {"question": "How do I redirect users after sign-in?", "answer": "By default, users go to the app home path (NEXT_PUBLIC_APP_HOME_PATH). For custom redirects, pass a callbackURL query parameter to the sign-in page."},
+     {"question": "Why does magic link bypass MFA?", "answer": "Magic links verify email ownership, which is considered an authentication factor. Combining email verification with TOTP would add friction without significant security benefit for most applications."},
+          {"question": "How do I show a loading state during sign-in?", "answer": "The form components handle loading states internally. They disable the submit button and show a spinner during authentication."},
+     {"question": "Can users link multiple sign-in methods?", "answer": "Yes. A user who signed up with Google can later add a password from their account settings, and vice versa. Better Auth handles account linking automatically."}
+   ]
+/%}
+
+---
+
+**Next:** [Sign Up](./sign-up) | [Session Handling](./session-handling)

@@ -1,0 +1,165 @@
+---
+status: "published"
+title: "Project Setup"
+label: "Project Setup"
+order: 4
+description: "Setup the project and configure the Git remotes."
+---
+
+Run `pnpm turbo gen setup` to automatically configure Git remotes and project settings. The setup script configures your repository to pull updates from the upstream MakerKit repository while pushing to your own origin.
+
+This guide is part of the [Next.js Prisma SaaS Kit installation](./overview).
+
+{% sequence title="Project Setup" description="Setup the project and configure the Git remotes." %}
+[Automatic Setup](#automatic-setup-(recommended))
+
+[Manual Setup](#manual-setup)
+
+[Setting Git user name](#setting-git-user-name)
+
+[Understanding Git Remotes](#understanding-git-remotes)
+
+[Pulling Updates from Upstream](#pulling-updates-from-upstream)
+
+[Setting Up Post-Merge Hook](#setting-up-post-merge-hook)
+
+[Creating a New Branch](#creating-a-new-branch)
+
+[Windows-Specific Considerations](#windows-specific-considerations)
+{% /sequence %}
+
+## Automatic Setup (recommended)
+
+Makerkit provides a script to automatically clone the repository and setup the project. Please run the following command to setup the project:
+
+```bash
+pnpm turbo gen setup
+```
+
+Should this command fail, you can manually setup the project by following the steps below.
+
+## Manual Setup
+
+If the command above fails, you can manually setup the project by following the steps below.
+
+### Setting Git user name
+
+Please run the following commands to set your Git user name and email:
+
+```bash
+git config user.name "<your-name>"
+git config user.email "<your-email>"
+```
+
+## Understanding Git Remotes
+
+In a typical setup, you'll have:
+- **origin** - Your personal repository (where you push your code)
+- **upstream** (optional) - The original Makerkit repository (for pulling updates)
+
+Run the following command to check your current remotes and understand the relationship between them:
+
+```bash
+git remote -v
+```
+
+## Pulling Updates from Upstream
+
+To get the latest changes from the original Makerkit repository:
+
+```bash
+# Fetch latest changes
+git fetch upstream
+
+# Merge changes into your main branch
+git checkout main
+git merge upstream/main
+
+# Or use pull (fetch + merge)
+git pull upstream main
+```
+
+**Best practice:** Pull upstream updates regularly (e.g., daily) to stay current with bug fixes and new features.
+
+## Setting Up Post-Merge Hook
+
+Automatically run `pnpm install` after pulling updates:
+
+```bash
+# Create post-merge hook
+cat > .git/hooks/post-merge << 'EOF'
+#!/bin/bash
+echo "Running pnpm install after merge..."
+pnpm install
+EOF
+
+# Make it executable
+chmod +x .git/hooks/post-merge
+```
+
+Now, every time you pull updates, dependencies will automatically install.
+
+## Creating a New Branch
+
+For your development work, create a new branch:
+
+```bash
+# Create and switch to a new branch
+git checkout -b feature/your-feature-name
+
+# Or use the new syntax
+git switch -c feature/your-feature-name
+```
+
+## Common Pitfalls
+
+- **Setup script fails silently** - If `pnpm turbo gen setup` doesn't prompt for input, ensure you're running it from the project root directory
+- **Git user not configured** - The setup script may fail if Git user.name and user.email aren't set; configure them first with `git config`
+- **Upstream remote already exists** - If you've run setup before, the upstream remote may already exist; the script handles this, but manual setup will error
+- **Merge conflicts on first pull** - If you made changes before pulling upstream, you may have conflicts; resolve them or start fresh
+- **Post-merge hook not executable** - On Unix systems, the hook won't run unless you `chmod +x .git/hooks/post-merge`
+
+## Windows-Specific Considerations
+
+### Path Length Issues
+
+Windows has a 260-character path limit that can cause problems with Node.js projects.
+
+**Solution 1: Enable long paths**
+```
+# Run PowerShell as Administrator
+New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" `
+  -Name "LongPathsEnabled" -Value 1 -PropertyType DWORD -Force
+
+git config --global core.longpaths true
+```
+
+**Solution 2: Clone near drive root**
+```bash
+# Clone to C:\projects\ instead of C:\Users\YourName\Documents\Projects\
+cd C:\
+mkdir projects
+cd projects
+git clone <repository-url>
+```
+
+### Line Ending Configuration
+
+Ensure proper line ending handling:
+
+```bash
+git config --global core.autocrlf false
+git config --global core.eol lf
+```
+
+### Avoid OneDrive
+
+**Do not** clone the repository into a OneDrive-synced folder. This can cause:
+- File locking issues
+- Node module installation problems
+- Build failures
+- Performance issues
+
+---
+
+**Next:** [Environment Variables →](./environment-variables)

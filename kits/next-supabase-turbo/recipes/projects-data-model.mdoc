@@ -880,22 +880,22 @@ These methods utilize the Supabase client to interact with the database, leverag
 
 The `ProjectsPage` component demonstrates how to use the `ProjectsService` in a Next.js server component:
 
-1. We create an instance of `ProjectsService` using the Supabase client:
+We create an instance of `ProjectsService` using the Supabase client:
 
  ```typescript
-const client = getSupabaseServerComponentClient();
+const client = getSupabaseServerClient();
 const service = createProjectsService(client);
 ```
 
-2. We fetch the projects for the current account:
+We fetch the projects for the current account:
 
 ```typescript
 const projects = use(service.getProjects(params.account));
 ```
 
- The `use` function is a React hook that allows us to use async data in a synchronous-looking way in server components.
+The `use` function is a React hook that allows us to use async data in a synchronous-looking way in server components.
 
-3. We render the projects, showing an empty state if there are no projects:
+We render the projects, showing an empty state if there are no projects:
 
  ```tsx
 <If condition={projects.length === 0}>
@@ -1003,14 +1003,10 @@ The page will display a list of projects for the current account, with a link to
 
 Based on the `ProjectsService`, you can implement other features:
 
-1. **Creating a New Project**:
-   You could create a form that calls `service.createProject()` when submitted.
-2. **Project Details Page**:
-   Use `service.getProject()` to fetch and display details of a single project.
-3. **Managing Project Members**:
-   Use `service.getProjectMembers()` to list members, and `service.addProjectMember()` to add new ones.
-4. **Permission Checking**:
-   Before performing actions, use `service.hasPermission()` to check if the user is allowed to do so.
+1. **Creating a New Project**: You could create a form that calls `service.createProject()` when submitted.
+2. **Project Details Page**: Use `service.getProject()` to fetch and display details of a single project.
+3. **Managing Project Members**: Use `service.getProjectMembers()` to list members, and `service.addProjectMember()` to add new ones.
+4. **Permission Checking**: Before performing actions, use `service.hasPermission()` to check if the user is allowed to do so.
 
 ## Going beyond Projects
 
@@ -2349,7 +2345,7 @@ Let's update the navigation menu to add a new link to the projects page. Update 
 },
 ```
 
-NB: you need to the component `FolderKanban` from `lucide-react` to use the icon.
+**Note:** You need to import the `FolderKanban` component from `lucide-react` to use the icon.
 
 ### Creating the Projects List Page
 

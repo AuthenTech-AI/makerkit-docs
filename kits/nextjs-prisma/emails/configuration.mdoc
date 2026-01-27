@@ -1,0 +1,122 @@
+---
+status: "published"
+label: "Email Configuration"
+description: "Learn how to configure the mailer provider to start sending emails from your SaaS application."
+title: "Email Configuration"
+order: 0
+---
+
+Configure email sending in MakerKit using `@kit/mailers` with either Nodemailer (SMTP) or Resend (HTTP API). Set `MAILER_PROVIDER=nodemailer` for universal SMTP compatibility or `MAILER_PROVIDER=resend` for edge runtime support. Configure SMTP credentials (`EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_USER`, `EMAIL_PASSWORD`) or a Resend API key, then use `getMailer()` to send emails. 
+
+The MakerKit mailer system is an abstraction layer over email providers that normalizes the sending API, handles provider switching via environment variables, and supports both Node.js and edge runtimes.
+
+- **Use Nodemailer when:** you need maximum provider flexibility or already have SMTP credentials. 
+- **Use Resend when:** deploying to edge runtimes (Cloudflare Workers, Vercel Edge) or want simpler setup.
+
+**If unsure:** start with Nodemailer for development (works with Mailpit), then consider Resend for production.
+
+{% sequence title="Sending Emails in Makerkit" description="Learn how to configure the mailer provider to start sending emails." %}
+
+[Configuring the mailer provider](#configuring-the-mailer-provider)
+
+[Nodemailer](#nodemailer)
+
+[Resend](#resend)
+
+{% /sequence %}
+
+## Configuring the mailer provider
+
+MakerKit offers the `@kit/mailers` package to configure and send emails, providing a straightforward API for email operations.
+
+There are two mailer implementations provided by Makerkit:
+
+1. `nodemailer`: This is the default mailer that leverages the `nodemailer` library. It's ideal for Node.js environments as it's compatible with any SMTP server, ensuring you're not tied to a specific provider.
+2. `resend`: This mailer uses the [Resend](https://resend.com) API via HTTP. It's a suitable choice if you opt for Resend or are using a runtime that doesn't support Node.js.
+
+The following sections will guide you on configuring the mailer provider to start sending emails from your application.
+
+## Nodemailer
+
+To specify the mailer provider, set the `MAILER_PROVIDER` environment variable in the `apps/web/.env` file. 
+
+For instance, to use the `nodemailer` mailer, set `MAILER_PROVIDER` to `nodemailer`:
+
+```bash
+MAILER_PROVIDER=nodemailer
+```
+
+By default, `nodemailer` is used, so you don't need to set the `MAILER_PROVIDER` environment variable by yourself.
+
+### SMTP Configuration
+
+If you're using the `nodemailer` mailer, you'll need to set the SMTP configuration in your environment variables. Here's an example of the SMTP configuration:
+
+```bash
+EMAIL_USER=User # refer to your email provider's documentation
+EMAIL_PASSWORD=your-password # refer to your email provider's documentation
+EMAIL_HOST=smtp.your-email-provider.com # refer to your email provider's documentation
+EMAIL_PORT=587 # or 465 for SSL
+EMAIL_TLS=true # or false for SSL (see provider documentation)
+EMAIL_SENDER=Makerkit <your-email@app.com> # refer to your email provider's documentation
+```
+
+The variables are:
+
+1. `EMAIL_USER`: The email address username. This is provider-specific, so refer to your email provider's documentation.
+2. `EMAIL_PASSWORD`: The email address password. This is provider-specific, so refer to your email provider's documentation.
+3. `EMAIL_HOST`: The SMTP server host. This is provider-specific, so refer to your email provider's documentation.
+4. `EMAIL_PORT`: The SMTP server port. This is provider-specific, so refer to your email provider's documentation.
+5. `EMAIL_TLS`: The TLS configuration. This is provider-specific, so refer to your email provider's documentation. Generally, you can set it to `true`.
+6. `EMAIL_SENDER`: The sender of the emails. This is usually the email address of your application. It's usually in the format `Sender Name <email@app.com>`.
+
+### EMAIL_SENDER format
+
+Sometimes, `EMAIL_SENDER` should be written in the format `Sender Name <email@app.com>` so that the email provider can identify the sender of the email. This setting can be different for different email providers, so please refer to your email provider's documentation.
+
+{% alert type="warn" title="Double check the settings" %}
+Please double check the settings above and confirm them with your email provider. If the settings are not correct, you won't be able to send emails.
+{% /alert %}
+
+## Resend
+
+As an alternative, you can use [Resend](https://resend.com), a modern email service that provides a simple API for sending emails.
+
+Set the `MAILER_PROVIDER` environment variable to `resend` in the `apps/web/.env` file:
+
+```bash
+MAILER_PROVIDER=resend
+```
+
+And provide the Resend API key:
+
+```bash
+RESEND_API_KEY=your-api-key
+EMAIL_SENDER=your-email
+```
+
+In production, we've found Resend's HTTP API to be more reliable than SMTP when deploying to Vercel - SMTP connections can timeout during cold starts, while Resend's API completes within the function timeout.
+
+## Common Pitfalls
+
+- **EMAIL_SENDER format varies by provider**: Some providers require `Name <email@domain.com>`, others just `email@domain.com`. Check your provider's docs - wrong format causes silent failures.
+- **Nodemailer fails on edge runtime**: Nodemailer uses Node.js `net` module, unavailable in edge. Switch to `MAILER_PROVIDER=resend` for edge deployments.
+- **TLS vs SSL confusion**: Port 587 uses STARTTLS (`EMAIL_TLS=true`), port 465 uses implicit SSL. Mismatched settings cause connection refused errors.
+- **Missing EMAIL_SENDER**: The `from` field defaults to `EMAIL_SENDER`. If not set, emails may be rejected or marked as spam.
+- **Development emails going to real addresses**: Always use [Mailpit](./mailpit) locally. Real SMTP credentials in development can accidentally send emails to actual users.
+- **Resend API key in wrong env file**: Set `RESEND_API_KEY` in `apps/web/.env.local`, not `.env`. The `.env` file is committed to git.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Can I use both Nodemailer and Resend in the same project?", "answer": "No. The MAILER_PROVIDER environment variable is a single choice. However, you can use different providers per environment (Nodemailer locally, Resend in production) by setting different values in .env.development vs .env.production."},
+     {"question": "Which email providers work with Nodemailer?", "answer": "Any provider with SMTP support: SendGrid, Mailgun, Amazon SES, Postmark, your own mail server, or Mailpit for local development. The SMTP credentials differ per provider."},
+     {"question": "Does Resend work in Cloudflare Workers?", "answer": "Yes. Resend uses HTTP API calls instead of SMTP, making it compatible with edge runtimes like Cloudflare Workers, Vercel Edge Functions, and Deno Deploy."},
+     {"question": "How do I test emails without sending real emails?", "answer": "Use Mailpit for local development. It captures all emails at localhost:8025. See the Local Development guide for setup."},
+     {"question": "Why are my emails going to spam?", "answer": "Likely missing SPF, DKIM, or DMARC records. Configure these in your DNS for the domain in EMAIL_SENDER. Resend and most providers have setup guides for this."}
+   ]
+/%}
+
+---
+
+**Next:** [Sending Emails →](./sending-emails)

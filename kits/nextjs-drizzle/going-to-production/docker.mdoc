@@ -1,0 +1,99 @@
+---
+status: "published"
+title: "Creating a Docker image"
+label: "Deploy using Docker"
+order: 10
+description: "This guide will help you deploy the Next.js Drizzle SaaS boilerplate to any Docker-compatible platform. Easily self-host your application with Docker."
+---
+
+If you want to self-host your application, you can deploy it using Docker. 
+
+This guide will help you create a Docker image for the Next.js [Drizzle](/drizzle) SaaS boilerplate.
+
+The kit supports the philosophy "build once, deploy many" workflows for Docker deployments, by using `next-runtime-env` to inject environment variables at runtime.
+
+## 1. Generate the Dockerfile
+
+Run the following command to generate the Dockerfile:
+
+```bash
+pnpm run turbo gen docker
+```
+
+This command will generate a `Dockerfile` in the root directory of the project. In addition, it will install some dependencies that may be required to build the project, and set `output=standalone` in the `apps/web/next.config.ts` file. If not, please do it manually.
+
+## 2. Build the Docker image
+
+Run the following command to build the Docker image:
+
+```bash
+docker build -t nextjs-drizzle .
+```
+
+This command will build the Docker image and tag it as `nextjs-drizzle`.
+
+## 3. Run the Docker container
+
+### 3.1. Make sure the .env.production.local file exists
+
+First, ensure that the `.env.production.local` file is present in the `apps/web` directory, and that it contains the environment variables for the production environment. 
+
+You can generate this file using the [Dev Tools](../dev-tools/environment-variables).
+
+### 3.2. Run the Docker container
+
+Run the following command to run the Docker container:
+
+```bash
+docker run -p 3000:3000 --env-file apps/web/.env.production.local nextjs-drizzle
+```
+
+This command will run the Docker container and make the application available at `http://localhost:3000`.
+
+## Deploying the Docker image to a container registry
+
+You can deploy the Docker image to a container registry by running the following command:
+
+```bash
+docker push <your-docker-image>
+```
+
+This command will push the Docker image to the container registry.
+
+When you deploy the Docker image to a container registry, you can pull it from the registry and run it on any platform that supports Docker.
+
+If you're using the Github Container Registry, you can run the following command:
+
+```bash
+docker login ghcr.io
+```
+
+Then, tag your local image with the registry path:
+
+```bash
+docker tag nextjs-drizzle ghcr.io/your-username/nextjs-drizzle
+```
+
+Then, push the Docker image to the Github Container Registry:
+
+```bash
+docker push ghcr.io/your-username/nextjs-drizzle
+```
+
+Then, you can pull the Docker image from the Github Container Registry and run it on any platform that supports Docker:
+
+```bash
+docker pull ghcr.io/your-username/nextjs-drizzle
+```
+
+Then, you can run the Docker container:
+
+```bash
+docker run -p 3000:3000 --env-file apps/web/.env.production.local ghcr.io/your-username/nextjs-drizzle
+```
+
+This command will run the Docker container and make the application available at `http://localhost:3000`.
+
+This workflow allows you to deploy the Docker image to a container registry, and then pull it from the registry and run it on any platform that supports Docker - such as a VPS, a cloud provider, or a container platform like Docker Swarm or Kubernetes.
+
+Easy, right? 

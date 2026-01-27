@@ -1,55 +1,139 @@
 ---
 status: "published"
-title: "Introduction to Supamode"
+title: "Introduction to Supamode - The Admin Panel for Supabase"
 label: "Introduction"
 order: 1
-description: "Introducing Supamode, a Super Admin for Supabase apps"
+description: "Supamode is a self-hosted Super Admin dashboard that transforms your Supabase PostgreSQL database into a CMS. Manage data, users, and storage without SQL."
 ---
 
-**Supamode** is a self-hosted Super Admin dashboard for Supabase apps, designed to give you CMS-style control over your Postgres data without writing any SQL.
+{% callout type="default" title="What is Supamode?" %}
+**Supamode** is a self-hosted admin dashboard for Supabase that provides CMS-style database management with granular role-based access control. It enables non-technical team members to safely view, filter, and edit PostgreSQL data without writing SQL.
+{% /callout %}
 
-It empowers non-technical team members to view, filter, and edit data safely, while still giving developers the hooks they need to extend and customize behavior.
+Supamode gives your team controlled access to your database while developers retain full control over permissions and customization.
 
-Key benefits:
+**Get started in 10 minutes**: Clone the repo, run `pnpm dev`, and connect to your Supabase project. No complex configuration required.
 
-* **No SQL needed**: Safely expose only the tables and views you choose.
-* **Rapid setup**: Deploy alongside your Supabase project in minutes.
-* **Full control**: Hosted in your environment — keep all data on your infrastructure.
-* **Extensible**: Built for developer-first customization
+## Why Supamode?
 
-## Key Features
+Unlike Supabase Studio's Data Explorer, Supamode is purpose-built for team collaboration with granular role-based access control. Your support team can search and update customer records. Your content team can manage blog posts. Your ops team can monitor audit logs. Each role sees only what they're permitted to access.
 
-### 1. User-Friendly Interface
+**Key benefits:**
 
-* **Clean, responsive UI** built with React and Tailwind.
-* **Search, sort, and filter** across all tables and views.
-* **Inline editing** for quick updates.
+- **No SQL required**: Non-technical users can safely browse, search, and edit data through an intuitive UI
+- **Granular RBAC**: Table-level and column-level permissions for precise access control
+- **Self-hosted**: Your data stays on your infrastructure with full source code access
+- **10-minute setup**: Clone, configure environment variables, deploy
+- **Extensible**: Built with React 19, Hono, and TypeScript for developer-first customization
 
-### 2. Role-Based Access Control (RBAC)
+## Core Features
 
-* Define **roles** (e.g. *admin*, *editor*, *viewer*)
-* Assign **table - and column-level** permissions per role
+### Data Explorer
 
-### 3. Data Explorer
+The Data Explorer provides a powerful interface for navigating your database:
 
-* Built-in **schema browser** to inspect table relationships.
-* Create and share **saved filters** for your data
-* Create and share **saved views** for your data
-* Global search to find any record in the entire application
+- **Full-text search** across all columns with smart filtering (text, date, boolean, numeric, enum, reference)
+- **Saved views** with shareable filters for common queries ("Active users", "Unpaid invoices")
+- **Inline editing** with smart forms that adapt to column data types
+- **Batch operations** for bulk updates and deletions
+- **Tabbed interface** for working with multiple tables simultaneously
+- **Global search** (`Cmd+K`) to find any record across your entire database
 
-### 4. Users Explorer
+{% img src="/images/supamode/data-explorer.webp" alt="Supamode Data Explorer showing table navigation with filters" width="2936" height="1978" /%}
 
-* Browse and manage users authenticated via Supabase Auth.
-* **Search** by email
-* Create, update and delete users
-* Ban, unban, and delete users
+### Role-Based Access Control (RBAC)
 
-### 5. CMS-Like Interface
+Supamode's permission system gives you precise control over who can access what:
 
-* **Rich-text editor** fields for content such as HTML/Markdown
-* Image/file uploads via Supabase Storage.
+- **System permissions**: Control access to admin features (roles, permissions, audit logs)
+- **Data permissions**: Table-level and column-level read/write access
+- **Storage permissions**: Bucket and path-level file access
+- **Permission groups**: Bundle related permissions for easier role management
+- **Role hierarchy**: Higher-ranked roles can manage lower-ranked accounts
 
-### 6. Extensible Architecture
+### Users Explorer
 
-* **Custom routes and endpoints**: add your own code to the application
-* **Theming with Shadcn UI**: swap out CSS variables or override component styles
+Manage Supabase Auth users directly from the dashboard:
+
+- Search users by email
+- Create, update, and delete user accounts
+- Ban/unban users
+- View authentication metadata
+
+### Storage Explorer
+
+Browse and manage Supabase Storage buckets:
+
+- Navigate folders and files
+- Upload, download, and delete files
+- View file metadata and generate presigned URLs
+- Control access with storage permissions
+
+### Custom Dashboards
+
+Build analytics dashboards with drag-and-drop widgets:
+
+- **Chart widgets**: Bar, line, and area charts for trends and comparisons
+- **Metric widgets**: KPIs with trend indicators
+- **Table widgets**: Data grids with full filtering capabilities
+- **Role-based sharing**: Share dashboards with specific roles
+
+### Audit Logs
+
+Track all data changes for compliance and debugging:
+
+- Filter by user, action, and date range
+- View detailed change history with before/after values
+- Severity levels for prioritizing alerts
+
+## Architecture
+
+Supamode is built as a Turborepo monorepo with two main applications:
+
+| Component | Technology | Purpose |
+|-----------|------------|---------|
+| **Frontend** | React 19, Vite, React Router 7 | Single-page application |
+| **Backend** | Hono.js, Drizzle ORM | API server with type-safe RPC |
+| **Database** | PostgreSQL via Supabase | Data storage with RLS policies |
+
+The frontend proxies `/api/*` requests to the Hono backend, enabling seamless deployment as a single unit or as separate services.
+
+## Deployment Options
+
+Supamode can be deployed anywhere that supports Node.js:
+
+- **Docker**: Multi-stage builds for API and frontend containers
+- **Vercel**: Zero-config deployment with automatic builds
+- **Railway**: One-click deployment template
+- **Self-hosted**: Any platform supporting Node.js (AWS, GCP, DigitalOcean, Fly.io)
+
+## When to Use Supamode
+
+Supamode is ideal when:
+
+- Your support team needs to search and update customer data without database access
+- Your content team needs a CMS interface for managing blog posts or products
+- You need audit trails for compliance (SOC 2, HIPAA, GDPR)
+- You want to give stakeholders read-only access to specific data
+- You're building internal tools and need a head start on admin interfaces
+
+**Not the right fit if**: You need a customer-facing dashboard (Supamode is for internal/admin use) or you require real-time collaborative editing.
+
+## Next Steps
+
+1. **[Clone the repository](./clone-repository)** and set up dependencies
+2. **[Run the project locally](./running-project)** with the demo data
+3. **[Configure your tables](../configuration/tables)** for the Data Explorer
+4. **[Set up RBAC](../configuration/rbac)** for your team
+5. **[Deploy to production](../deployment/overview)** when ready
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Does Supamode work with existing Supabase projects?", "answer": "Yes. Supamode connects to any Supabase project. You run a sync function to import your table metadata, then configure permissions for your team. Your existing data and RLS policies remain unchanged."},
+     {"question": "Is Supamode open source?", "answer": "Supamode is source-available with a commercial license. You get full access to the source code for customization, self-hosting, and auditing. Pricing is lifetime access with no monthly fees."},
+     {"question": "How does Supamode differ from Supabase Studio?", "answer": "Supabase Studio is designed for developers with full database access. Supamode is designed for teams, with granular RBAC so non-technical users can safely access only the data they need. It also adds features like saved views, audit logs, and custom dashboards."},
+     {"question": "Can I customize the UI and add features?", "answer": "Yes. Supamode is built with React, Tailwind CSS, and Shadcn UI. You can modify themes, add custom routes, create plugins, and extend the API. The codebase follows standard patterns that are easy to navigate."},
+     {"question": "What's the performance like with large datasets?", "answer": "Supamode uses cursor-based pagination and leverages PostgreSQL indexes. For tables with millions of rows, add appropriate indexes and consider limiting default query scopes. The Data Explorer handles large datasets well with proper database optimization."}
+   ]
+/%}

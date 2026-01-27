@@ -1,0 +1,121 @@
+---
+status: "published"
+title: "Shadcn UI CLI"
+label: "Shadcn CLI"
+order: 1
+description: "Install and manage Shadcn UI components using the CLI."
+---
+
+The kit uses [Shadcn UI](https://ui.shadcn.com) for its component library. You can add new Shadcn components using the CLI.
+
+## Installation Directory
+
+Components are installed in the `packages/ui` package. Always run Shadcn CLI commands from within this directory:
+
+```bash
+cd packages/ui
+```
+
+## Adding Components
+
+Use the Shadcn CLI to add components:
+
+```bash
+pnpm dlx shadcn@latest add <component-name>
+```
+
+For example, to add a calendar component:
+
+```bash
+pnpm dlx shadcn@latest add calendar
+```
+
+Components will be placed in `packages/ui/src/shadcn`.
+
+## Important: Fix Import Paths
+
+Due to limitations in both [Turborepo](https://github.com/vercel/turborepo/discussions/10270) and [Shadcn CLI](https://github.com/shadcn-ui/ui/issues/9239), you must replace TSconfig path aliases with relative imports or Node.js-style internal imports after installing a component or copying it from the Shadcn UI website.
+
+For example, change:
+
+```typescript
+// Before (won't work in monorepo)
+import { Button } from "@components/button";
+import { cn } from "@lib/utils";
+```
+
+To:
+
+```typescript
+// After (use relative or internal imports)
+import { Button } from "#components/button.tsx";
+import { cn } from "#lib/utils.ts";
+```
+
+## Configuration
+
+The Shadcn UI configuration is located at `packages/ui/components.json`:
+
+```json
+{
+  "$schema": "https://ui.shadcn.com/schema.json",
+  "style": "base-vega",
+  "rsc": true,
+  "tsx": true,
+  "tailwind": {
+    "config": "",
+    "css": "app/globals.css",
+    "baseColor": "neutral",
+    "cssVariables": true,
+    "prefix": ""
+  },
+  "iconLibrary": "lucide",
+  "aliases": {
+    "components": "@/components",
+    "utils": "#utils",
+    "ui": "src/shadcn",
+    "lib": "#lib",
+    "hooks": "#hooks"
+  }
+}
+```
+
+### Configuration Details
+
+| Setting | Value | Description |
+|---------|-------|-------------|
+| `style` | `base-vega` | Base UI with Vega style variant |
+| `rsc` | `true` | React Server Components support |
+| `iconLibrary` | `lucide` | Uses Lucide React for icons |
+| `baseColor` | `neutral` | Default color scheme |
+| `ui` alias | `src/shadcn` | Components install location |
+
+## Common Commands
+
+```bash
+# Add a single component
+pnpm dlx shadcn@latest add button
+
+# Add multiple components
+pnpm dlx shadcn@latest add button card dialog
+
+# List available components
+pnpm dlx shadcn@latest add
+
+# Update existing components
+pnpm dlx shadcn@latest add button --overwrite
+```
+
+## After Installation
+
+After adding a new component, you can import it in your application:
+
+```typescript
+import { Calendar } from '@kit/ui/calendar';
+```
+
+The `@kit/ui` package re-exports components for consistent imports across the monorepo.
+
+---
+
+**Next:** [Forms & Inputs →](./forms-and-inputs)

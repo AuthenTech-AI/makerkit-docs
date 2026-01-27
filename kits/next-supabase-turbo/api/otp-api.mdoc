@@ -3,10 +3,10 @@ status: "published"
 label: "OTP API"
 order: 5
 title: "OTP API | Next.js Supabase SaaS Kit"
-description: "The OTP API is a simple interface for working with one-time passwords (OTPs) in your application."
+description: "Generate and verify one-time passwords for secure operations in MakerKit. Use the OTP API for account deletion, ownership transfers, and other high-risk actions."
 ---
 
-This package provides a complete solution for generating, sending, and verifying one-time passwords or tokens in your application. It integrates with Supabase for secure token storage and verification.
+The OTP API generates and verifies one-time passwords for secure operations like account deletion, ownership transfers, and email verification. It uses Supabase for secure token storage with automatic expiration and verification tracking.
 
 {% sequence title="How to use the OTP API" description="Learn how to use the OTP API in Makerkit" %}
 
@@ -126,8 +126,7 @@ if (result.success) {
 }
 ```
 
-NB: the `email` parameter is only used as verification mechanism, the actual
-email address being used is the one associated with the user.
+**Note:** The `email` parameter is only used as verification mechanism, the actual email address being used is the one associated with the user.
 
 ## Verification UI Component
 
@@ -294,3 +293,10 @@ always need to match the one used when creating the token.
 
 When you need to assign a specific data to a token, you can modify the
 purpose with a unique identifier, such as `email-verification-12345`.
+
+## Related documentation
+
+- [Authentication API](/docs/next-supabase-turbo/api/authentication-api) - User authentication and session handling
+- [Team Account API](/docs/next-supabase-turbo/api/team-account-api) - Team management for ownership transfers
+- [Email Configuration](/docs/next-supabase-turbo/emails/email-configuration) - Configure email delivery for OTP codes
+- [Server Actions](/docs/next-supabase-turbo/data-fetching/server-actions) - Use OTP verification in server actions

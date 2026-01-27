@@ -1,0 +1,334 @@
+---
+status: "published"
+title: "AI Agentic Development"
+label: "AI Agentic Development"
+order: 8
+description: "Configure AI coding assistants like Claude Code, Cursor, Codex, and Gemini to build your SaaS faster with the Next.js Prisma Turbo Kit."
+---
+
+The Next.js Prisma Turbo Kit includes pre-configured rules for Claude Code, Cursor, Codex, Gemini, and Windsurf. The kit ships with `AGENTS.md` for Cursor and Windsurf, `GEMINI.md` for Google AI, and a `.claude` directory containing 5 specialized skills for Claude Code. No configuration required for basic usage since AI tools read these files automatically when you open the project.
+
+This guide covers the configuration files, Claude Code skills, and strategies for customizing AI behavior to match your application's domain.
+
+{% sequence title="AI Agentic Development Setup" description="Configure AI assistants for your Next.js Prisma SaaS Kit." %}
+[Configuration Files](#configuration-files)
+
+[Claude Code Setup](#claude-code-setup)
+
+[Skills System](#skills-system)
+
+[Customizing AI Rules](#customizing-ai-rules)
+
+[Common Pitfalls](#common-pitfalls)
+{% /sequence %}
+
+## Configuration Files
+
+The kit includes rule files that AI tools read automatically:
+
+| File | Tool | Purpose |
+|------|------|---------|
+| `CLAUDE.md` | Claude Code | References AGENTS.md for instructions |
+| `AGENTS.md` | Cursor, Windsurf | Main AI rules and conventions |
+| `GEMINI.md` | Gemini | Google AI assistant rules |
+
+These files define:
+
+- Tech stack conventions (Next.js 16, Better Auth, Prisma, React 19)
+- Monorepo structure and package guidelines
+- Code patterns and naming conventions
+- Verification commands (`pnpm healthcheck`, `pnpm test:unit`)
+
+AI tools read these files when you open the project. No additional setup required.
+
+## Claude Code Setup
+
+Claude Code provides the most advanced agentic experience with skills, agents, and MCP integration.
+
+### Directory Structure
+
+The `.claude` directory contains Claude Code configurations:
+
+```
+.claude/
+├── agents/           # Custom AI agents
+│   └── code-quality-reviewer.md
+├── commands/         # Custom slash commands
+│   └── implement.md
+├── skills/           # Reusable AI skills
+│   ├── Prisma-expert/
+│   ├── server-actions-expert/
+│   ├── react-form-builder/
+│   ├── playwright-e2e-expert/
+│   └── frontend-design/
+└── settings.local.json  # Local permissions (git-ignored)
+```
+
+### Package-Level Rules
+
+Each package includes its own `AGENTS.md` with domain-specific guidance:
+
+- `apps/web/AGENTS.md` - Web app routes, pages, components
+- `apps/e2e/AGENTS.md` - E2E testing patterns
+- `packages/database/AGENTS.md` - Schema, migrations, queries
+- `packages/ui/AGENTS.md` - UI components usage
+- `packages/action-middleware/AGENTS.md` - Server action middleware
+- `packages/rbac/AGENTS.md` - Role-based access control
+- `packages/storage/AGENTS.md` - File storage patterns
+- `packages/mailers/AGENTS.md` - Email sending
+- `packages/analytics/AGENTS.md` - Analytics integration
+
+When working in a specific package, Claude Code automatically reads the relevant rules.
+
+## Skills System
+
+Skills are reusable prompts that guide Claude Code for specific tasks. Invoke them with `/skill-name` in your conversation.
+
+### Prisma Expert
+
+Invoke with `/Prisma-expert` when creating schemas, migrations, queries, or database tests.
+
+Covers:
+
+- Schema design with proper relations and indexes
+- Security through ownership checks (userId/organizationId verification)
+- Query optimization and N+1 prevention using `with: {}` relations
+- PgLite testing patterns with Vitest
+
+### Server Actions Expert
+
+Invoke with `/server-actions-expert` for mutations and form submissions.
+
+Covers:
+
+- `next-safe-action` integration with `@kit/action-middleware`
+- Zod validation schemas
+- Service pattern architecture
+- Proper error handling and `isRedirectError` patterns
+
+### React Form Builder
+
+Invoke with `/react-form-builder` for form components.
+
+Covers:
+
+- `react-hook-form` integration
+- `@kit/ui/form` components
+- Client-side validation
+- Server action binding
+
+### Playwright E2E Expert
+
+Invoke with `/playwright-e2e-expert` for end-to-end tests.
+
+Covers:
+
+- Page Object pattern
+- Test data seeding
+- Authentication flows
+- `data-testid` selector strategies
+
+### Frontend Design
+
+Invoke with `/frontend-design` for UI implementation.
+
+Covers:
+
+- `@kit/ui` component usage
+- Tailwind CSS 4 patterns
+- Responsive design
+- Accessibility requirements
+
+{% callout title="Skills may require explicit invocation" %}
+Claude can automatically invoke skills based on the context of the conversation. However, you can also explicitly invoke skills by typing the skill name at the start of your message when you need specialized guidance, such as '/Prisma-expert' "review the database schema for the projects feature".
+{% /callout %}
+
+## Customizing AI Rules
+
+### What Actually Works with LLM and AI Agents
+
+In our extensive testing with modern AI agents like Claude Code and Codex, we've found that detailed API instructions have diminishing returns. 
+
+These tools crawl your existing patterns, learn from them, and apply them. With a polished codebase like Makerkit, agents already have the context and reference material to produce good code without detailed API documentation.
+
+What actually moves the needle:
+
+### Tell agents what they MUST do and MUST NOT do.
+
+Absolute rules beat suggestions. "Always verify ownership with userId before database writes" works. "Consider checking ownership" gets ignored.
+
+### Use rules as a router
+
+Tell Claude where and how to find things it needs. "Database schemas are in `packages/database/src/schema/`. Check existing tables before creating new ones." This prevents hallucinated file paths and inconsistent patterns.
+
+### Skip the API documentation
+
+Unless you find Claude messing up the code, skip the API documentation. 
+
+Claude can read your actual code. Instead of documenting every function signature, point to reference implementations: "See `apps/web/app/home/[account]/settings/_lib/server/server-actions.ts` for the server action pattern."
+
+### Adding Business Context
+
+Edit `AGENTS.md` to include your application's domain. Add this after the existing content:
+
+```markdown
+## Business Domain
+
+This application is a [describe your SaaS - e.g., "project management tool for software teams"].
+
+### Key Entities
+
+- **Projects**: User-created workspaces containing tasks
+- **Tasks**: Work items with status, assignee, and due date
+- **Comments**: Discussion threads attached to tasks
+
+### Business Rules
+
+- Projects belong to organizations (use organizationId for queries)
+- Tasks require project membership to view (check via RBAC)
+- Comments notify task assignees via email
+- Deleted projects cascade-delete all tasks and comments
+```
+
+This context helps AI understand your domain when generating code.
+
+### Adding Custom Skills
+
+Create a new skill in `.claude/skills/your-skill-name/`:
+
+```markdown title=".claude/skills/your-skill-name/SKILL.md"
+---
+name: your-skill-name
+description: Description shown when invoking the skill
+---
+
+# Your Skill Name
+
+You are an expert at [domain].
+
+## Guidelines
+
+1. Always verify ownership before database operations
+2. Use the existing service pattern in `_lib/server/`
+3. Prefer `@kit/ui` components over custom implementations
+
+## Examples
+
+[Include 2-3 concrete examples with code]
+```
+
+### Setting Up Permissions
+
+Configure allowed operations in `.claude/settings.local.json`:
+
+```json
+{
+  "permissions": {
+    "allow": [
+      "Bash(pnpm:*)",
+      "Bash(git diff:*)",
+      "Bash(git status:*)",
+      "mcp__makerkit__*"
+    ],
+    "deny": []
+  }
+}
+```
+
+Common permission patterns:
+
+- `Bash(pnpm:*)` - Allow all pnpm commands
+- `Bash(git diff:*)` - Allow git diff operations
+- `mcp__makerkit__*` - Allow all Makerkit MCP tools
+- `WebFetch(domain:docs.example.com)` - Allow fetching specific domains
+
+This file is git-ignored. Each developer configures their own permissions.
+
+### Creating Custom Agents
+
+Add agents to `.claude/agents/` for specialized review tasks:
+
+```markdown title=".claude/agents/api-reviewer.md"
+---
+name: api-reviewer
+description: Review API endpoints for security and performance
+model: sonnet
+---
+
+You review API route handlers for:
+
+- Authentication checks (requireAuth middleware)
+- Input validation (Zod schemas)
+- Error handling (proper HTTP status codes)
+- Response formatting (consistent shape)
+
+Flag any endpoint missing authentication or validation.
+```
+
+## MCP Server
+
+The kit includes an MCP Server that provides AI tools with component discovery, script guidance, and PRD management. See the [MCP Server documentation](./mcp-server) for setup instructions.
+
+Key tools provided:
+
+- `get_components` - List all @kit/ui components
+- `get_component_props` - Inspect component APIs
+- `get_healthcheck_scripts` - Critical scripts to run after changes
+- PRD management for structured requirements
+
+## External Resources
+
+For additional context, consider:
+
+- [Vercel AI Best Practices](https://vercel.com/blog/introducing-react-best-practices) - React patterns that work well with AI assistance
+
+## Common Pitfalls
+
+Avoid these issues when using AI coding assistants:
+
+### Context drift in long conversations
+Long sessions cause AI to "forget" rules from AGENTS.md. Start fresh sessions for complex tasks. Re-invoke skills when you notice drift.
+
+### Conflicting rules between AGENTS.md files
+Package-level rules can conflict with root rules. The more specific file wins. If you see unexpected behavior, check which AGENTS.md is being read.
+
+### Skills not activating
+Skills may require explicit invocation by typing the skill name at the start of your message when you need specialized guidance, such as '/Prisma-expert' "review the database schema for the projects feature".
+
+### Overly broad permissions
+Don't allow `Bash(*)`. Scope permissions narrowly: `Bash(pnpm:*)`, `Bash(git diff:*)`. Review settings.local.json periodically.
+
+### AI generating code without verification
+Always run verification after AI generates code:
+
+```bash
+pnpm healthcheck    # Typecheck, lint, format, test
+pnpm test:unit      # Unit tests
+```
+
+For database changes:
+
+```bash
+pnpm --filter @kit/database Prisma:generate  # Generate migration
+pnpm --filter @kit/database Prisma:migrate   # Apply migration
+```
+
+### Not customizing for your domain
+
+Generic AGENTS.md rules produce generic code. Add your business domain, entities, and rules to get contextually relevant suggestions.
+
+{% callout title="Code Quality Reviewer" %}
+The kit includes a `code-quality-reviewer` agent that catches security issues, performance problems, and convention violations. Configure Claude Code to run it after completing tasks for an extra quality gate.
+{% /callout %}
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Which AI tool works best with Makerkit?", "answer": "Claude Code provides the most complete experience with skills, agents, and MCP integration. Cursor works well for inline completions. Use whichever fits your workflow - or both. Codes is incredible at finding and fixing bugs in the codebase."},
+     {"question": "Do I need the MCP server for AI assistance?", "answer": "No. AGENTS.md and skills work without MCP. The MCP server adds component discovery and PRD management but isn't required for basic AI assistance."},
+     {"question": "Can I use multiple AI tools together?", "answer": "Yes. Use Claude Code for complex refactors, Cursor for inline edits. They read different config files but understand the same codebase patterns."},
+     {"question": "How do I add project-specific rules?", "answer": "Edit AGENTS.md to add your business domain, entities, and rules. Create custom skills in .claude/skills/ for reusable patterns."},
+     {"question": "Why does Claude sometimes ignore the rules?", "answer": "Long conversations cause context drift. Start fresh sessions for complex tasks. Re-invoke skills to reload specific context. Keep AGENTS.md concise."},
+     {"question": "Should I commit .claude/settings.local.json?", "answer": "No. This file contains local permissions and is git-ignored. Each developer configures their own permissions."}
+   ]
+/%}

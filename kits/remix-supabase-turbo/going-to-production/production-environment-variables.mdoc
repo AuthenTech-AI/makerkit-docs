@@ -1,6 +1,6 @@
 ---
 status: "published"
-title: "Generating and validating the environment variables needed for deployment | Remix Supabase SaaS Kit"
+title: "Production Environment Variables in Remix Supabase"
 label: "Environment Variables"
 description: "Guide to generate and validate the environment variables needed for deployment in your Remix Supabase SaaS Kit project"
 order: 1
@@ -27,7 +27,7 @@ Why is Makerkit requiring these variables? I just want to deploy the project! We
 Makerkit provides a script that will guide you through the process of generating the environment variables. To generate the environment variables, run the following command:
 
 ```bash
-turbo gen env
+pnpm turbo gen env
 ```
 
 This command will guide you through the process of generating the environment variables. It will ask you for the values of the environment variables and generate a `.env` at `turbo/generators/templates/env/.env`.

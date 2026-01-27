@@ -35,7 +35,7 @@ And then run `pnpm install` to install the plugin.
 
 Add the following to your `apps/web/public/locales/en/feedback.json` file:
 
- ```json {% title="apps/web/locales/en.json" %}
+ ```json {% title="apps/web/public/locales/en/feedback.json" %}
 {
   "successTitle": "Thank you for your feedback!",
   "close": "Close",
@@ -118,17 +118,17 @@ And use it in your app:
 
 ## Adding the Admin Panel pages
 
-Add the following to your `apps/web/admin/feedback/page.tsx` file:
+Add the following to your `apps/web/app/admin/feedback/page.tsx` file:
 
- ```tsx {% title="apps/web/admin/feedback/page.tsx" %}
+ ```tsx {% title="apps/web/app/admin/feedback/page.tsx" %}
 import { FeedbackSubmissionsPage } from '@kit/feedback/admin';
 
 export default FeedbackSubmissionsPage;
 ```
 
-And the submission detail page at `apps/web/admin/feedback/[id]/route.tsx`:
+And the submission detail page at `apps/web/app/admin/feedback/[id]/page.tsx`:
 
- ```tsx {% title="apps/web/admin/feedback/[id]/page.tsx" %}
+ ```tsx {% title="apps/web/app/admin/feedback/[id]/page.tsx" %}
 import { FeedbackSubmissionPage } from '@kit/feedback/admin';
 
 export default FeedbackSubmissionPage;
@@ -160,7 +160,7 @@ export default {
     '../../packages/features/admin/src/**/*.tsx',
     '../../packages/features/accounts/src/**/*.tsx',
     '../../packages/features/team-accounts/src/**/*.tsx',
-    '../../packages/plugins/feedback/src/**/*.tsx'  // <-- add this line
+    '../../packages/plugins/feedback/src/**/*.tsx',  // <-- add this line
     '!**/node_modules',
   ],
   // ...

@@ -1,142 +1,239 @@
 ---
 status: "published"
-title: "Running Supamode"
+title: "Running Supamode Locally"
 label: "Running Supamode"
 order: 4
-description: "Learn how to run the Supamode project on your local machine."
+description: "Start Supamode's development servers and Supabase, seed demo data, and configure your own database tables."
 ---
 
-To run the project - there are some commands you need to run.
+This guide covers starting Supamode locally, seeding demo data to explore the interface, and connecting your own Supabase project.
 
-1. Start the development servers (web application + API)
-2. Start Supabase (ensure Docker is running)
+## Quick Start
 
-## 1. Start the development servers
+Start both servers in parallel (requires two terminal windows):
 
-This command will run the `dev` command across all applications in the monorepo:
+**Terminal 1: Start Supabase**
+```bash
+pnpm run supabase:web:start
+```
 
-1. **SPA**: It will run the Vite server which serves the React Router application. It runs at port 5173.
-2. **Hono API**: In addition, it will run the Hono API, which is Supamode's backend. It runs at port 3000.
+**Terminal 2: Start development servers**
+```bash
+pnpm dev
+```
+
+Open `http://localhost:5173` and sign in with:
+- **Email**: `root@supamode.com`
+- **Password**: `testingpassword`
+
+{% alert type="default" title="Demo Data Required" %}
+The demo credentials only work after seeding the database. See [Step 3](#3-seed-demo-data) below.
+{% /alert %}
+
+## Step-by-Step Setup
+
+### 1. Start the Development Servers
+
+Run the `dev` command to start both the frontend and backend:
 
 ```bash
 pnpm dev
 ```
 
-Once the front-end application is running at `http://localhost:5173`, open the address with your browser and you will see the sign in page. Before signin in, please start the Supabase container (see step 2 below).
+This starts:
 
-To get started right away, use the credentials below:
+| Service | URL | Technology |
+|---------|-----|------------|
+| **Frontend** | `http://localhost:5173` | Vite + React Router 7 |
+| **API** | `http://localhost:3000` | Hono.js |
 
-- **Email**: `root@supamode.com`
-- **Password**: `testingpassword`
+Vite proxies all `/api/*` requests to the Hono backend automatically, so the frontend can make API calls without CORS configuration.
 
-Vite is configured to proxy all `/api` requests to the Hono API server, so you can make API calls from the React application without any additional configuration.
+### 2. Start Supabase
 
-## 2. Start Supabase
-
-Before starting Supabase, make sure Docker is up and running.
-
-Run the following command to start Supabase (or use your IDE to run the command in the package.json)
+Ensure Docker is running, then start the Supabase containers:
 
 ```bash
 pnpm run supabase:web:start
 ```
 
-In order to run Supamode alongside your own application, Supamode uses the following ports:
+Supamode uses non-standard ports to avoid conflicts with your main application's Supabase instance:
 
-- **Supabase API**: `http://localhost:54331`
-- **Supabase Postgres DB**: `http://localhost:54332`
-- **Supabase Studio**: `http://localhost:54333`
-- **InBucket**: `http://localhost:54334`
+| Service | URL | Purpose |
+|---------|-----|---------|
+| **Supabase API** | `http://localhost:54331` | REST and Realtime APIs |
+| **PostgreSQL** | `localhost:54332` | Direct database access |
+| **Supabase Studio** | `http://localhost:54333` | Database admin UI |
+| **InBucket** | `http://localhost:54334` | Email testing |
 
-## 3. Seeding the database with test data
+### 3. Seed Demo Data
 
-To get a feel for the application, you can seed the database with test data and get started right away.
-
-From Supabase Studio's SQL Editor, run the following command to seed the database with test data:
+To explore Supamode with sample data, run the demo schema installation. Open Supabase Studio at `http://localhost:54333`, go to the SQL Editor, and run:
 
 ```sql
 call supamode.install_demo_schema();
 ```
 
-{% alert type="warning" title="Start with the demo schema" %}
-If you want to use the credentials below, you need to start with the demo schema - as the data is only seeded after running the command above.
-{% /alert %}
+This creates:
+- Sample tables (`posts`, `categories`, `tags`, etc.)
+- Four user accounts with different permission levels
+- Pre-configured roles and permissions
+- Sample data to browse and edit
 
-This command will seed the database with test data that you can use just to play around with the application before you start customizing the schema with your own data.
+### 4. Sign In
 
-**After installing the demo schema**, you can sign in using the credentials below for the `root` role, an account with all permissions.
+After seeding, sign in at `http://localhost:5173` with one of these accounts:
 
-- **Email**: `root@supamode.com`
-- **Password**: `testingpassword`
+| Role | Email | Password | Permissions |
+|------|-------|----------|-------------|
+| **Root** | `root@supamode.com` | `testingpassword` | Full access to everything |
+| **Admin** | `admin@supamode.com` | `testingpassword` | System administration |
+| **Member** | `member@supamode.com` | `testingpassword` | Data read/write |
+| **Read-only** | `readonly@supamode.com` | `testingpassword` | View only |
 
-Alternatively, you can also use other roles with fewer permissions:
+Try signing in with different roles to see how the RBAC system restricts access. The read-only user, for example, cannot edit records or access settings.
 
-Admin role:
-- **Email**: `admin@supamode.com`
-- **Password**: `testingpassword`
+## Using Your Own Data
 
-Member role:
-- **Email**: `member@supamode.com`
-- **Password**: `testingpassword`
+Once you've explored the demo, connect Supamode to your own Supabase project.
 
-Read-only role:
-- **Email**: `readonly@supamode.com`
-- **Password**: `testingpassword`
+### Option A: Local Development (Supabase Emulator)
 
-## Using your own data
+If your project also uses the Supabase emulator locally, point Supamode to your project's ports.
 
-To use your own data while running Supamode locally, you need to add the migrations from your own project. To do so, place them in the `apps/app/supabase/seeds` directory - which is ideal for local development.
-
-In addition, add a new migration to sync the data from your own Supabase project to the Supamode project:
-
-```sql
-select supamode.sync_managed_tables('public');
-
--- Or add other schemas to the list
-select supamode.sync_managed_tables('custom_schema');
-
--- Or use specific tables
-select supamode.sync_managed_tables('public', 'users');
-select supamode.sync_managed_tables('public', 'posts');
-select supamode.sync_managed_tables('public', 'comments');
-
--- Or use specific tables in a specific schema
-select supamode.sync_managed_tables('custom_schema', 'users');
-select supamode.sync_managed_tables('custom_schema', 'posts');
-select supamode.sync_managed_tables('custom_schema', 'comments');
-```
-
-Add this migration to the `apps/app/supabase/seeds` as well, making sure it runs after your data's migration. You can do so by using a later timestamp than the one of your data's migration.
-
-### Using custom schemas
-
-The demo data only grants permissions to the `public` schema. If you want to use custom schemas, you need [to add the permissions](../configuration/permissions) to the `custom_schema` schema as well.
-
-## 4. Running the project with your own data
-
-### Setting the environment variables to point to your own Supabase project
-
-You'll need to point the Supamode project to your own Supabase project by setting the `SUPAMODE_SUPABASE_URL` and `SUPAMODE_SUPABASE_ANON_KEY` environment variables.
-
-**Assuming you're using the default ports for Supabase**, you need to set the following environment variables:
-
-In `apps/app/.env`:
+**In `apps/app/.env`:**
 ```bash
 VITE_SUPABASE_URL=http://localhost:54321
 ```
 
-In `apps/api/.env`:
+**In `apps/api/.env`:**
 ```bash
 SUPABASE_URL=http://localhost:54321
 SUPABASE_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
 ```
 
-### Resetting the database
+Then add your migrations to `apps/app/supabase/seeds/` so they run when Supamode's database resets.
 
-Now that you have your own data in your Supabase project, you can run the project with your own data by resetting the database.
+### Option B: Remote Supabase Project
+
+To connect to a hosted Supabase project:
+
+**In `apps/app/.env`:**
+```bash
+VITE_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+```
+
+**In `apps/api/.env`:**
+```bash
+SUPABASE_URL=https://YOUR_PROJECT.supabase.co
+SUPABASE_ANON_KEY=your-anon-key
+SERVICE_ROLE_KEY=your-service-role-key
+SUPABASE_DATABASE_URL=postgresql://postgres:PASSWORD@db.YOUR_PROJECT.supabase.co:5432/postgres
+```
+
+### Sync Your Tables
+
+After connecting to your database, sync your tables into Supamode's metadata system:
+
+```sql
+-- Sync all tables in a schema
+select supamode.sync_managed_tables('public');
+
+-- Or sync specific tables
+select supamode.sync_managed_tables('public', 'users');
+select supamode.sync_managed_tables('public', 'orders');
+select supamode.sync_managed_tables('public', 'products');
+
+-- Sync tables from custom schemas
+select supamode.sync_managed_tables('billing', 'invoices');
+select supamode.sync_managed_tables('billing', 'subscriptions');
+```
+
+{% alert type="warning" title="Permissions Required" %}
+The demo seed only grants permissions to the `public` schema. For custom schemas, [configure permissions](../configuration/permissions) before your team can access them.
+{% /alert %}
+
+### Reset the Database
+
+After adding your migrations and sync commands, reset to apply them:
 
 ```bash
 pnpm run supabase:web:reset
 ```
 
-This command will reset the database and run the migrations from the `apps/app/supabase/seeds` directory.
+This drops and recreates the database, runs all migrations, and executes seed files in order.
+
+## Development Commands
+
+Common commands for local development:
+
+| Command | Purpose |
+|---------|---------|
+| `pnpm dev` | Start frontend and API servers |
+| `pnpm supabase:web:start` | Start Supabase containers |
+| `pnpm supabase:web:stop` | Stop Supabase containers |
+| `pnpm supabase:web:reset` | Reset database and run seeds |
+| `pnpm supabase:web:typegen` | Generate TypeScript types from schema |
+| `pnpm lint:fix` | Fix linting issues |
+| `pnpm typecheck` | Run TypeScript compiler checks |
+| `pnpm test:unit` | Run unit tests |
+
+## Troubleshooting
+
+### "Invalid login credentials"
+
+The demo accounts only exist after running the seed. Ensure you ran:
+
+```sql
+call supamode.install_demo_schema();
+```
+
+### Port Already in Use
+
+If port 5173 or 3000 is busy, check for running processes:
+
+```bash
+lsof -i :5173
+lsof -i :3000
+```
+
+Kill the process or change Supamode's ports in the Vite and Hono configs.
+
+### Supabase Won't Start
+
+Docker must be running. On macOS/Windows, ensure Docker Desktop is open. On Linux:
+
+```bash
+sudo systemctl start docker
+```
+
+If containers are stuck, try a fresh start:
+
+```bash
+pnpm supabase:web:stop
+docker system prune -f
+pnpm supabase:web:start
+```
+
+### Changes Not Reflecting
+
+Vite uses hot module replacement, but some changes (especially to API routes) require a restart:
+
+```bash
+# Stop servers with Ctrl+C, then restart
+pnpm dev
+```
+
+For database schema changes, reset the database:
+
+```bash
+pnpm supabase:web:reset
+```
+
+## Next Steps
+
+- **[Configure tables](../configuration/tables)** to customize display names and formats
+- **[Set up RBAC](../configuration/rbac)** to define roles and permissions
+- **[Explore the Data Explorer](../features/data-explorer)** to learn navigation and filtering
+- **[Deploy to production](../deployment/overview)** when ready

@@ -1,17 +1,467 @@
 ---
 status: "published"
-title: "The API services in Next.js Supabse Tubo"
+title: "API Reference for Next.js Supabase SaaS Kit"
 label: "API"
 order: 5
-description: "Services API allows you to interact with the entities in the Makerkit application."
+description: "Complete API reference for Makerkit's service layer. Learn how to use Account, Team Account, Authentication, Workspace, and Policy APIs to build multi-tenant SaaS applications."
 collapsible: true
 collapsed: true
 ---
 
-The API services in Next.js Supabase Tubo allow you to interact with the entities in the Makerkit application.
+Makerkit provides a service layer that abstracts database operations into clean, type-safe APIs. These services handle common SaaS operations like account management, team collaboration, authentication, and billing.
 
-1. [**Account API**](account-api): Use this service to interact with the accounts in the application.
-2. [**Team Account API**](team-account-api): Use this service to interact with the team accounts in the application.
-3. [**Authentication API**](authentication-api): Use this service to interact with the authentication methods in the application.
-4. [**User Workspace API**](user-workspace-api): Use this service to interact with the user workspace in the application.
-5. [**Team Account Workspace API**](team-account-workspace-api): Use this service to interact with the team account workspace in the application.
+## API architecture
+
+The service layer follows a consistent pattern across all APIs:
+
+1. **Create a Supabase client** using `getSupabaseServerClient()`
+2. **Initialize the API** by passing the client to a factory function
+3. **Call methods** that return typed responses with proper error handling
+
+```tsx
+import { createAccountsApi } from '@kit/accounts/api';
+import { getSupabaseServerClient } from '@kit/supabase/server-client';
+
+async function example() {
+  const client = getSupabaseServerClient();
+  const api = createAccountsApi(client);
+
+  const workspace = await api.getAccountWorkspace();
+}
+```
+
+This pattern works in Server Components, Server Actions, and API Route Handlers.
+
+## Available APIs
+
+| API | Package | Purpose |
+|-----|---------|---------|
+| **Account API** | `@kit/accounts/api` | Personal account data and subscriptions |
+| **Team Account API** | `@kit/team-accounts/api` | Team management, members, permissions |
+| **Authentication API** | `@kit/supabase/require-user` | User authentication and session handling |
+| **User Workspace API** | `@kit/accounts/api` | Personal workspace data for layouts |
+| **Team Workspace API** | `@kit/team-accounts/api` | Team workspace data for layouts |
+| **Policies API** | `@kit/policies` | Declarative business rules and validation |
+| **OTP API** | `@kit/otp` | One-time password generation and verification |
+
+## Account API
+
+The Account API handles personal user accounts, including subscriptions and billing.
+
+### Setup
+
+```tsx
+import { createAccountsApi } from '@kit/accounts/api';
+import { getSupabaseServerClient } from '@kit/supabase/server-client';
+
+const client = getSupabaseServerClient();
+const api = createAccountsApi(client);
+```
+
+### Methods
+
+| Method | Description |
+|--------|-------------|
+| `getAccountWorkspace()` | Get the user's personal workspace data |
+| `loadUserAccounts()` | Load all accounts the user belongs to |
+| `getSubscription(accountId)` | Get subscription data for an account |
+| `getCustomerId(accountId)` | Get the billing customer ID |
+
+### Example: Check subscription status
+
+```tsx
+import { createAccountsApi } from '@kit/accounts/api';
+import { getSupabaseServerClient } from '@kit/supabase/server-client';
+
+async function checkSubscription(accountId: string) {
+  const client = getSupabaseServerClient();
+  const api = createAccountsApi(client);
+
+  const subscription = await api.getSubscription(accountId);
+
+  if (!subscription || subscription.status !== 'active') {
+    return { hasAccess: false, reason: 'No active subscription' };
+  }
+
+  return { hasAccess: true, plan: subscription.planId };
+}
+```
+
+{% link href="/docs/next-supabase-turbo/api/account-api" title="Account API" description="Complete reference for personal account operations." /%}
+
+## Team Account API
+
+The Team Account API manages team accounts, including members, invitations, and permissions.
+
+### Setup
+
+```tsx
+import { createTeamAccountsApi } from '@kit/team-accounts/api';
+import { getSupabaseServerClient } from '@kit/supabase/server-client';
+
+const client = getSupabaseServerClient();
+const api = createTeamAccountsApi(client);
+```
+
+### Methods
+
+| Method | Description |
+|--------|-------------|
+| `getTeamAccountById(id)` | Get team account by ID |
+| `getAccountWorkspace(slug)` | Get team workspace data |
+| `getSubscription(accountId)` | Get team subscription |
+| `getOrder(accountId)` | Get one-time purchase orders |
+| `hasPermission(params)` | Check user permission in team |
+| `getMembersCount(accountId)` | Get number of team members |
+| `getCustomerId(accountId)` | Get billing customer ID |
+| `getInvitation(adminClient, token)` | Retrieve invitation by token |
+
+### Example: Check team permissions
+
+```tsx
+import { createTeamAccountsApi } from '@kit/team-accounts/api';
+import { getSupabaseServerClient } from '@kit/supabase/server-client';
+
+async function canManageBilling(accountId: string, userId: string) {
+  const client = getSupabaseServerClient();
+  const api = createTeamAccountsApi(client);
+
+  const hasPermission = await api.hasPermission({
+    accountId,
+    userId,
+    permission: 'billing.manage',
+  });
+
+  return hasPermission;
+}
+```
+
+{% link href="/docs/next-supabase-turbo/api/team-account-api" title="Team Account API" description="Complete reference for team management operations." /%}
+
+## Authentication API
+
+The Authentication API verifies user identity and handles session management.
+
+### Checking authentication
+
+Use `requireUser` to verify the user is authenticated:
+
+```tsx
+import { redirect } from 'next/navigation';
+import { requireUser } from '@kit/supabase/require-user';
+import { getSupabaseServerClient } from '@kit/supabase/server-client';
+
+async function ProtectedPage() {
+  const client = getSupabaseServerClient();
+  const auth = await requireUser(client);
+
+  if (auth.error) {
+    redirect(auth.redirectTo);
+  }
+
+  const user = auth.data;
+
+  return <div>Welcome, {user.email}</div>;
+}
+```
+
+The `requireUser` function:
+- Returns user data if authenticated
+- Provides a `redirectTo` path for unauthenticated users
+- Handles MFA verification redirects automatically
+
+### Client-side authentication
+
+Use the `useUser` hook in client components:
+
+```tsx
+'use client';
+
+import { useUser } from '@kit/supabase/hooks/use-user';
+
+function UserProfile() {
+  const user = useUser();
+
+  if (!user) {
+    return <div>Loading...</div>;
+  }
+
+  return <div>{user.email}</div>;
+}
+```
+
+{% link href="/docs/next-supabase-turbo/api/authentication-api" title="Authentication API" description="Complete reference for authentication and session handling." /%}
+
+## Workspace APIs
+
+Workspace APIs load layout data for personal and team contexts.
+
+### User Workspace
+
+The User Workspace API provides data for personal account layouts:
+
+```tsx
+import { loadUserWorkspace } from '@kit/accounts/api';
+import { getSupabaseServerClient } from '@kit/supabase/server-client';
+
+async function PersonalLayout({ children }) {
+  const client = getSupabaseServerClient();
+  const workspace = await loadUserWorkspace(client);
+
+  return (
+    <WorkspaceContext value={workspace}>
+      {children}
+    </WorkspaceContext>
+  );
+}
+```
+
+### Team Workspace
+
+The Team Workspace API provides data for team account layouts:
+
+```tsx
+import { loadTeamWorkspace } from '@kit/team-accounts/api';
+import { getSupabaseServerClient } from '@kit/supabase/server-client';
+
+async function TeamLayout({ params, children }) {
+  const client = getSupabaseServerClient();
+  const { account } = await params;
+
+  const workspace = await loadTeamWorkspace(client, account);
+
+  return (
+    <TeamWorkspaceContext value={workspace}>
+      {children}
+    </TeamWorkspaceContext>
+  );
+}
+```
+
+{% link href="/docs/next-supabase-turbo/api/user-workspace-api" title="User Workspace API" description="Load personal workspace data for layouts." /%}
+
+{% link href="/docs/next-supabase-turbo/api/account-workspace-api" title="Team Workspace API" description="Load team workspace data for layouts." /%}
+
+## Policies API
+
+The Policies API provides a declarative framework for business rules and validation logic.
+
+### Why use policies?
+
+Instead of scattering validation logic across your codebase, policies centralize rules in a testable, extensible format:
+
+```tsx
+import { createPolicyRegistry, definePolicy, allow, deny } from '@kit/policies';
+
+const invitationRegistry = createPolicyRegistry();
+
+invitationRegistry.registerPolicy(
+  definePolicy({
+    id: 'max-team-size',
+    stages: ['submission'],
+    evaluate: async (context) => {
+      if (context.team.memberCount >= 10) {
+        return deny({
+          code: 'MAX_MEMBERS_REACHED',
+          message: 'Team has reached maximum capacity',
+          remediation: 'Upgrade your plan for more seats',
+        });
+      }
+      return allow();
+    },
+  })
+);
+```
+
+### Evaluating policies
+
+```tsx
+import { createPoliciesEvaluator } from '@kit/policies';
+
+async function validateInvitation(context) {
+  const evaluator = createPoliciesEvaluator();
+
+  const result = await evaluator.evaluate(
+    invitationRegistry,
+    context,
+    'ALL',      // All policies must pass
+    'submission'
+  );
+
+  if (!result.allowed) {
+    throw new Error(result.reasons.join(', '));
+  }
+}
+```
+
+{% link href="/docs/next-supabase-turbo/api/policies-api" title="Policies API" description="Build declarative business rules for complex validation." /%}
+
+## OTP API
+
+The OTP API generates and verifies one-time passwords for secure operations.
+
+### Generate a token
+
+```tsx
+import { createNonce } from '@kit/otp/server';
+
+async function generateEmailVerificationToken(userId: string) {
+  const result = await createNonce({
+    userId,
+    purpose: 'email-verification',
+    expiresInSeconds: 3600, // 1 hour
+  });
+
+  return result.token;
+}
+```
+
+### Verify a token
+
+```tsx
+import { verifyNonce } from '@kit/otp/server';
+
+async function verifyEmailToken(token: string, userId: string) {
+  const result = await verifyNonce({
+    token,
+    purpose: 'email-verification',
+    userId,
+  });
+
+  if (!result.valid) {
+    throw new Error('Invalid or expired token');
+  }
+
+  return result;
+}
+```
+
+{% link href="/docs/next-supabase-turbo/api/otp-api" title="OTP API" description="Generate and verify one-time passwords." /%}
+
+## Using APIs in Server Actions
+
+All APIs work seamlessly in Server Actions with the `enhanceAction` utility:
+
+```tsx
+'use server';
+
+import { enhanceAction } from '@kit/next/actions';
+import { createTeamAccountsApi } from '@kit/team-accounts/api';
+import { getSupabaseServerClient } from '@kit/supabase/server-client';
+import { z } from 'zod';
+
+const InviteSchema = z.object({
+  teamId: z.string().uuid(),
+  email: z.string().email(),
+  role: z.enum(['admin', 'member']),
+});
+
+export const inviteMemberAction = enhanceAction(
+  async (data, user) => {
+    const client = getSupabaseServerClient();
+    const api = createTeamAccountsApi(client);
+
+    // Check permission
+    const canInvite = await api.hasPermission({
+      accountId: data.teamId,
+      userId: user.id,
+      permission: 'members.invite',
+    });
+
+    if (!canInvite) {
+      throw new Error('Not authorized to invite members');
+    }
+
+    // Process invitation...
+    return { success: true };
+  },
+  {
+    schema: InviteSchema,
+    auth: true,
+  }
+);
+```
+
+## Error handling
+
+All APIs throw errors that should be caught and handled appropriately:
+
+```tsx
+import { createAccountsApi } from '@kit/accounts/api';
+import { getSupabaseServerClient } from '@kit/supabase/server-client';
+
+async function getSubscriptionSafely(accountId: string) {
+  try {
+    const client = getSupabaseServerClient();
+    const api = createAccountsApi(client);
+
+    const subscription = await api.getSubscription(accountId);
+    return { data: subscription, error: null };
+  } catch (error) {
+    console.error('Failed to fetch subscription:', error);
+    return { data: null, error: 'Failed to load subscription' };
+  }
+}
+```
+
+## Best practices
+
+### 1. Create APIs in the request context
+
+Always create API instances within the request handler, not at module scope:
+
+```tsx
+// Good: Created in request context
+async function handler() {
+  const client = getSupabaseServerClient();
+  const api = createAccountsApi(client);
+}
+
+// Bad: Module-level singleton
+const client = getSupabaseServerClient(); // Won't work
+const api = createAccountsApi(client);
+```
+
+### 2. Use RLS for authorization
+
+APIs respect Row Level Security policies. Ensure your tables have appropriate RLS:
+
+```sql
+create policy "Users can view own accounts"
+  on accounts for select
+  to authenticated
+  using (auth.uid() = id);
+```
+
+### 3. Combine with data loaders
+
+For complex pages, combine API calls efficiently:
+
+```tsx
+async function DashboardPage({ params }) {
+  const client = getSupabaseServerClient();
+  const { account } = await params;
+
+  // Parallel data fetching
+  const [workspace, subscription, members] = await Promise.all([
+    loadTeamWorkspace(client, account),
+    createTeamAccountsApi(client).getSubscription(account),
+    loadTeamMembers(client, account),
+  ]);
+
+  return <Dashboard data={{ workspace, subscription, members }} />;
+}
+```
+
+## API documentation
+
+Explore detailed documentation for each API:
+
+- [Account API](/docs/next-supabase-turbo/api/account-api) — Personal account operations
+- [Team Account API](/docs/next-supabase-turbo/api/team-account-api) — Team management
+- [Authentication API](/docs/next-supabase-turbo/api/authentication-api) — User authentication
+- [User Workspace API](/docs/next-supabase-turbo/api/user-workspace-api) — Personal workspace data
+- [Team Workspace API](/docs/next-supabase-turbo/api/account-workspace-api) — Team workspace data
+- [Policies API](/docs/next-supabase-turbo/api/policies-api) — Business rule validation
+- [OTP API](/docs/next-supabase-turbo/api/otp-api) — One-time password handling
+- [Registry API](/docs/next-supabase-turbo/api/registry-api) — Service registry patterns

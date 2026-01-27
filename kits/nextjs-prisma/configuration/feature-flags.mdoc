@@ -1,0 +1,196 @@
+---
+status: "published"
+title: "Feature Flags Configuration"
+label: "Feature Flags"
+order: 4
+description: "Control feature availability and gradual rollouts using feature flags in the Next.js Prisma SaaS Kit."
+---
+
+Toggle application features on or off using environment variables - no code changes or redeployment required. Feature flags control everything from theme switching to account deletion to custom roles.
+
+Feature flags are boolean (or numeric) settings that enable or disable specific functionality at runtime. In MakerKit, most flags derive automatically from your [Account Mode](./account-modes), but you can override any flag via environment variables.
+
+This page is part of the [Configuration documentation](./overview).
+
+## How Feature Flags Work
+
+Feature flags are defined with [Zod](https://zod.dev/) validation in `apps/web/config/feature-flags.config.ts`:
+
+```typescript
+const FeatureFlagsSchema = z.object({
+  enableAccountDeletion: z.boolean(),
+  enableOrganizationDeletion: z.boolean(),
+  enableOrganizations: z.boolean(),
+  enablePersonalAccountBilling: z.boolean(),
+  enableOrganizationsBilling: z.boolean(),
+  allowUserToCreateOrganization: z.boolean(),
+  showAccountSwitcher: z.boolean(),
+  enableThemeToggle: z.boolean(),
+  enableVersionUpdater: z.boolean(),
+  enableCustomRoles: z.boolean(),
+  maxRolesPerOrganization: z.number().int().positive().optional(),
+});
+```
+
+**Use feature flags when:** you want to enable/disable functionality without touching code, control features per environment, or gradually roll out new features.
+
+**Avoid feature flags when:** the setting is static across all environments (use config files instead), or when the flag would require complex conditional logic throughout the codebase.
+
+**If unsure:** default values work for most apps. Only override flags when you have a specific requirement.
+
+## Flag Reference
+
+### Account-Derived Flags
+
+These flags are automatically set based on your `NEXT_PUBLIC_ACCOUNT_MODE`. Override only when you need non-standard behavior.
+
+| Flag | Default (Hybrid) | Personal-Only | Orgs-Only | Purpose |
+|------|------------------|---------------|-----------|---------|
+| `enableOrganizations` | `true` | `false` | `true` | Show organization features |
+| `enablePersonalAccountBilling` | `true` | `true` | `false` | Bill personal accounts |
+| `enableOrganizationsBilling` | `true` | `false` | `true` | Bill organizations |
+| `showAccountSwitcher` | `true` | `false` | `true` | Show account switcher UI |
+| `allowUserToCreateOrganization` | `true` | `false` | `true` | Allow org creation |
+
+### Independent Flags
+
+These flags can be set regardless of account mode:
+
+```bash
+# Theme
+NEXT_PUBLIC_ENABLE_THEME_TOGGLE=true
+
+# Notifications
+NEXT_PUBLIC_ENABLE_VERSION_UPDATER=false
+
+# Account management
+NEXT_PUBLIC_ENABLE_ACCOUNT_DELETION=true
+NEXT_PUBLIC_ENABLE_ORGANIZATION_DELETION=true
+
+# Roles and permissions
+NEXT_PUBLIC_ENABLE_CUSTOM_ROLES=false
+NEXT_PUBLIC_MAX_ROLES_PER_ORGANIZATION=10
+```
+
+## Flag Details
+
+### Theme Toggle
+
+```bash
+NEXT_PUBLIC_ENABLE_THEME_TOGGLE=true
+```
+
+When `false`, hides the theme switcher from the UI. Users are locked to whatever `NEXT_PUBLIC_DEFAULT_THEME_MODE` you set. Useful for branded apps with strict design guidelines.
+
+### Version Updater
+
+```bash
+NEXT_PUBLIC_ENABLE_VERSION_UPDATER=false
+NEXT_PUBLIC_VERSION_UPDATER_REFETCH_INTERVAL_SECONDS=3600
+```
+
+When `true`, periodically checks for new deployments and prompts users to reload. Useful for SPAs where users might have stale code. The interval controls how often to check (default: 1 hour).
+
+### Account Deletion
+
+```bash
+NEXT_PUBLIC_ENABLE_ACCOUNT_DELETION=true
+```
+
+When `true`, users can delete their own accounts from settings. Required for GDPR compliance in many jurisdictions. Deletion cascades through related data.
+
+### Organization Deletion
+
+```bash
+NEXT_PUBLIC_ENABLE_ORGANIZATION_DELETION=true
+```
+
+When `true`, organization owners can delete their organizations. All organization data, members, and billing are removed. Consider the compliance implications before disabling.
+
+### Custom Roles
+
+```bash
+NEXT_PUBLIC_ENABLE_CUSTOM_ROLES=false
+NEXT_PUBLIC_MAX_ROLES_PER_ORGANIZATION=10
+```
+
+When `true`, organization admins can create custom roles beyond the defaults (owner, admin, member). The max limit prevents abuse. This is an advanced feature - most apps work fine with the default roles.
+
+### Organization Creation
+
+```bash
+NEXT_PUBLIC_ALLOW_USER_TO_CREATE_ORGANIZATION=true
+```
+
+When `false` in hybrid mode, users can only join existing organizations via invitations. Useful when you want to control organization provisioning through an admin flow or sales process.
+
+## Using Flags in Code
+
+Access flags through the config object:
+
+```typescript
+import { featureFlagsConfig } from '@config/feature-flags.config';
+
+// Check if organizations are enabled
+if (featureFlagsConfig.enableOrganizations) {
+  // Show organization UI
+}
+
+// Check role limits
+const maxRoles = featureFlagsConfig.maxRolesPerOrganization ?? 10;
+```
+
+The config is type-safe - TypeScript will catch invalid flag names.
+
+## Common Pitfalls
+
+- **Forgetting derived flags exist**: If you set `NEXT_PUBLIC_ACCOUNT_MODE=personal-only`, don't also set `NEXT_PUBLIC_ENABLE_ORGANIZATIONS=true`. The mode handles this automatically.
+- **Enabling custom roles without testing**: Custom roles add complexity to permission checks. Test thoroughly before enabling in production.
+- **Disabling account deletion in regulated industries**: GDPR and similar regulations may require users to delete their data. Check compliance requirements.
+- **Not restarting after flag changes**: Environment variables are read at startup. Restart your dev server or redeploy after changes.
+- **Client/server mismatch**: `NEXT_PUBLIC_` flags are available on both client and server. Non-prefixed flags are server-only. Don't check server-only flags in client components.
+
+## Adding Custom Feature Flags
+
+To add your own flags:
+
+Add the flag to the Zod schema in `feature-flags.config.ts`:
+
+```typescript
+const FeatureFlagsSchema = z.object({
+  // ... existing flags
+  enableBetaFeature: z.boolean(),
+});
+```
+
+Set the default and environment variable mapping:
+
+```typescript
+export const featureFlagsConfig = FeatureFlagsSchema.parse({
+  // ... existing values
+  enableBetaFeature:
+    process.env.NEXT_PUBLIC_ENABLE_BETA_FEATURE === 'true',
+});
+```
+
+Use the flag in your code:
+
+```typescript
+if (featureFlagsConfig.enableBetaFeature) {
+  // Beta feature code
+}
+```
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Can I change flags without redeploying?", "answer": "Not with environment variables alone - they are read at build/startup time. For runtime flag changes, you would need a feature flag service like LaunchDarkly or a database-backed system."},
+     {"question": "Do flags affect the database schema?", "answer": "No. Flags control UI and application behavior, not data structure. Disabling a feature hides it but does not delete related data."},
+     {"question": "Should I use flags for A/B testing?", "answer": "Environment variable flags are all-or-nothing per deployment. For percentage-based rollouts or user-specific experiments, use a dedicated A/B testing service."},
+     {"question": "What happens if I set an invalid flag value?", "answer": "Zod validation fails at startup with a clear error message. This catches typos and invalid values before they cause runtime issues."}
+   ]
+/%}
+
+---
+
+**Next:** [Navigation Configuration →](./navigation)

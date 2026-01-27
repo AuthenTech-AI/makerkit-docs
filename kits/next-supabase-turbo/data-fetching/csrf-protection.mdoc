@@ -27,13 +27,15 @@ There are two exceptions to this rule:
 
 When using requests against API Route Handlers, you need to pass the CSRF token with your requests, otherwise the middleware will reject them.
 
-To retrieve the CSRF token, you can use the `useGetCsrfToken` function from `@kit/shared/hooks`:
+To retrieve the CSRF token, you can use the `useCsrfToken` function from `@kit/shared/hooks`:
 
 ```tsx
 'use client';
 
+import { useCsrfToken } from '@kit/shared/hooks';
+
 function MyComponent() {
-  const csrfToken = useGetCsrfToken();
+  const csrfToken = useCsrfToken();
 
   const handleSubmit = async (e) => {
     e.preventDefault();

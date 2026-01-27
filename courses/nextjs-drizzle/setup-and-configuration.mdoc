@@ -1,0 +1,305 @@
+---
+status: "published"
+title: "Setup and Configuration for Makerkit Next.js Drizzle"
+label: "Setup & Configuration"
+order: 1
+description: "Get Makerkit running locally and configure it for your B2B SaaS. By the end, you'll have a working app ready for customization."
+---
+
+This module walks you through cloning, configuring, and running Makerkit locally - ending with a working B2B setup ready for customization.
+
+---
+
+## Prerequisites
+
+> **Recommended:** Read [Module 0: Architecture & Technologies](./architecture-and-technologies) first to understand the stack at a high level.
+
+Before starting, ensure you have:
+
+- **Node.js 20.10.0+** - Check with `node --version`
+- **pnpm 10+** - Install with `npm install -g pnpm@latest`
+- **Docker** - For local PostgreSQL and email testing
+- **Git** - For version control
+
+See the [Prerequisites Documentation](/docs/nextjs-drizzle/installation/prerequisites) for more details.
+
+---
+
+## Step 1: Clone and Install
+
+Clone the repository and install dependencies. You'll need a valid Makerkit license and SSH access to GitHub.
+
+```bash
+# Clone the repository (replace "teampulse" with your project name)
+git clone git@github.com:makerkit/next-drizzle-saas-kit-turbo teampulse
+
+# Move into the project directory
+cd teampulse
+
+# Install all dependencies
+pnpm install
+```
+
+This installs dependencies for the entire monorepo.
+
+### Setting up your Project
+
+Run the setup script to initialize your project:
+
+```bash
+pnpm turbo gen setup
+```
+
+Follow the prompts. A successful setup outputs:
+
+```
+>>> Changes made:
+  • Requirements checked (function)
+  • Git user name set (function)
+  • /package.json (modify)
+  • Project setup complete. Start developing your project! (function)
+```
+
+---
+
+## Step 2: Start the Database
+
+Docker Compose runs PostgreSQL and Mailpit locally. Make sure Docker is running before continuing.
+
+```bash
+# Start PostgreSQL + Mailpit containers
+pnpm compose:dev:up
+```
+
+This starts:
+- **PostgreSQL** on port `54333`
+- **Mailpit** (email viewer) on port `8025`
+
+To shut down the containers:
+
+```bash
+pnpm compose:dev:down
+```
+
+If you run multiple Makerkit projects, update the container names in `docker-compose.dev.yml` to avoid conflicts:
+
+```yaml
+services:
+  postgres:
+    image: postgres:17
+    container_name: teampulse-postgres
+  mailpit:
+    image: axllent/mailpit
+    container_name: teampulse-mailpit
+```
+
+---
+
+## Step 3: Understanding Environment Files
+
+Next.js loads multiple `.env` files in order of precedence:
+
+| File | Purpose | Git-ignored? |
+|------|---------|--------------|
+| `.env.local` | Your local secrets (auth keys, API keys) | Yes |
+| `.env.development` | Development-specific defaults (database URL, ports) | No |
+| `.env` | Shared defaults used across environments | No |
+
+Keep secrets in `.env.local` - it's never committed. The other files contain non-sensitive defaults that can be shared across the team.
+
+See the [Environment Variables Documentation](/docs/nextjs-drizzle/installation/environment-variables) for more details.
+
+---
+
+## Step 4: Initialize the Database
+
+Apply the database migrations:
+
+```bash
+pnpm --filter @kit/database drizzle:migrate
+```
+
+This creates all the tables Makerkit needs - users, accounts, sessions, and more.
+
+**Optional: Seed test data**
+
+```bash
+pnpm seed
+```
+
+This creates test users you can sign in with:
+- Super admin: `admin1@makerkit.dev` / `testingpassword` (can access `/admin`)
+- Regular users: `user1@makerkit.dev` through `user5@makerkit.dev` / `testingpassword`
+
+The command will output some credentials you can use to sign in.
+
+---
+
+## Step 5: Start the Development Server
+
+Start the Next.js development server:
+
+```bash
+pnpm dev
+```
+
+Open http://localhost:3000 in your browser.
+
+**You should see the landing page.**
+
+---
+
+## Checkpoint: Verify It Works
+
+Before continuing, verify:
+
+- [ ] Landing page loads at http://localhost:3000
+- [ ] Can access sign up at http://localhost:3000/auth/sign-up
+- [ ] Can access sign in at http://localhost:3000/auth/sign-in
+- [ ] Mailpit is accessible at http://localhost:8025
+
+**Test the full flow:**
+
+1. Go to `/auth/sign-up`
+2. Create an account with your email
+3. Check Mailpit at http://localhost:8025 for the verification email
+4. Click the verification link
+5. You should land on the dashboard
+
+If you seeded test data, you can also sign in directly with `user1@makerkit.dev` / `testingpassword`.
+
+---
+
+## Step 6: Configure for B2B
+
+By default, Makerkit runs in "hybrid" mode (personal accounts + organizations). For a B2B SaaS, you want **organizations-only** mode.
+
+Edit `apps/web/.env.local`:
+
+```bash
+# Set to organizations-only for B2B
+NEXT_PUBLIC_ACCOUNT_MODE=organizations-only
+```
+
+The dev server picks up changes automatically.
+
+**What changes:**
+- Users must belong to an organization
+- Organization is auto-created on sign-up
+- No personal account context
+- Account switcher only shows organizations
+
+**Test it:** Sign up with a new email. You'll be automatically placed in a new organization named after you.
+
+---
+
+## Understanding the Structure
+
+### Monorepo Layout
+
+```
+next-drizzle-saas-kit-turbo/
+├── apps/
+│   ├── web/                 # Main Next.js app (you'll work here most)
+│   │   ├── app/            # Pages and routes
+│   │   ├── config/         # Configuration files
+│   │   └── .env.local      # Your local environment
+│   └── e2e/                 # Playwright tests
+├── packages/
+│   ├── database/           # Drizzle schema & migrations
+│   ├── better-auth/        # Authentication
+│   ├── ui/                  # UI components (shadcn-based)
+│   ├── rbac/               # Roles & permissions
+│   └── ...                  # Additional feature packages (billing, email, admin, etc.)
+└── docker-compose.dev.yml   # Local development services
+```
+
+### Key Configuration Files
+
+| File | Purpose |
+|------|---------|
+| `apps/web/.env.local` | Environment variables (secrets, URLs) |
+| `apps/web/config/app.config.ts` | App metadata and settings |
+| `apps/web/config/account-mode.config.ts` | Account mode (B2B/B2C/hybrid) |
+| `apps/web/config/auth.config.ts` | Authentication options |
+| `apps/web/config/feature-flags.config.ts` | Feature toggles |
+| `apps/web/app/[locale]/(internal)/_config/navigation.config.tsx` | Sidebar navigation |
+
+### Account Modes
+
+Makerkit supports three modes:
+
+| Mode | Use Case | Billing |
+|------|----------|---------|
+| `personal-only` | B2C apps (individual users) | Per user |
+| `organizations-only` | B2B apps (teams) | Per organization |
+| `hybrid` | Both (like Notion, Figma, GitHub) | Both options |
+
+For TeamPulse, we're using `organizations-only`.
+
+---
+
+## Module Complete
+
+You now have:
+- [x] Makerkit running locally
+- [x] Database connected and initialized
+- [x] Email testing with Mailpit
+- [x] Configured for B2B (organizations-only)
+- [x] Understanding of project structure
+
+In the next module, you'll customize the branding and make TeamPulse your own.
+
+---
+
+## Troubleshooting Common Issues
+
+### Database Connection Fails
+
+If you see "ECONNREFUSED" or "connection refused" errors:
+
+1. Verify Docker is running: `docker ps` should show containers
+2. Check container status: `pnpm compose:dev:up` and look for errors
+3. Confirm ports are free: PostgreSQL uses 54333, Mailpit uses 8025
+4. Reset containers: `pnpm compose:dev:down && pnpm compose:dev:up`
+
+### Migration Errors
+
+If migrations fail with "relation already exists":
+
+1. This usually means partial migration state
+2. Reset the database: `docker-compose down -v && pnpm compose:dev:up`
+3. Re-run migrations: `pnpm --filter @kit/database drizzle:migrate`
+
+### Port Conflicts
+
+If port 3000 is already in use:
+
+1. Find the process: `lsof -i :3000`
+2. Kill it: `kill -9 <PID>`
+3. Or change the port in your `.env.local`: `PORT=3001`
+
+---
+
+## Frequently Asked Questions
+
+{% faq
+   title="Setup FAQ"
+   items=[
+     {"question": "Why does Makerkit use pnpm instead of npm or yarn?", "answer": "pnpm is faster and more disk-efficient for monorepos. It uses a content-addressable store that shares packages across projects, and its strict dependency resolution prevents phantom dependencies that cause production bugs."},
+     {"question": "Can I use a remote database instead of Docker PostgreSQL?", "answer": "Yes. Update DATABASE_URL in .env.local to point to your remote database. For development, we recommend local Docker for speed and to avoid polluting production data. For Supabase or Neon, just paste your connection string."},
+     {"question": "What's the difference between .env and .env.local?", "answer": "Files without .local are committed to git and shared with your team. Files with .local are git-ignored and contain your personal secrets. Never put API keys or passwords in .env files without .local."},
+     {"question": "How do I run multiple Makerkit projects simultaneously?", "answer": "Update the container names in docker-compose.dev.yml to be unique (e.g., teampulse-postgres instead of makerkit-postgres) and use different ports for each project."},
+     {"question": "Why is NEXT_PUBLIC_ACCOUNT_MODE important?", "answer": "It determines your app's multi-tenancy model. 'organizations-only' (B2B) requires users to belong to a team. 'personal-only' (B2C) gives each user their own account. 'hybrid' supports both. This affects routing, billing, and data isolation."}
+   ]
+/%}
+
+---
+
+## Learn More
+
+- [Setup Documentation](/docs/nextjs-drizzle/installation/overview)
+
+---
+
+Next: [Branding](./branding)

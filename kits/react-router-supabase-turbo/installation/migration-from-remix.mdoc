@@ -1,7 +1,6 @@
 ---
 status: "published"
-title: "Guidelines for migrating from the Remix kit | React Router Supabase
-SaaS Starter Kit"
+title: "Migrating from Remix to React Router Supabase"
 label: "Migrating from Remix"
 order: 9
 description: "Guidelines for migrating from Remix to React Router SaaS
@@ -155,7 +154,7 @@ import { Link } from 'react-router';
 
 ### 4. Adjust Data Loading Patterns
 
-1. Instead of `useLoaderData<typeof loader>()`, use the props passed to your component:
+Instead of `useLoaderData<typeof loader>()`, use the props passed to your component:
 
 ```typescript
 // Before (Remix)
@@ -168,7 +167,7 @@ export default function Component(props: Route.ComponentProps) {
 }
 ```
 
-2. For accessing parent route data, use `useRouteLoaderData`:
+For accessing parent route data, use `useRouteLoaderData`:
 
 ```typescript
 import { useRouteLoaderData } from 'react-router';

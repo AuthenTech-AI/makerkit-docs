@@ -1,0 +1,245 @@
+---
+status: "published"
+title: "Drizzle ORM Configuration"
+label: "Drizzle Configuration"
+order: 2
+description: "Configure Drizzle ORM for type-safe database operations, schema management, and migrations in the Next.js Drizzle SaaS Kit."
+---
+
+[Drizzle ORM](https://orm.drizzle.team/) is configured in the `@kit/database` package. This page covers the configuration files, how they connect together, and how to customize the setup.
+
+## Configuration File
+
+The [Drizzle](/drizzle) Kit configuration lives at `packages/database/drizzle.config.mjs`:
+
+```javascript {% title="packages/database/drizzle.config.mjs" %}
+import { defineConfig } from 'drizzle-kit';
+
+const dialect = 'postgresql';
+
+export default defineConfig({
+  schema: './src/schema/schema.ts',
+  out: './src/schema',
+  dialect,
+  dbCredentials: {
+    url: process.env.DATABASE_URL ??
+      'postgresql://postgres:postgres@127.0.0.1:54333/postgres',
+  },
+  schemaFilter: ['public'],
+  verbose: true,
+  strict: true,
+});
+```
+
+### Configuration Options
+
+| Option | Value | Purpose |
+|--------|-------|---------|
+| `schema` | `./src/schema/schema.ts` | Entry point for all table definitions |
+| `out` | `./src/schema` | Where migration SQL files are generated |
+| `dialect` | `postgresql` | Database type (change for MySQL/SQLite) |
+| `dbCredentials.url` | `DATABASE_URL` | Connection string |
+| `schemaFilter` | `['public']` | Only migrate tables in the public schema |
+| `verbose` | `true` | Show detailed migration output |
+| `strict` | `true` | Fail on ambiguous schema changes (recommended) |
+
+{% callout type="default" title="Why strict: true?" %}
+Strict mode prompts you when Drizzle detects ambiguous changes like column renames (vs. drop + add). This prevents accidental data loss and ensures migrations do what you expect.
+{% /callout %}
+
+## Key Files
+
+### Client Export
+
+The database client is exported from `packages/database/src/client.ts`:
+
+```typescript {% title="packages/database/src/client.ts" %}
+export { db, type DatabaseSchema } from './adapters/postgres';
+```
+
+This re-exports from the active adapter. To switch databases, change this import to point to a different adapter (e.g., `./adapters/mysql`).
+
+### PostgreSQL Adapter
+
+The default adapter at `packages/database/src/adapters/postgres.ts` handles connection management:
+
+```typescript {% title="packages/database/src/adapters/postgres.ts" %}
+import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
+
+import { databaseUrl } from '../database-url';
+import * as schema from '../schema/schema';
+
+export type DatabaseSchema = typeof schema;
+export type Database = PostgresJsDatabase<DatabaseSchema>;
+
+let db: Database;
+
+if (process.env.NODE_ENV === 'production') {
+  db = createDrizzle(createPostgres());
+} else {
+  if (!global.db) {
+    global.db = createDrizzle(createPostgres());
+  }
+  db = global.db;
+}
+
+export { db };
+
+function createDrizzle(client: postgres.Sql) {
+  return drizzle(client, { schema });
+}
+
+function createPostgres() {
+  return postgres(databaseUrl, { prepare: false });
+}
+```
+
+**Why `prepare: false`?** This disables prepared statements, which is required when using transaction pooling mode (common with Supabase, Neon, and other managed PostgreSQL services).
+
+### Database URL Validation
+
+The connection string is validated using Zod in `packages/database/src/database-url.ts`:
+
+```typescript {% title="packages/database/src/database-url.ts" %}
+import * as z from 'zod';
+
+export const databaseUrl = z
+  .url({
+    error: 'Please provide the variable DATABASE_URL as a valid URL pointing to a PostgreSQL database',
+  })
+  .default(
+    process.env.NODE_ENV === 'production'
+      ? process.env.DATABASE_URL!
+      : 'postgresql://postgres:postgres@127.0.0.1:54333/postgres',
+  )
+  .parse(process.env.DATABASE_URL);
+```
+
+This provides clear error messages if the connection string is missing or malformed.
+
+### Package Exports
+
+The main package export at `packages/database/src/index.ts`:
+
+```typescript {% title="packages/database/src/index.ts" %}
+// Export Drizzle client and schema
+export { db, type DatabaseSchema } from './client';
+export * from './schema/schema';
+
+// Export auth context utilities
+export * from './auth';
+```
+
+This allows importing everything from `@kit/database`:
+
+```typescript
+import { db, user, organization, createOrgAuthContext } from '@kit/database';
+```
+
+Additional exports are available for specific use cases:
+
+```typescript
+// Rate limiting service
+import { createRateLimitService } from '@kit/database/rate-limit';
+
+// Testing utilities
+import { createTestDatabase } from '@kit/database/testing/pglite';
+import { createTestUser, createTestOrganization } from '@kit/database/testing';
+```
+
+## Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `DATABASE_URL` | Yes (production) | Local PostgreSQL | PostgreSQL connection string |
+
+### Local Development
+
+The default connection string assumes a local PostgreSQL instance:
+
+```bash
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54333/postgres
+```
+
+The kit includes a `docker-compose.dev.yml` that starts PostgreSQL on port 54333.
+
+### Production Connection Strings
+
+Set `DATABASE_URL` to your production database connection string:
+
+```bash
+# Supabase (use the "Session Mode" connection string)
+DATABASE_URL=postgresql://postgres:[password]@db.[project].supabase.co:5432/postgres
+
+# Neon (serverless PostgreSQL)
+DATABASE_URL=postgresql://[user]:[password]@[host].neon.tech/[database]?sslmode=require
+
+# Railway
+DATABASE_URL=postgresql://postgres:[password]@[host].railway.app:5432/railway
+
+# AWS RDS
+DATABASE_URL=postgresql://[user]:[password]@[instance].rds.amazonaws.com:5432/[database]?sslmode=require
+```
+
+{% callout type="warning" title="Supabase Connection Strings" %}
+Supabase provides two connection strings: "Session Mode" and "Transaction Mode". Use **Session Mode** for Drizzle. The `prepare: false` setting handles the pooling compatibility.
+{% /callout %}
+
+## Commands
+
+Run these from the repository root:
+
+```bash
+# Generate migration SQL from schema changes
+pnpm --filter @kit/database drizzle:generate
+
+# Apply pending migrations to the database
+pnpm --filter @kit/database drizzle:migrate
+
+# Open Drizzle Studio (visual database browser)
+pnpm --filter @kit/database drizzle:studio
+
+# Run database tests
+pnpm --filter @kit/database test:unit
+```
+
+## Drizzle Studio
+
+Drizzle Studio provides a visual interface for browsing and editing data:
+
+```bash
+pnpm --filter @kit/database drizzle:studio
+```
+
+This opens a browser at `https://local.drizzle.studio` where you can:
+
+- Browse all tables and their data
+- Run queries with autocomplete
+- Edit rows directly
+- View table relationships
+
+Useful during development for inspecting state and debugging.
+
+## Common Mistakes to Avoid
+
+**Wrong Supabase connection string**: Use the "Session Mode" connection string, not "Transaction Mode". Both work, but Session Mode is more compatible with Drizzle's query patterns.
+
+**Forgetting to pass schema to drizzle()**: The Query API (`db.query.user.findFirst()`) requires the schema to be passed when creating the client. Without it, you can only use the Select API.
+
+**Not running migrations after schema changes**: After editing `schema.ts`, always run `drizzle:generate` then `drizzle:migrate`. The schema file alone doesn't change the database.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Why is prepare: false set in the PostgreSQL connection?", "answer": "This disables prepared statements, which is required when using transaction pooling mode. Managed PostgreSQL services like Supabase and Neon use transaction pooling by default, and prepared statements aren't supported in that mode."},
+     {"question": "Where are migration files stored?", "answer": "Migration SQL files are generated in packages/database/src/schema/ alongside the TypeScript schema files. The meta/ folder contains the migration journal and schema snapshots used to track what has been applied."},
+     {"question": "How do I switch to a different database adapter?", "answer": "Edit packages/database/src/client.ts to export from a different adapter file. For example, change the import from './adapters/postgres' to './adapters/mysql'. You will also need to update drizzle.config.mjs to use the corresponding dialect."},
+     {"question": "What is Drizzle Studio?", "answer": "Drizzle Studio is a visual database browser that runs locally. Run pnpm --filter @kit/database drizzle:studio to open it. It lets you browse tables, run queries with autocomplete, and edit data directly during development."},
+     {"question": "What is the difference between Select API and Query API?", "answer": "The Select API (db.select().from()) maps directly to SQL and gives you full control over queries. The Query API (db.query.user.findFirst()) provides a higher-level interface with automatic relation loading via the 'with' option. Both are fully type-safe."}
+   ]
+/%}
+
+---
+
+**Next:** [Schema Overview](./schema)

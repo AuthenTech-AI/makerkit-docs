@@ -1,0 +1,57 @@
+---
+status: "published"
+title: "Going to Production"
+label: "Checklist"
+order: 0
+description: "Deploy your SaaS application to production with confidence."
+---
+
+Deploying a MakerKit application to production requires configuring external services (database, storage, email, billing), setting environment variables, running database migrations, and deploying to a hosting platform. This guide provides the complete checklist and links to platform-specific deployment guides for Railway, Docker, or any Next.js-compatible host.
+
+## Prerequisites
+
+Before deploying, you need these external services configured and ready:
+
+1. **Database**: A remote instance of your database. This can be self-hosted, or a managed provider (Supabase, Planetscale, Neon, Railway, etc.). You need a valid URL so you can push migrations to this instance.
+2. **Migrations**: Once you have a remote database, you need to push your application's migrations to set up its schema.
+3. **Stripe and Billing**: You need a set-up Stripe account, and you need to set up the Products and Prices with the correct Price IDs in the billing configuration.
+4. **Email**: You need to set up a valid email provider (ex. SMTP, Resend, etc.) to be able to send out emails.
+5. **Storage**: You need to set up a valid storage provider (ex. AWS S3, Cloudflare R2, etc.) to be able to store files.
+6. **OAuth (optional)**: if you use any OAuth provider, you must set up valid credentials (ex. Google, GitHub, etc.). If you don't use any, you can skip this step.
+
+If you don't have all the information above - **you may not be able to deploy your application to production, so it's best to go back and sort out the information before you proceed**.
+
+## Production Checklist
+
+Before deploying to production, verify each item:
+
+- ✅ **Environment variables** — All required variables set for your hosting platform (see [Environment Setup](./environment-setup))
+- ✅ **Database** — Remote PostgreSQL instance provisioned with connection string
+- ✅ **Migrations** — Schema deployed to production database via `prisma migrate deploy`
+- ✅ **Billing** — Stripe/Polar account configured with products, prices, and webhook endpoint
+- ✅ **Storage** — S3-compatible bucket configured for file uploads
+- ✅ **Email** — Transactional email provider configured (Resend, Postmark, SendGrid)
+- ✅ **OAuth (if used)** — Production credentials for Google, GitHub, or other providers
+- ✅ **Domain** — Custom domain configured with SSL (automatic on most platforms)
+
+## Common Pitfalls
+
+These issues cause most first-deployment failures:
+
+1. **`NEXT_PUBLIC_*` variables not set at build time** — Environment variables prefixed with `NEXT_PUBLIC_` are embedded during the build, not at runtime. If you add them after building, redeploy.
+2. **Using Stripe test keys in production** — Test keys (`sk_test_*`) won't process real payments. Switch to live keys (`sk_live_*`) and update your webhook endpoint.
+3. **Missing webhook signature secret** — Billing webhooks will fail signature validation without `STRIPE_WEBHOOK_SECRET` or the equivalent for Polar.
+4. **Wrong `NEXT_PUBLIC_SITE_URL`** — Must match your actual domain exactly, including `https://`. Authentication callbacks and emails use this URL.
+5. **Database SSL requirements** — Most managed databases require SSL. If connections fail, check if your provider needs `?sslmode=require` appended to `DATABASE_URL`.
+6. **OAuth redirect URLs not updated** — Social login will fail if your OAuth provider (Google, GitHub) doesn't have your production domain in the allowed redirect URLs.
+
+## Topics
+
+1. **[Environment Setup](./environment-setup)** - Production environment variables
+2. **[Deployment](./deployment)** - General deployment guidelines
+3. **[Railway](./railway)** - Deploy to Railway
+4. **[Docker](./docker)** - Deploy using Docker
+
+---
+
+**Next:** [Deployment →](./deployment)

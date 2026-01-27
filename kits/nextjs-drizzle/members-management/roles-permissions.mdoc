@@ -1,0 +1,533 @@
+---
+status: "published"
+title: "Roles and Permissions"
+label: "Roles & Permissions"
+order: 3
+description: "Role-based access control for organizations using @kit/rbac and Better Auth."
+---
+
+The kit uses a configuration-driven role system powered by the `@kit/rbac` package and Better Auth's permission system.
+
+## Configuration
+
+All role and permission settings are configured in a **single file**: `packages/rbac/src/rbac.config.ts`.
+
+This file is the **only file you need to edit** for all RBAC customizations.
+
+```typescript
+import { defineRBACConfig } from './core/factory';
+
+export default defineRBACConfig({
+  // Add custom resources
+  resources: { PROJECT: 'project' },
+
+  // Add custom actions (optional)
+  actions: { ARCHIVE: 'archive' },
+
+  // Add custom roles with hierarchy levels
+  roles: { moderator: 30 },
+
+  // Define which actions are valid for each custom resource
+  accessController: {
+    project: ['create', 'read', 'update', 'delete', 'archive'],
+  },
+
+  // Define permissions for each role on custom resources
+  permissions: {
+    owner: { project: ['create', 'read', 'update', 'delete', 'archive'] },
+    admin: { project: ['create', 'read', 'update'] },
+    member: { project: ['read'] },
+  },
+});
+```
+
+Default resources (organization, member, invitation, billing, ac) and actions (create, read, update, delete, cancel) are automatically included.
+
+## Default Roles
+
+Three roles are included by default:
+
+| Role | Level | Description |
+|------|-------|-------------|
+| owner | 100 | Full control over organization |
+| admin | 50 | Can manage members and billing |
+| member | 10 | Basic organization access |
+
+Higher hierarchy levels grant more authority. A role can only manage roles with lower levels.
+
+### Typed Role Constants
+
+The `DefaultRole` type provides autocomplete and type safety:
+
+```typescript
+import { type DefaultRole } from '@kit/rbac';
+
+// DefaultRole = 'owner' | 'admin' | 'member'
+function setRole(role: DefaultRole) {
+  // TypeScript provides autocomplete
+}
+
+// Also accepts custom roles when needed
+function setAnyRole(role: DefaultRole | string) {
+  // Works with custom roles from Dynamic Access Control
+}
+```
+
+## Role Hierarchy Functions
+
+The `@kit/rbac` package provides utilities for working with roles.
+
+```typescript
+import { canTargetRole, ROLE_HIERARCHY } from '@kit/rbac';
+
+// Admin can manage member (50 > 10)
+canTargetRole('admin', 'member', false, ROLE_HIERARCHY);
+// Returns: true
+
+// Admin cannot manage owner (50 < 100)
+canTargetRole('admin', 'owner', false, ROLE_HIERARCHY);
+// Returns: false
+
+// Equal roles cannot manage each other by default
+canTargetRole('admin', 'admin', false, ROLE_HIERARCHY);
+// Returns: false
+
+// With allowEqual, same-level targeting is permitted
+canTargetRole('admin', 'admin', true, ROLE_HIERARCHY);
+// Returns: true
+```
+
+## Client-Side Role Checks
+
+Use `canTargetRole` from `@kit/rbac` to check if a user can manage another member based on role hierarchy:
+
+```typescript
+'use client';
+
+import { canTargetRole } from '@kit/rbac';
+
+export function MemberActions({ member, currentUserRole, roleHierarchy }) {
+  const canManage = canTargetRole(currentUserRole, member.role, false, roleHierarchy);
+
+  return (
+    <DropdownMenu>
+      {canManage && (
+        <>
+          <DropdownMenuItem onClick={() => changeRole(member.id)}>
+            Change Role
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => removeMember(member.id)}>
+            Remove Member
+          </DropdownMenuItem>
+        </>
+      )}
+    </DropdownMenu>
+  );
+}
+```
+
+The `canTargetRole` function checks if one role can manage another based on hierarchy levels:
+
+```typescript
+import { canTargetRole, ROLE_HIERARCHY } from '@kit/rbac';
+
+// Admin (50) can target member (10)
+canTargetRole('admin', 'member', false, ROLE_HIERARCHY); // true
+
+// Admin (50) cannot target owner (100)
+canTargetRole('admin', 'owner', false, ROLE_HIERARCHY); // false
+
+// With allowEqual=true, same-level targeting is permitted (useful for invitations)
+canTargetRole('admin', 'admin', true, ROLE_HIERARCHY); // true
+```
+
+## Server-Side Permission Checks
+
+Better Auth provides server-side authorization through the `auth.api.hasPermission()` method.
+
+### Check Permissions
+
+```typescript
+import 'server-only';
+import { headers } from 'next/headers';
+import { auth } from '@kit/better-auth';
+
+// Check if current user can invite members
+const canInvite = await auth.api.hasPermission({
+  headers: await headers(),
+  body: {
+    permissions: {
+      member: ['create'],
+    },
+  },
+});
+
+if (!canInvite) {
+  throw new Error('Insufficient permissions');
+}
+```
+
+### Check Multiple Permissions
+
+```typescript
+import { headers } from 'next/headers';
+import { auth } from '@kit/better-auth';
+
+const canAdminister = await auth.api.hasPermission({
+  headers: await headers(),
+  body: {
+    permissions: {
+      member: ['create', 'update', 'delete'],
+      invitation: ['create', 'update'],
+    },
+  },
+});
+```
+
+### Protect Server Actions
+
+```typescript
+'use server';
+
+import { headers } from 'next/headers';
+import { auth } from '@kit/better-auth';
+import { db, organization } from '@kit/database';
+import { eq } from 'drizzle-orm';
+
+export async function updateOrganizationAction(
+  organizationId: string,
+  data: UpdateOrganizationData
+) {
+  const canUpdate = await auth.api.hasPermission({
+    headers: await headers(),
+    body: {
+      permissions: {
+        organization: ['update'],
+      },
+    },
+  });
+
+  if (!canUpdate) {
+    throw new Error('Insufficient permissions');
+  }
+
+  return db
+    .update(organization)
+    .set(data)
+    .where(eq(organization.id, organizationId))
+    .returning();
+}
+```
+
+## Server Action Authorization Middleware
+
+For cleaner server actions, use the authorization middleware with the `.use()` pattern.
+
+### withFeaturePermission
+
+Checks resource permissions via Better Auth:
+
+```typescript
+import { authenticatedActionClient } from '@kit/action-middleware';
+import { withFeaturePermission } from '@kit/action-middleware';
+
+export const updateOrgAction = authenticatedActionClient
+  .use(withFeaturePermission({ organization: ['update'] }))
+  .inputSchema(UpdateOrgSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    // ctx.organizationId is available
+    // User is guaranteed to have organization:update permission
+  });
+```
+
+### withMinRole
+
+Checks minimum role level using the hierarchy:
+
+```typescript
+import { authenticatedActionClient, withMinRole } from '@kit/action-middleware';
+
+export const deleteOrgAction = authenticatedActionClient
+  .use(withMinRole('owner'))
+  .inputSchema(DeleteOrgSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    // Only owners can reach here
+  });
+```
+
+### organizationActionClient
+
+Pre-configured client with organization context (no permission checks):
+
+```typescript
+import { organizationActionClient } from '@kit/action-middleware';
+
+export const listMembersAction = organizationActionClient
+  .inputSchema(ListMembersSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    const { organizationId, role } = ctx;
+    // List members for the organization
+  });
+```
+
+### Conditional Rendering in Server Components
+
+```typescript
+import 'server-only';
+import { headers } from 'next/headers';
+import { auth } from '@kit/better-auth';
+
+export default async function MembersPage() {
+  const canInvite = await auth.api.hasPermission({
+    headers: await headers(),
+    body: {
+      permissions: {
+        member: ['create'],
+      },
+    },
+  });
+
+  return (
+    <div>
+      <h1>Team Members</h1>
+      {canInvite && <InviteMemberButton />}
+      <MembersList />
+    </div>
+  );
+}
+```
+
+## Default Permissions
+
+Each role has predefined permissions:
+
+| Permission | Owner | Admin | Member |
+|------------|-------|-------|--------|
+| Organization Read | Yes | Yes | Yes |
+| Organization Update | Yes | Yes | No |
+| Organization Delete | Yes | No | No |
+| Member Create | Yes | Yes | No |
+| Member Update | Yes | Yes | No |
+| Member Delete | Yes | Yes | No |
+| Invitation Manage | Yes | Yes | View only |
+
+## Customizing Roles
+
+### Adding Custom Roles
+
+Add custom roles in `packages/rbac/src/rbac.config.ts`:
+
+```typescript
+export default defineRBACConfig({
+  roles: {
+    moderator: 30,  // Between admin (50) and member (10)
+    viewer: 5,      // Below member
+  },
+});
+```
+
+Custom roles are merged with the default hierarchy (owner: 100, admin: 50, member: 10). They appear in invitation forms and role dropdowns automatically.
+
+### Better Auth Permission Templates
+
+Better Auth maps roles to permission templates based on hierarchy level:
+
+| Level | Template | Permissions |
+|-------|----------|-------------|
+| >= 100 | owner | Full organization control |
+| >= 50 | admin | Manage members and billing |
+| < 50 | member | Basic access |
+
+Roles below level 50 (like `moderator: 30` or `viewer: 5`) receive the member permission template. For finer control, add custom resources and actions.
+
+## Adding Resources and Actions
+
+All customizations happen in `packages/rbac/src/rbac.config.ts`:
+
+```typescript
+export default defineRBACConfig({
+  // Step 1: Add custom resources
+  resources: {
+    PROJECT: 'project',
+    API_KEY: 'apiKey',
+  },
+
+  // Step 2: Add custom actions (optional)
+  actions: {
+    EXPORT: 'export',
+    IMPORT: 'import',
+  },
+
+  // Step 3: Define which actions are valid for each custom resource
+  accessController: {
+    project: ['create', 'read', 'update', 'delete', 'export'],
+    apiKey: ['create', 'read', 'delete'],
+  },
+
+  // Step 4: Define permissions for each role on custom resources
+  permissions: {
+    owner: {
+      project: ['create', 'read', 'update', 'delete', 'export'],
+      apiKey: ['create', 'read', 'delete'],
+    },
+    admin: {
+      project: ['create', 'read', 'update', 'export'],
+      apiKey: ['create', 'read'],
+    },
+    member: {
+      project: ['read'],
+      apiKey: [], // No API key access
+    },
+  },
+});
+```
+
+Custom resources and actions are merged with the defaults (organization, member, invitation, billing, ac) and (create, read, update, delete, cancel).
+
+## Permission Check Patterns
+
+### Pattern 1: Resource-Based Checks
+
+Check if the user can perform specific actions:
+
+```typescript
+import { headers } from 'next/headers';
+import { auth } from '@kit/better-auth';
+
+const canCreate = await auth.api.hasPermission({
+  headers: await headers(),
+  body: { permissions: { member: ['create'] } },
+});
+
+const canDelete = await auth.api.hasPermission({
+  headers: await headers(),
+  body: { permissions: { organization: ['delete'] } },
+});
+```
+
+### Pattern 2: Role Hierarchy Checks
+
+Check if a user can manage another member:
+
+```typescript
+import { canTargetRole, ROLE_HIERARCHY } from '@kit/rbac';
+
+const canManage = canTargetRole(currentUser.role, targetMember.role, false, ROLE_HIERARCHY);
+```
+
+## Import Reference
+
+| Need | Import |
+|------|--------|
+| Permission checks | `@kit/better-auth` (auth.api.hasPermission) |
+| Role hierarchy functions | `@kit/rbac` (canTargetRole, getRoleHierarchy) |
+| Resources and actions constants | `@kit/rbac` (RESOURCES, ACTIONS) |
+| Role hierarchy | `@kit/rbac` (ROLE_HIERARCHY) |
+| Config factory | `@kit/rbac` (defineRBACConfig) |
+| Server action middleware | `@kit/action-middleware` (withFeaturePermission, withMinRole) |
+| Authenticated action client | `@kit/action-middleware` |
+| Organization action client | `@kit/action-middleware` (organizationActionClient) |
+
+## Common Use Cases
+
+### Conditional UI Based on Permissions
+
+```typescript
+import { headers } from 'next/headers';
+import { auth } from '@kit/better-auth';
+
+export default async function OrganizationSettings() {
+  const canUpdate = await auth.api.hasPermission({
+    headers: await headers(),
+    body: { permissions: { organization: ['update'] } },
+  });
+
+  const canDelete = await auth.api.hasPermission({
+    headers: await headers(),
+    body: { permissions: { organization: ['delete'] } },
+  });
+
+  return (
+    <div>
+      {canUpdate && <OrganizationSettingsForm />}
+      {canDelete && <DangerZone />}
+    </div>
+  );
+}
+```
+
+### Filter Roles in Dropdowns
+
+Filter which roles a user can assign based on their own role level:
+
+```typescript
+'use client';
+
+import { getAllDefaultRoles, canTargetRole, ROLE_HIERARCHY } from '@kit/rbac';
+
+export function RoleSelector({ currentUserRole }) {
+  const allRoles = getAllDefaultRoles();
+
+  const availableRoles = allRoles.filter(role =>
+    canTargetRole(currentUserRole, role, true, ROLE_HIERARCHY)
+  );
+
+  return (
+    <Select>
+      {availableRoles.map(role => (
+        <SelectItem key={role} value={role}>
+          {role}
+        </SelectItem>
+      ))}
+    </Select>
+  );
+}
+```
+
+### Validate Role Changes
+
+Using middleware (recommended):
+
+```typescript
+import { authenticatedActionClient, withFeaturePermission } from '@kit/action-middleware';
+import { z } from 'zod';
+
+export const updateMemberRoleAction = authenticatedActionClient
+  .use(withFeaturePermission({ member: ['update'] }))
+  .inputSchema(z.object({ memberId: z.string(), newRole: z.string() }))
+  .action(async ({ parsedInput, ctx }) => {
+    const { memberId, newRole } = parsedInput;
+    // ctx.organizationId available
+    // User already verified to have member:update permission
+    return auth.api.updateMemberRole({
+      body: { memberId, role: newRole }
+    });
+  });
+```
+
+Using manual checks:
+
+```typescript
+'use server';
+
+import { canTargetRole, ROLE_HIERARCHY } from '@kit/rbac';
+import { auth } from '@kit/better-auth';
+
+export async function updateMemberRoleAction(memberId: string, newRole: string) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  const currentRole = session.data.session.activeOrganization.role;
+
+  if (!canTargetRole(currentRole, newRole, true, ROLE_HIERARCHY)) {
+    throw new Error('Insufficient permissions');
+  }
+
+  return auth.api.updateMemberRole({
+    body: { memberId, role: newRole }
+  });
+}
+```
+
+## Related Documentation
+
+- [Permissions API Reference](./permissions-api) - Full API documentation
+- [Inviting Members](./invitations) - How role hierarchy affects invitations

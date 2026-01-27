@@ -1,16 +1,132 @@
 ---
 status: "published"
-title: "Notifications in Next.js Supabase Turbo"
+title: "In-App Notifications for Next.js Supabase"
 label: "Notifications"
 order: 10
-description: "Notifications in Next.js Supabase Turbo"
+description: "Add real-time in-app notifications to your SaaS. Database-backed storage, Row Level Security, dismissible alerts, and Supabase Realtime support."
 collapsible: true
 collapsed: true
 ---
 
-Add notifications to your application:
+In-app notifications are database-backed alerts displayed in your application's notification center. Unlike email or push notifications, they appear within your UI and persist until dismissed or expired.
 
-1. [**Notification Configuration**](/docs/next-supabase-turbo/notifications/notifications-configuration)
-   Set up and configure your notification system.
-2. [**Sending Notifications**](/docs/next-supabase-turbo/notifications/sending-notifications)
-   Learn how to send notifications to your users.
+MakerKit includes a production-ready notification system: database persistence, Row Level Security, real-time updates via Supabase Realtime, and a pre-built UI component. Notifications work for both personal accounts and team accounts out of the box.
+
+**When to use in-app notifications:**
+- User needs timely alerts without email fatigue
+- Notifications tie directly to in-app actions (new comment, export ready)
+- You want instant delivery with real-time enabled
+
+**When to prefer email instead:**
+- Time-critical alerts the user might miss if not logged in
+- You need delivery confirmation
+- Legal or compliance notifications requiring an audit trail
+
+## How it works
+
+Notifications flow through three layers:
+
+| Layer | Purpose | Package/Location |
+|-------|---------|------------------|
+| **Database** | Persistent storage with RLS | `public.notifications` table |
+| **Server API** | Create notifications from backend code | `@kit/notifications/api` |
+| **Client UI** | Display and dismiss notifications | `@kit/notifications/components` |
+
+Only the `service_role` can insert notifications. This is intentional: notifications should be triggered by your application logic, not by end users directly.
+
+## Notification types
+
+Three severity levels, each with distinct visual styling:
+
+- **info** (default): Blue icon. General updates, welcome messages, feature announcements
+- **warning**: Yellow icon. Attention needed, subscription reminders, approaching limits
+- **error**: Red icon. Payment failures, system errors, action required
+
+## Quick example
+
+Send a notification from a Server Action:
+
+```typescript
+import { createNotificationsApi } from '@kit/notifications/api';
+import { getSupabaseServerAdminClient } from '@kit/supabase/server-admin-client';
+
+export async function notifyUser(accountId: string) {
+  const client = getSupabaseServerAdminClient();
+  const api = createNotificationsApi(client);
+
+  await api.createNotification({
+    account_id: accountId,
+    body: 'Your export is ready to download',
+    link: '/exports',
+    type: 'info',
+  });
+}
+```
+
+The notification appears in the user's bell icon dropdown. If real-time is enabled, it appears instantly without a page refresh.
+
+## Feature flags
+
+Control notifications via environment variables:
+
+```bash
+# Show/hide the bell icon entirely
+NEXT_PUBLIC_ENABLE_NOTIFICATIONS=true
+
+# Enable Supabase Realtime subscriptions (adds cost)
+NEXT_PUBLIC_REALTIME_NOTIFICATIONS=false
+```
+
+Real-time is disabled by default. Each connected client maintains a Supabase Realtime subscription, which counts toward your Supabase plan limits. For most apps, polling on page load is sufficient.
+
+## Personal vs team notifications
+
+The `account_id` field determines who sees the notification:
+
+- **Personal account ID** (user's UUID): Only that user sees it
+- **Team account ID**: All team members see it
+
+```typescript
+// Notify a single user
+await api.createNotification({
+  account_id: userId,
+  body: 'Welcome to the platform!',
+});
+
+// Notify an entire team
+await api.createNotification({
+  account_id: teamAccountId,
+  body: 'New team member joined',
+  link: '/settings/members',
+});
+```
+
+RLS policies handle visibility automatically. Users see notifications for their personal account plus any team accounts they belong to.
+
+## Common pitfalls
+
+**Using the wrong Supabase client**: Notifications require `getSupabaseServerAdminClient()`, not the regular server client. Only `service_role` can insert into the notifications table.
+
+**Enabling real-time without checking plan limits**: Each connected client maintains a WebSocket connection. Free tier allows 200 concurrent connections. Calculate your expected concurrent users before enabling.
+
+**Hardcoding messages instead of translation keys**: For i18n support, store translation keys like `'notifications:exportReady'` instead of plain text.
+
+**Forgetting expiration for time-sensitive alerts**: Default expiration is 1 month. Set a shorter `expires_at` for flash sales, limited-time offers, or ephemeral events.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Can I send notifications from client-side code?", "answer": "No. Only the service_role can insert into the notifications table. Use Server Actions, API routes, or background jobs with getSupabaseServerAdminClient() to create notifications."},
+     {"question": "How do I send notifications to all team members?", "answer": "Pass the team account ID (not individual user IDs) as the account_id. RLS policies automatically make the notification visible to all users with a role on that team account."},
+     {"question": "Do notifications count toward Supabase database limits?", "answer": "Yes, notifications are stored in a regular Postgres table and count toward your database storage. Real-time subscriptions also count toward your concurrent connection limits (200 on free tier, 500 on Pro)."},
+     {"question": "How do I delete old notifications?", "answer": "Expired notifications are automatically filtered from queries but remain in the database. Create a cleanup function using pg_cron or a scheduled Edge Function to delete notifications where expires_at < now()."},
+     {"question": "Can users edit or delete their own notifications?", "answer": "Users can only dismiss notifications (set dismissed to true). A database trigger prevents any other field updates. Deletion requires service_role access."}
+   ]
+/%}
+
+## Documentation
+
+- [**Configuration**](/docs/next-supabase-turbo/notifications/notifications-configuration): Environment variables and feature flags
+- [**Sending Notifications**](/docs/next-supabase-turbo/notifications/sending-notifications): Server-side API with examples
+- [**UI Components**](/docs/next-supabase-turbo/notifications/notifications-components): NotificationsPopover and custom implementations
+- [**Database Schema**](/docs/next-supabase-turbo/notifications/notifications-schema): Table structure, RLS policies, and indexes

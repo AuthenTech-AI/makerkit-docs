@@ -3,45 +3,182 @@ status: "published"
 title: "Configuring Storage in Supamode"
 label: "Storage"
 order: 6
-description: "Learn how to configure the storage of your files in Supamode and how to use it in your application."
+description: "Configure file uploads for your database columns. Connect columns to Supabase Storage buckets with custom path templates, file size limits, and replacement options."
 ---
 
-Supamode integrates with Supabase's storage to provide a seamless experience for your users.
+Supamode integrates with Supabase Storage to handle file uploads directly from the Data Explorer. When you configure a column as a file type, Supamode automatically handles uploads, generates paths, and stores references in your database.
 
-## Configuring Storage Data Types
+## How Storage Integration Works
 
-In the previous section, we saw how to configure the data types of the columns in your tables. Whenever you configure a data type that is a file, image, audio, or video, Supamode will automatically connect the column to Supabase's storage, so that it will insert it into the storage bucket that you have configured.
+1. You configure a column as a file type (image, file, audio, video)
+2. When editing a record, Supamode shows a file uploader instead of a text input
+3. On upload, the file goes to your configured Supabase Storage bucket
+4. The file path (URL or reference) is stored in the database column
 
-{% img src="/images/supamode/storage-file-configuration.webp" alt="Storage Data Types" width="1450" height="1800" /%}
+This lets your team upload files through the admin UI without building custom upload flows.
 
-## Bucket Name
+## Configuring Storage for a Column
 
-The first thing you need to do is to configure the bucket name in which you want to store the files. This depends on the bucket name that you have configured in Supabase and must be set up in Supabase before you can use it in Supamode.
+Navigate to **Settings > Tables**, select a table, then click on a column to edit its settings.
 
-## Storage Path Template
+{% img src="/images/supamode/storage-file-configuration.webp" alt="Storage configuration panel showing bucket, path template, and size options" width="1450" height="1800" /%}
 
-The storage path template is the path in which the files will be stored in the storage bucket. It is a template that will be replaced with the actual data when the file is inserted.
+### UI Data Type
 
-You can build a dynamic path template by using the following variables:
+Set the column's **UI Data Type** to one of:
 
-- `{{timestamp}}`: The current timestamp
-- `{{filename}}`: The filename of the file
-- `{{extension}}`: The extension of the file
+| Type | Use Case | Preview in Data Explorer |
+|------|----------|-------------------------|
+| **File** | Documents, PDFs, any file | File name with download link |
+| **Image** | Photos, graphics | Thumbnail preview |
+| **Audio** | Music, podcasts | Audio player |
+| **Video** | Videos, recordings | Video player |
 
-In addition, you can use any column name from the table to build the path template. For example, if you have a column called `user_id` and you want to store the files in the `users/{{user_id}}` folder, you can set the storage path template to `users/{{user_id}}`.
+Once set, the column configuration expands to show storage options.
 
-**Important**: if the template doesn't provide an extension in the template, it's assumed the path is a folder and therefore the original filename will be used.
+### Bucket Name
 
-For maximum flexibility, always specify filename and extension in the template:
+The **Bucket Name** must match an existing bucket in your Supabase Storage.
+
+**Prerequisites:**
+1. Create the bucket in Supabase Dashboard > Storage
+2. Configure the bucket's privacy settings (public/private)
+3. Set up RLS policies if the bucket is private
+4. Enter the exact bucket name in Supamode
 
 ```
+avatars
+documents
+media
+uploads
+```
+
+{% alert type="warning" title="Bucket Must Exist" %}
+Supamode does not create buckets. If the bucket doesn't exist in Supabase Storage, uploads will fail. Create buckets before configuring storage columns.
+{% /alert %}
+
+### Storage Path Template
+
+The **Storage Path Template** determines where files are stored within the bucket. Use placeholders to create dynamic paths.
+
+**Available placeholders:**
+
+| Placeholder | Value | Example Output |
+|-------------|-------|----------------|
+| `{{timestamp}}` | Unix timestamp | `1705689600` |
+| `{{filename}}` | Original filename (without extension) | `profile-photo` |
+| `{{extension}}` | File extension | `png` |
+| `{{column_name}}` | Value from another column | `user-123` |
+
+**Example templates:**
+
+```
+# Simple - files in root with timestamp
+{{timestamp}}-{{filename}}.{{extension}}
+→ 1705689600-profile-photo.png
+
+# Organized by user ID column
 users/{{user_id}}/{{filename}}.{{extension}}
+→ users/abc-123/profile-photo.png
+
+# By date and type
+uploads/{{timestamp}}/{{filename}}.{{extension}}
+→ uploads/1705689600/document.pdf
+
+# Custom folder structure
+avatars/{{user_id}}/avatar.{{extension}}
+→ avatars/abc-123/avatar.webp
 ```
+
+**Path rules:**
+- If the template doesn't include `{{extension}}`, Supamode treats the path as a folder and appends the original filename
+- Use column references (`{{column_name}}`) for values from the same record
+- Paths are case-sensitive
 
 ### Max File Size
 
-This is a client-side only check that will prevent the user from uploading a file that is larger than the configured max file size. The same setting must be configured in Supabase's storage settings to also validate the file size on the server-side.
+The **Max File Size** sets a client-side limit on upload size (in bytes).
+
+| Size | Bytes |
+|------|-------|
+| 1 MB | 1048576 |
+| 5 MB | 5242880 |
+| 10 MB | 10485760 |
+| 50 MB | 52428800 |
+
+{% alert type="default" title="Also Configure in Supabase" %}
+This is a client-side check only. Configure the same limit in your Supabase Storage bucket settings (Settings > Upload file size limit) for server-side enforcement.
+{% /alert %}
 
 ### Replace Existing Files
 
-When enabled, the file will be replaced if it already exists in the storage bucket.
+When **Replace Existing Files** is enabled, uploading a new file to the same path overwrites the previous file.
+
+**When to enable:**
+- User avatars (one file per user)
+- Document that should always be the latest version
+- Paths that are deterministic (like `avatars/{{user_id}}/avatar.{{extension}}`)
+
+**When to disable:**
+- Upload history should be preserved
+- Multiple files per record are expected
+- Paths include timestamps (files are unique anyway)
+
+## Storage Permissions
+
+Users need storage permissions to upload, view, or delete files. Configure these in [Roles and Permissions](./permissions).
+
+**Required permissions by action:**
+
+| Action | Permission Needed |
+|--------|-------------------|
+| View/download files | `select` on the storage bucket |
+| Upload new files | `insert` on the storage bucket |
+| Replace files | `update` on the storage bucket |
+| Delete files | `delete` on the storage bucket |
+
+**Example permission:**
+```
+Type: Data
+Scope: Storage
+Bucket: avatars
+Path: users/*
+Action: * (all operations)
+```
+
+## Troubleshooting
+
+### Upload Fails with "Bucket Not Found"
+
+1. Verify the bucket exists in Supabase Dashboard > Storage
+2. Check the bucket name matches exactly (case-sensitive)
+3. Ensure the bucket is not disabled
+
+### Upload Fails with "Permission Denied"
+
+1. Check the user's role has storage permissions for this bucket
+2. Verify the bucket's RLS policies allow uploads
+3. For public buckets, confirm public access is enabled
+
+### Files Not Displaying
+
+1. Verify the column contains a valid storage path/URL
+2. Check the bucket's privacy settings
+3. For private buckets, ensure signed URLs are being generated
+
+### Path Template Not Working
+
+1. Check placeholder syntax: `{{column_name}}` not `{column_name}`
+2. Verify referenced columns exist in the same table
+3. Ensure the column value is not null when uploading
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Can I use storage with private buckets?", "answer": "Yes. Supamode generates signed URLs for private bucket files when displaying them in the Data Explorer. Users still need appropriate storage permissions."},
+     {"question": "What happens to old files when I upload a replacement?", "answer": "If Replace Existing Files is enabled, the old file is deleted. If disabled, the upload fails if a file already exists at that path. There's no automatic versioning."},
+     {"question": "Can a column reference files from multiple buckets?", "answer": "No. Each storage-configured column is linked to one bucket. If you need multiple buckets, use separate columns."},
+     {"question": "How do I delete files when deleting records?", "answer": "Supamode does not automatically delete storage files when records are deleted. Implement cleanup via database triggers or a scheduled job if needed."},
+     {"question": "What file types are allowed?", "answer": "Supamode allows any file type that your Supabase Storage bucket accepts. Configure allowed MIME types in your bucket settings if you need restrictions."}
+   ]
+/%}

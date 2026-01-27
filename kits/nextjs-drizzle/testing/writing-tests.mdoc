@@ -1,0 +1,452 @@
+---
+status: published
+title: Writing Tests for Your MakerKit Application
+label: Writing Tests
+order: 3
+description: "Best practices for writing E2E and unit tests in MakerKit. Learn the Page Object pattern, bootstrap helpers, Vitest mocking, and test data management."
+---
+
+This guide covers patterns and best practices for writing tests in your MakerKit Next.js application. Learn the Page Object pattern for Playwright, Vitest mocking with `vi.hoisted()`, bootstrap helpers for fast test setup, and testing conventions used throughout the codebase.
+
+Before reading this guide, familiarize yourself with [E2E testing with Playwright](./e2e) and [unit testing with Vitest](./unit) basics.
+
+## E2E Test Patterns
+
+### Creating a Page Object
+
+Every feature should have a Page Object that encapsulates selectors and actions.
+
+The examples below use a hypothetical "projects" feature. Adapt these patterns to your actual features:
+
+```typescript title="apps/e2e/tests/projects/projects.po.ts"
+import { type Page, expect } from '@playwright/test';
+
+export class ProjectsPageObject {
+  constructor(private readonly page: Page) {}
+
+  async goToProjects() {
+    await this.page.goto('/home/projects');
+  }
+
+  async createProject(params: { name: string; description?: string }) {
+    await this.page.getByTestId('create-project-button').click();
+    await this.page.getByTestId('project-name-input').fill(params.name);
+
+    if (params.description) {
+      await this.page
+        .getByTestId('project-description-input')
+        .fill(params.description);
+    }
+
+    await this.page.getByTestId('submit-project-button').click();
+  }
+
+  async expectProjectVisible(name: string) {
+    await expect(this.page.getByText(name)).toBeVisible();
+  }
+
+  async expectProjectCount(count: number) {
+    const projects = this.page.getByTestId('project-item');
+    await expect(projects).toHaveCount(count);
+  }
+}
+```
+
+### Writing Spec Files
+
+Organize tests by user story:
+
+```typescript title="apps/e2e/tests/projects/projects.spec.ts"
+import { expect, test } from '@playwright/test';
+
+import { bootstrapUserWithOrg } from '../utils/bootstrap-helpers';
+import { ProjectsPageObject } from './projects.po';
+
+test.describe('Project Management', () => {
+  let projects: ProjectsPageObject;
+
+  test.beforeEach(async ({ page }) => {
+    projects = new ProjectsPageObject(page);
+  });
+
+  test.describe('Creating Projects', () => {
+    test('should create a project with name and description', async ({
+      page,
+    }) => {
+      const { org } = await bootstrapUserWithOrg(page);
+
+      await projects.goToProjects();
+      await projects.createProject({
+        name: 'My First Project',
+        description: 'A test project',
+      });
+
+      await projects.expectProjectVisible('My First Project');
+    });
+
+    test('should show validation error for empty name', async ({ page }) => {
+      await bootstrapUserWithOrg(page);
+      await projects.goToProjects();
+
+      await page.getByTestId('create-project-button').click();
+      await page.getByTestId('submit-project-button').click();
+
+      await expect(page.getByTestId('project-name-error')).toBeVisible();
+    });
+  });
+
+  test.describe('Project Permissions', () => {
+    test('member cannot delete project', async ({ page }) => {
+      // Use bootstrapOrgMember to log in as a regular member
+      const { bootstrapOrgMember } = await import(
+        '../utils/bootstrap-helpers'
+      );
+      const { org } = await bootstrapOrgMember(page);
+
+      await projects.goToProjects();
+
+      // Delete button should not be visible for members
+      await expect(
+        page.getByTestId('delete-project-button')
+      ).not.toBeVisible();
+    });
+  });
+});
+```
+
+### Using Test IDs
+
+Add `data-testid` attributes to components for reliable selection:
+
+```tsx title="apps/web/app/home/[account]/projects/_components/create-project-button.tsx"
+export function CreateProjectButton() {
+  return (
+    <Button data-testid="create-project-button" onClick={handleClick}>
+      Create Project
+    </Button>
+  );
+}
+```
+
+**Conventions:**
+- Use kebab-case: `data-testid="create-project-button"`
+- Be specific: `data-testid="project-name-input"` not `data-testid="input"`
+- Include context: `data-testid="project-card-title"` not just `data-testid="title"`
+
+### Testing Email Flows
+
+MakerKit uses Mailpit for capturing emails in tests. The Mailbox helper fetches verification links:
+
+```typescript
+import { Mailbox } from '../mailbox.po';
+
+test('should verify email address', async ({ page }) => {
+  const mailbox = new Mailbox(page);
+  const email = 'test@makerkit.dev';
+
+  // Trigger email (e.g., sign up)
+  await auth.signUp({ email, password: 'Password123!' });
+
+  // Visit the verification link from the email
+  await expect(async () => {
+    const result = await mailbox.visitMailbox(email, {
+      deleteAfter: true,
+    });
+    expect(result).not.toBeNull();
+  }).toPass({ timeout: 10_000 });
+});
+```
+
+### Handling Authentication in Tests
+
+Three approaches depending on your needs:
+
+**1. Bootstrap helper (fastest, no UI):**
+```typescript
+test('authenticated user flow', async ({ page }) => {
+  const { user } = await bootstrapAuthenticatedUser(page);
+  // User is logged in, ready to test
+});
+```
+
+**2. API login (when you need UI-created user):**
+```typescript
+test('login via API', async ({ page }) => {
+  const auth = new AuthPageObject(page);
+  await auth.loginAsUser({
+    email: 'existing@example.com',
+    password: 'Password123!',
+  });
+});
+```
+
+**3. Full UI flow (when testing auth itself):**
+```typescript
+test('sign in flow', async ({ page }) => {
+  const auth = new AuthPageObject(page);
+  await auth.goToSignIn();
+  await auth.signIn({ email, password });
+  await auth.expectToBeSignedIn();
+});
+```
+
+## Unit Test Patterns
+
+### Testing Pure Functions
+
+```typescript title="packages/shared/src/__tests__/utils.test.ts"
+import { describe, expect, it } from 'vitest';
+import { formatCurrency, slugify } from '../utils';
+
+describe('formatCurrency', () => {
+  it('should format USD amounts', () => {
+    expect(formatCurrency(1000, 'USD')).toBe('$10.00');
+  });
+
+  it('should handle zero', () => {
+    expect(formatCurrency(0, 'USD')).toBe('$0.00');
+  });
+});
+
+describe('slugify', () => {
+  it('should convert spaces to hyphens', () => {
+    expect(slugify('Hello World')).toBe('hello-world');
+  });
+
+  it('should remove special characters', () => {
+    expect(slugify('Hello! World?')).toBe('hello-world');
+  });
+});
+```
+
+### Testing Services with Dependencies
+
+MakerKit services use factory functions with dependency injection. Mock external dependencies at the module level using `vi.mock` and `vi.hoisted`:
+
+```typescript title="packages/organization/core/src/services/__tests__/memberships.service.test.ts"
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { createMembershipsService } from '../memberships.service';
+
+// Hoist mock functions so they're available before module mocking
+const {
+  mockListMembers,
+  mockGetActiveMemberRole,
+  mockUpdateMemberRole,
+} = vi.hoisted(() => ({
+  mockListMembers: vi.fn(),
+  mockGetActiveMemberRole: vi.fn(),
+  mockUpdateMemberRole: vi.fn(),
+}));
+
+// Mock the auth module that the service depends on
+vi.mock('@kit/better-auth', () => ({
+  auth: {
+    api: {
+      listMembers: mockListMembers,
+      getActiveMemberRole: mockGetActiveMemberRole,
+      updateMemberRole: mockUpdateMemberRole,
+    },
+  },
+}));
+
+vi.mock('next/headers', () => ({
+  headers: vi.fn(() => Promise.resolve(new Headers())),
+}));
+
+describe('MembershipsService', () => {
+  let service: ReturnType<typeof createMembershipsService>;
+
+  beforeEach(() => {
+    service = createMembershipsService();
+    vi.clearAllMocks();
+    mockGetActiveMemberRole.mockResolvedValue({ role: 'owner' });
+    mockUpdateMemberRole.mockResolvedValue({ success: true });
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('updates member role when allowed', async () => {
+    mockListMembers.mockResolvedValue({
+      members: [
+        { id: 'member-1', userId: 'user-2', role: 'admin' },
+      ],
+    });
+
+    await expect(
+      service.updateMemberRole({
+        userId: 'user-1',
+        organizationId: 'org-1',
+        memberId: 'member-1',
+        newRole: 'member',
+      })
+    ).resolves.toEqual({ success: true });
+
+    expect(mockUpdateMemberRole).toHaveBeenCalled();
+  });
+
+  it('rejects when member is missing', async () => {
+    mockListMembers.mockResolvedValue({ members: [] });
+
+    await expect(
+      service.updateMemberRole({
+        userId: 'user-1',
+        organizationId: 'org-1',
+        memberId: 'member-1',
+        newRole: 'member',
+      })
+    ).rejects.toThrow('Member not found');
+
+    expect(mockUpdateMemberRole).not.toHaveBeenCalled();
+  });
+});
+```
+
+**Key patterns:**
+
+1. **`vi.hoisted()`** - Defines mock functions before module mocking executes
+2. **Factory functions** - Services like `createMembershipsService()` enable clean test isolation
+3. **Module mocking** - Mock external dependencies (`@kit/better-auth`, `next/headers`) at the module level
+4. **Clear mocks** - Reset state in `beforeEach`/`afterEach` to prevent test pollution
+
+Depending on your service's imports, you may need additional mocks for `@kit/better-auth/errors`, `@kit/shared/logger`, or other dependencies. Check the actual service file to identify all imports that need mocking.
+
+### Testing Zod Schemas
+
+```typescript title="packages/organization/core/src/schemas/__tests__/invitation.schema.test.ts"
+import { describe, expect, it } from 'vitest';
+import { createInvitationSchema } from '../invitation.schema';
+
+describe('createInvitationSchema', () => {
+  it('should accept valid invitation', () => {
+    const result = createInvitationSchema.safeParse({
+      email: 'test@example.com',
+      role: 'member',
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it('should reject invalid email', () => {
+    const result = createInvitationSchema.safeParse({
+      email: 'not-an-email',
+      role: 'member',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error?.issues[0]?.path).toContain('email');
+  });
+
+  it('should reject invalid role', () => {
+    const result = createInvitationSchema.safeParse({
+      email: 'test@example.com',
+      role: 'superadmin', // Not a valid role
+    });
+
+    expect(result.success).toBe(false);
+  });
+});
+```
+
+## Common Patterns
+
+### Polling Assertions
+
+When waiting for async operations:
+
+```typescript
+// Bad: Single check that might fail due to timing
+const element = page.getByTestId('success-message');
+await expect(element).toBeVisible();
+
+// Good: Polls until condition is met or timeout
+await expect(async () => {
+  const element = page.getByTestId('success-message');
+  await expect(element).toBeVisible();
+}).toPass({ timeout: 5_000 });
+```
+
+### Test Isolation
+
+Each test should create its own data:
+
+```typescript
+// Bad: Tests depend on shared state
+test('test 1', async ({ page }) => {
+  await createProject('Shared Project');
+});
+
+test('test 2', async ({ page }) => {
+  // Fails if test 1 didn't run
+  await editProject('Shared Project');
+});
+
+// Good: Each test is independent
+test('test 1', async ({ page }) => {
+  const { org } = await bootstrapUserWithOrg(page);
+  await createProject('Project A');
+  // ...
+});
+
+test('test 2', async ({ page }) => {
+  const { org } = await bootstrapUserWithOrg(page);
+  await createProject('Project B');
+  // ...
+});
+```
+
+### Descriptive Test Names
+
+```typescript
+// Bad: Vague names
+test('should work', async () => {});
+test('handles error', async () => {});
+
+// Good: Describes behavior
+test('should display validation error when email is invalid', async () => {});
+test('should redirect to dashboard after successful sign in', async () => {});
+test('owner should see delete button, member should not', async () => {});
+```
+
+## Adding Tests for New Features
+
+1. **Create the Page Object** in `apps/e2e/tests/[feature]/[feature].po.ts`
+2. **Add test IDs** to your React components
+3. **Write specs** in `apps/e2e/tests/[feature]/[feature].spec.ts`
+4. **Add unit tests** in `packages/[package]/src/__tests__/`
+5. **Run locally** before pushing:
+   ```bash
+   pnpm --filter web-e2e exec playwright test [feature] --workers=1
+   pnpm --filter @kit/[package] test:unit
+   ```
+
+## Checklist
+
+Before marking a feature complete:
+
+- [ ] Critical user flows have E2E tests
+- [ ] Page Objects encapsulate selectors
+- [ ] Test IDs added to interactive elements
+- [ ] Business logic has unit tests
+- [ ] Tests pass locally with `--workers=1`
+- [ ] No `test.only` left in code
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "What is the Page Object pattern in Playwright?", "answer": "The Page Object pattern encapsulates page selectors and actions into reusable classes. This keeps tests readable and maintainable by separating 'what to test' from 'how to interact with the UI'."},
+     {"question": "Why use data-testid attributes instead of CSS selectors?", "answer": "Test IDs are stable identifiers that don't break when you refactor CSS classes or HTML structure. Use data-testid for interactive elements that tests need to locate reliably."},
+     {"question": "How do I test different user roles in E2E tests?", "answer": "Use different bootstrap helpers: bootstrapAuthenticatedUser for basic users, bootstrapOrgWithMembers for owners, and bootstrapOrgMember for regular team members. Each helper logs in as the appropriate role."},
+     {"question": "Should each E2E test create its own data?", "answer": "Yes. Each test should be independent and create its own users, organizations, and data using bootstrap helpers. This prevents tests from affecting each other and eliminates flakiness from shared state."},
+     {"question": "How do I use vi.hoisted() for mocking in Vitest?", "answer": "vi.hoisted() defines mock functions before module mocking executes, solving hoisting issues. Define mocks with vi.hoisted(), then reference them in vi.mock() calls. This pattern is required for mocking modules that services depend on."},
+     {"question": "When should I use polling assertions in Playwright?", "answer": "Use expect().toPass() when waiting for async operations like API responses, emails arriving in Mailpit, or UI updates after form submissions. This retries the assertion until it passes or times out."}
+   ]
+/%}
+
+## Related
+
+- [E2E Testing with Playwright](./e2e)
+- [Unit Testing with Vitest](./unit)
+- [Testing Overview](./overview)

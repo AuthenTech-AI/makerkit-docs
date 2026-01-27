@@ -1,0 +1,809 @@
+---
+title: "Next.js Course: How to create a new Next.js project"
+label: "Creating a Next.js project"
+description: "Learn how to create a new Next.js project with Supabase and Shadcn UI. We set up everything we need to start building our SaaS."
+order: 2
+---
+
+In this lesson, we learn how to create a new Next.js project with Supabase and Shadcn UI. We will set up everything we need to start building our SaaS - and can be used as a starting point for your own projects as well.
+
+The prerequisites for this tutorial are:
+
+1. **Node.js** installed on your machine
+2. **Docker** installed on your machine (needed for Supabase and Stripe CLI)
+3. Any **IDE or Editor** such as VSCode, Webstorm, Sublime, etc.
+4. **Enthusiasm** for building a SaaS application with Next.js and Supabase! 🎉
+
+## Creating a new Next.js project
+
+Let's start by creating a new Next.js project. Using your terminal of choice, run the following command:
+
+```bash
+npx create-next-app@canary next-supabase-openai --typescript --tailwind --eslint
+```
+
+NB: we use the `canary` build of Next.js to get access to the latest features. If you want to use the stable version, replace `canary` with `latest`.
+
+The Next.js CLI will ask you several questions - you can answer them however you'd like. For this tutorial, I chose the following options:
+
+```bash
+✔ What is your project named? next-course-playground
+✔ Would you like to use TypeScript with this project? Yes
+✔ Would you like to use ESLint with this project? Yes
+✔ Would you like to use `src/` directory with this project? No
+✔ ? Would you like to use App Router? (recommended) › Yes
+✔ What import alias would you like configured? @/*
+```
+
+The import alias `@/*` is a shorthand for `src/*` or `app/*` depending on the option you chose. This is useful to import files from the root of your project without having to use relative paths. 
+
+{% alert type="warning" %}
+If you choose a different import alias, make sure to update the import paths in the code snippets in this tutorial.
+{% /alert %}
+
+Once the project is created, you can open it in your code editor of choice. I'll be using VSCode for this tutorial.
+
+Now, navigate to the project directory:
+
+```
+cd next-supabase-openai
+```
+
+### Installing the UI Library Shadn UI
+
+Next, let's import the great Shadcn UI library, a set of components built with Radix and Tailwind CSS, which we use to build our UI. Run the following command:
+
+```bash
+npx shadcn-ui@latest init
+```
+
+When prompted about the configuration, I chose the following options:
+
+```bash
+✔ Which style would you like to use? › Default
+✔ Which color would you like to use as base color? › Slate
+✔ Where is your global CSS file? app/globals.css
+✔ Do you want to use CSS variables for colors? yes
+✔ Where is your tailwind.config.js located? tailwind.config.js
+✔ Configure the import alias for components: @/components
+✔ Configure the import alias for utils: @/lib/utils
+✔ Are you using React Server Components? yes
+✔ Write configuration to components.json. Proceed? yes
+```
+
+To learn more about ShadcnUI, [visit the website](https://ui.shadcn.com).
+
+### Running the Next.js development server
+
+Once the project is created, you can open it in your code editor of choice. I'll be using VSCode for this tutorial.
+
+You can run the following command to run the dev server:
+
+```tsx
+npm run dev
+```
+
+By visiting [http://localhost:3000](http://localhost:3000), you should see the home page with the initial Next.js content and Tailwind CSS styles.
+
+**We will clear this content and add our own in the next steps**.
+
+### Environment Variables: a quick introduction
+
+Next.js supports environment variables out of the box.
+
+There are 4 types of environment variables:
+
+1. `.env`: this file contains the **default** variables that are loaded in all environments. This file is usually committed to your version control system, so **do not store any secret keys in this file**.
+2. `.env.local`: this file contains the variables that are loaded in your local development environment. This file **should not be** committed to your version control system. This is a good place to store your API keys locally, for example, so you can use them in your development environment, **but never commit them to your version control system**.
+3. `.env.development`: this file contains the variables that are loaded in your **development environment**. Next.js will only read from this file when you run `npm run dev`.
+4. `.env.production`: this file contains the variables that are loaded in your **production environment**. Next.js will only read from this file when you run `npm run build && npm run start`.
+5. `.env.test`: this file contains the variables that are loaded in your **test environment**. Next.js will only read from this file when you run `npm run test`.
+
+We will be adding environment variables in the next steps.
+
+#### ⚠️ A word about environment variables for secret keys
+
+Environment variables are a great way to store secret keys, such as API keys. However, you should **never commit these keys to your version control system**. Instead, you should store them in a `.env.local` file, which is ignored by your version control system - so you can use them in your local development environment, but they will never be committed to your version control system.
+
+When you deploy your application to production, you can use the **environment variables of your hosting provider** to store your secret keys. For example, Vercel allows you to store environment variables in the dashboard of your project.
+
+An example of a secret key is the Supabase Service Role Key or the Stripe secret key. We will be using these keys in the next steps. While we can use them locally in our `.env.local` file, we will not commit them to our version control system.
+
+## Creating a Supabase project
+
+Now that Next.js is set up, let's create a new Supabase project. Supabase uses Docker for local development, so make sure you have Docker installed on your machine before continuing.
+
+### Installing Supabase packages
+
+First, we want to install the Supabase Javascript packages in our project. Run the following command:
+
+```bash
+npm i supabase @supabase/supabase-js @supabase/ssr encoding
+```
+
+The command above installed 3 packages:
+
+1. `supabase`: the Supabase CLI
+2. `@supabase/supabase-js`: the Supabase Javascript client
+3. `@supabase/ssr`: the Supabase SSR authentication helpers
+4. The `encoding` package is needed and will display a warning if not installed - so we install it as well.
+
+### Initializing a new Supabase Project
+
+Next, we want to create a new Supabase project. Let's run the following command to initialize a new Supabase project:
+
+```bash
+supabase init
+```
+
+If `supabase` is not recognized as a command in your terminal, call the `CLI` using the binary at `node_modules/.bin/supabase`:
+
+```bash
+./node_modules/.bin/supabase init
+```
+
+Alternatively, add the following script to your `package.json` file:
+
+```json
+{
+  "scripts": {
+    "supabase": "supabase"
+  }
+}
+```
+
+Now you can run the commands using:
+
+```
+npm run supabase -- <command>
+```
+---
+
+Assuming the command is successful, you should see a new folder called `supabase` in your project. You can configure your Supabase project using the file `supabase/config.toml`.
+
+#### Enabling email confirmations
+
+Open the file `supabase/config.toml` and update the following configuration:
+
+```toml
+enable_confirmations = true
+```
+
+This will enable email confirmations for new users. This is required - since the new PKCE flow in Supabase still does not support email confirmations, we need to enable this manually.
+
+If anyone at Supabase is reading this, please fix this. :)
+
+{% alert type="warning" %}
+Please make sure not to miss this step, otherwise, your users will not be able to sign up. Not sure why, but Supabase does not enable this by default.
+{% /alert %}
+
+### Starting the Supabase Docker container
+
+Let's add a few **useful commands that we can use to start and stop our Supabase Docker container**.
+
+Open the file `package.json` and add the following scripts in addition to the existing ones:
+
+```json
+{
+  "scripts": {
+    "supabase:start": "supabase start",
+    "supabase:stop": "supabase stop",
+    "supabase:db:reset": "supabase db reset",
+    "typegen": "supabase gen types typescript --local > database.types.ts"
+  }
+}
+```
+
+Let's explain what each command does:
+
+#### Starting the Supabase Docker container
+
+To start the Supabase Docker container, run the following command:
+
+```bash
+npm run supabase:start
+```
+
+#### Stopping the Supabase Docker container
+
+To stop the Supabase Docker container, run the following command:
+
+```bash
+npm run supabase:stop
+```
+
+#### Resetting the Supabase database
+
+To reset the Supabase database, run the following command:
+
+```bash
+npm run supabase:db:reset
+```
+
+This can be useful when you make changes to your database schema and want to reset the database to its initial state.
+
+#### Generating TypeScript types
+
+To generate TypeScript types for your Supabase database, run the following command:
+
+```bash
+npm run typegen
+```
+
+This command will generate a file called `database.types.ts` in the root folder. This file contains all **the types of your database tables and columns**. We will use this file in the next steps when creating the Supabase client SDK so that we can use TypeScript types in our code when interacting with the database.
+
+We can import the types in our code using the following import statement:
+
+```ts
+import Database from '@/database.types';
+```
+
+## Setting up Supabase
+
+If you have tried the commands and it's all working, let's keep going.
+
+**Make sure Docker is running** before continuing using the `npm run supabase:start` command. Remember: **This requires Docker up and running**. We cannot run the Supabase Docker container without Docker.
+
+If you have run the `npm run supabase:start` command, you should see an output similar to the one below - containing some URLs and the API Keys that we need to interact with our Supabase project.
+
+```bash
+> supabase start
+
+Seeding data supabase/seed.sql...
+Started supabase local development setup.
+
+         API URL: http://localhost:54321
+     GraphQL URL: http://localhost:54321/graphql/v1
+          DB URL: postgresql://postgres:postgres@localhost:54322/postgres
+      Studio URL: http://localhost:54323
+    Inbucket URL: http://localhost:54324
+      JWT secret: super-secret-jwt-token-with-at-least-32-characters-long
+        anon key: **************************************************************
+service_role key: **************************************************************
+```
+
+To visit the **Supabase Studio**, you can visit [http://localhost:54323](http://localhost:54323).
+
+### Adding the Supabase environment variables
+
+Now, create the following environment variables file `.env.development` and add the Supabase keys:
+
+You will set the following environment variables:
+1. `NEXT_PUBLIC_SUPABASE_URL`: the Supabase API URL
+2. `NEXT_PUBLIC_SUPABASE_ANON_KEY`: the Supabase Anonymous Key (`anon key`)
+3. `SUPABASE_SERVICE_ROLE_KEY`: the Supabase Service Role Key (`service_role key`)
+
+```bash {% title=".env.development" %}
+NEXT_PUBLIC_SUPABASE_URL=http://localhost:54321
+NEXT_PUBLIC_SUPABASE_ANON_KEY=**************************************************************
+SUPABASE_SERVICE_ROLE_KEY=**************************************************************
+```
+
+NB: Make sure to replace the keys with the key that you see in your terminal.
+
+Since both the API URL and the Anonymous Key **are public keys**, we can add them to the client-side environment variables. However, the **Service Role Key is private and should not be exposed to the client**. The service role key is going to be used to create an admin client that can perform operations that are not allowed for anonymous users.
+
+## Next.js App Setup
+
+Now that we have our Next.js project and our Supabase project set up, let's start building our application.
+
+In this section, we want to add some fundamental parts of our application:
+
+- **The home page**, so we can get past the default Next.js home page and see our application in action
+- **Global error pages** -  errors happen, and we must handle them gracefully. We will create a 404 page and an error page, so that Next.js can render them when needed.
+- **A global loading indicator** - we will create a global loading indicator that we can use to show the user that something is happening in the background.
+
+### Installing ShadCN UI components
+
+To create the home page, we will use our first ShadCN UI component: the `Button` component. Let's install the ShadCN UI components:
+
+```
+npx shadcn-ui@latest add button
+```
+
+The CLI will insert the components at `components/ui`. We will use the folder `@/components/ui` to store all the ShadCN UI components that we will use in our application.
+
+What about the other components? We will install the rest of the components as we need them.
+
+### Updating the root layout
+
+Next, let's update the root layout of our application. Open the file `app/layout.tsx` and replace the content with the following:
+
+```tsx {% title="app/layout.tsx" %}
+import './globals.css';
+import { Inter } from 'next/font/google';
+
+const inter = Inter({ subsets: ['latin'] });
+
+export const runtime = 'edge';
+
+// this is needed to force dynamic runtime
+export const dynamic = 'force-dynamic';
+
+export const metadata = {
+  title: 'Smart Blogging Assistant - Your powerful content assistant',
+  description: 'Smart Blogging Assistant is a tool that helps you write better content, faster. Use AI to generate blog post outlines, write blog posts, and more. Start for free, upgrade when you\'re ready.'
+};
+
+export const viewport = {
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: 'white' },
+    { media: '(prefers-color-scheme: dark)', color: 'black' },
+  ],
+};
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <html lang="en">
+      <body className={`${inter.className} min-h-screen bg-background`}>
+        {children}
+      </body>
+    </html>
+  )
+}
+```
+
+1. **Font**: In the above, we're using the `Inter` font from Google Fonts that we can easily apply using the `next/font` package.
+2. **Root Metadata**: We add some metadata at the root level so that every page will use the same metadata unless it's specifically provided. We're also setting the `themeColor` to `white` when the user prefers the light theme and `black` when the user prefers the dark theme. This will be used by the browser to set the color of the address bar.
+3. **Tailwind classes**: Finally, we apply some boilerplate CSS to the `body` element using Tailwind CSS.
+4. **Edge runtime**: We're also setting the `runtime` to `edge` to use the edge runtime. This will make our application faster using the hyper-fast edge runtime using Cloudflare Workers.
+
+
+### Updating the home page
+
+Let's start by updating the home page.
+
+Open the file `app/page.tsx` and replace the content with the following:
+
+```tsx {% title="app/page.tsx" %}
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+
+export default function Home() {
+  return (
+    <div className='container'>
+      <div className='flex flex-col space-y-14'>
+        <header className='flex items-center justify-between py-4 border-b border-gray-100 dark:border-slate-800'>
+          <Link href='/'>
+            <b>Smart Blogging Assistant</b>
+          </Link>
+
+          <div>
+            <Button>
+              <Link href='/auth/sign-in'>
+                Sign In
+              </Link>
+            </Button>
+          </div>
+        </header>
+
+        <div className='flex flex-col space-y-8'>
+          <div className='flex justify-center'>
+            <span className='py-2 px-4 rounded-full shadow dark:shadow-gray-500 text-sm'>
+              Write better, faster. Start for free.
+            </span>
+          </div>
+
+          <h1 className='text-4xl lg:text-6xl 2xl:text-7xl font-semibold text-center max-w-4xl mx-auto'>
+            The Smart Blogging Assistant for Content Creators
+          </h1>
+
+          <h2 className='text-center text-lg xl:text-2xl text-gray-400  font-light'>
+            <p>
+              Smart Blogging Assistant is a tool that helps you write better content, faster.
+            </p>
+
+            <p>
+              Use AI to generate blog post outlines, write blog posts, and more.
+            </p>
+
+            <p>
+              Start for free, upgrade when you&apos;re ready.
+            </p>
+          </h2>
+        </div>
+
+        <div className='flex flex-col space-y-3'>
+          <div className='flex space-x-2 justify-center'>
+            <Button>
+              <Link href='/auth/sign-up'>
+                Create an Account
+              </Link>
+            </Button>
+
+            <Button variant={'ghost'}>
+              <Link href='/auth/sign-in'>
+                Sign In
+              </Link>
+            </Button>
+          </div>
+
+          <p className='text-center text-xs text-gray-400'>
+            Start for free, no credit card required.
+          </p>
+        </div>
+
+        <hr className='border-gray-100 dark:border-slate-800' />
+
+        <div className='flex flex-col space-y-12'>
+          <div className='flex flex-col space-y-2'>
+            <h2 className='text-2xl font-semibold text-center'>
+              The best AI writing assistant for content creators
+            </h2>
+
+            <h3 className='text-lg text-center text-gray-400'>
+              Your first 5,000 tokens are on us
+            </h3>
+          </div>
+
+          <div className='grid grid-cols-1 md:grid-cols-3 gap-8 items-center'>
+            <div className='flex flex-col space-y-1'>
+              <h3 className='text-xl font-medium'>
+                1. Create an Account
+              </h3>
+
+              <div>
+                Create an Account to unlock your first 5,000 tokens for free.
+              </div>
+            </div>
+
+            <div className='flex flex-col space-y-1'>
+              <h3 className='text-xl font-medium'>
+                2. Create a new post
+              </h3>
+
+              <div>
+                Use AI to generate blog post outlines, write blog posts, and more.
+              </div>
+            </div>
+
+            <div className='flex flex-col space-y-1'>
+              <h3 className='text-xl font-medium'>
+                3. Subscribe
+              </h3>
+
+              <div>
+                Subscribe to unlock more tokens and features.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <hr className='border-gray-100 dark:border-slate-800' />
+
+        <footer className='py-6'>
+          <div className='flex flex-col space-y-4 lg:flex-row lg:space-y-0 justify-between'>
+            <div>
+              <b>Smart Blogging Assistant</b>
+              <div>
+                Your powerful content assistant - {new Date().getFullYear()}
+              </div>
+            </div>
+
+            <div className='flex space-x-4'>
+              <Button variant='link'>
+                <Link href='/auth/sign-in'>
+                  Sign In
+                </Link>
+              </Button>
+
+              <Button variant='link'>
+                <Link href='/auth/sign-up'>
+                  Create an Account
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </footer>
+      </div>
+    </div>
+  )
+}
+```
+
+The final result is a very minimal home page with a title:
+
+{% img alt="Demo App Home Page" src="/assets/courses/home-page.webp" width="3006" height="2014" /%}
+
+#### Using the layouts for header and footer
+
+We have added a header and a footer to the home page. However, we will be using the same header and footer on all pages of our application. To do this, you can use a Next.js layout.
+
+**There is one problem**: since we want to use a different header and footer for the rest of the app, we cannot use the `app/layout.tsx` file, because it will apply to all pages.
+
+##### Solution: using a pathless route
+
+Instead, you could create a pathless layout file called `app/(site)/layout.tsx`. All the files in the `app/(site)` folder will use this layout.
+
+```
+- app
+  - (site)
+    - layout.tsx
+
+    - page.tsx              # /
+
+    - pricing               # /pricing
+      - page.tsx
+
+    - faq                   # /faq
+      - page.tsx
+
+    - about                 # /about
+      - page.tsx
+```
+
+If you are going to add multiple components next to the home page (such as FAQ, About, Pricing), consider moving the home page to `app/(site)/page.tsx` and use the header and footer in the `app/(site)/layout.tsx` file, so that all the pages under `app/(site)` will use the same layout. Since `(site)` is a pathless route, you can access the home page at `/` and the other pages at `/about`, `/pricing`, etc.
+
+Since we have only 1 page in this app, we will not demonstrate this approach. However, you can use this approach in your own application. Please contact me if you need guidance or more information.
+
+### 🌙 Do you want to use Dark Mode?
+
+If you want to use dark mode, you can add the class `dark` to the `html` element in the `app/layout.tsx` file:
+
+```tsx {% title="app/layout.tsx" %} /dark/
+<html lang="en" className='dark'>
+  <body className={`${inter.className} min-h-screen bg-background`}>
+    {children}
+  </body>
+</html>
+```
+
+The home page will now use the dark mode:
+
+{% img alt="Demo App Home Page Dark" src="/assets/courses/home-page-dark.webp" width="3024" height="2018" /%}
+
+### Adding the global error pages
+
+Next.js supports global error pages out of the box. You can create a `not-found.tsx` file in the `app` folder to create a custom 404 page. We can also create an `error.tsx` file to create a custom 500 page.
+
+#### Creating a custom 404 page
+
+To create a global 404 page, create a `not-found.tsx` file in the `app` folder. This file will be used for all 404 errors in your application.
+
+```tsx {% title="app/not-found.tsx" %}
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+
+export const metadata = {
+  title: `Page not found`,
+};
+
+function NotFoundPage() {
+  return (
+    <div
+      className={
+        'm-auto flex w-full h-screen items-center justify-center'
+      }
+    >
+      <div className={'flex flex-col space-y-8'}>
+        <div className={'flex space-x-8 divide-x divide-gray-100'}>
+          <div>
+            <h2 className='text-3xl font-bold'>
+              <span>
+                404
+              </span>
+            </h2>
+          </div>
+
+          <div className={'flex flex-col space-y-4 pl-8'}>
+            <div className={'flex flex-col space-y-1'}>
+              <div>
+                <span className='font-medium text-xl'>
+                  Page not found
+                </span>
+              </div>
+
+              <p className={'text-gray-500 text-sm dark:text-gray-300'}>
+                Sorry, we couldn&apos;t find the page you&apos;re looking for.
+              </p>
+            </div>
+
+            <div className={'flex space-x-4'}>
+              <Button>
+                <Link href={'/'}>
+                  Back to Home Page
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default NotFoundPage;
+```
+
+Below is what the 404 page looks like:
+
+{% img alt="Demo App Not Found Page" src="/assets/courses/page-not-found.webp" width="2636" height="1850" /%}
+
+To test the 404 page, you can go to a non-existent page, such as `/non-existent-page`:
+
+#### Creating a custom 500 page
+
+To create a global 500 page, create an `error.tsx` file in the `app` folder. This file will be used for all the uncaught errors in your application. Unhandled errors will be caught by this page, such as errors thrown from a Server Action or from your Server Components.
+
+The `error.tsx` components **will not handle errors from an API Route handler**, so you need to handle them manually.
+
+```tsx {% title="app/error.tsx" %}
+'use client';
+
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+
+export const metadata = {
+  title: `An unexpected error occurred`,
+};
+
+function ErrorPage() {
+  return (
+    <main>
+      <div
+        className={
+          'm-auto flex min-h-[50vh] w-full items-center justify-center'
+        }
+      >
+        <div className={'flex flex-col space-y-8'}>
+          <div className={'flex space-x-8 divide-x divide-gray-100'}>
+            <div>
+              <h2 className='text-3xl font-bold'>
+                <span>
+                  500
+                </span>
+              </h2>
+            </div>
+
+            <div className={'flex flex-col space-y-4 pl-8'}>
+              <div className={'flex flex-col space-y-1'}>
+                <div>
+                  <span className='font-medium text-xl'>
+                    An unexpected error occurred
+                  </span>
+                </div>
+
+                <p className={'text-gray-500 text-sm dark:text-gray-300'}>
+                  Sorry, we encountered an unexpected error while processing your request.
+                </p>
+              </div>
+
+              <div className={'flex space-x-4'}>
+                <Button>
+                  <Link href={'/'}>
+                    Back to Home Page
+                  </Link>
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+export default ErrorPage;
+```
+
+Did you know that you can use `error.tsx` in your lower layouts? In this way, you can display an error message that will appear within the layout of the page that caused the error. This is a great way to display an error message to the user without having to redirect them to a different page.
+
+If not the `error.tsx` files are provided within a layout, the error will cascade up to the top-level error page, which is the `app/error.tsx` file.
+
+##### Error pages must be client components
+
+Small gotcha to remember: error pages must be client components. The Typescript plugin should be warning you about this.
+
+### Adding the global loading indicator
+
+Displaying a global loading indicator while your page is loading is extremely important for your app's UX, especially when it comes to server-side rendered websites.
+
+As we've seen before, Next.js supports this functionality out of the box using the file convention `loading.tsx`.
+
+#### Defining a Spinner component
+
+First, let's define a `Spinner` component that we can use to show a loading indicator:
+
+```tsx {% title="components/Spinner.tsx" %}
+function Spinner() {
+  return (
+    <div role="status">
+      <svg
+        aria-hidden="true"
+        className={
+          `h-8 w-8 animate-spin fill-gray-900 dark:fill-white text-gray-200 dark:text-gray-400`
+        }
+        viewBox="0 0 100 101"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path
+          d="M100 50.5908C100 78.2051 77.6142 100.591 50 100.591C22.3858 100.591 0 78.2051 0 50.5908C0 22.9766 22.3858 0.59082 50 0.59082C77.6142 0.59082 100 22.9766 100 50.5908ZM9.08144 50.5908C9.08144 73.1895 27.4013 91.5094 50 91.5094C72.5987 91.5094 90.9186 73.1895 90.9186 50.5908C90.9186 27.9921 72.5987 9.67226 50 9.67226C27.4013 9.67226 9.08144 27.9921 9.08144 50.5908Z"
+          fill="currentColor"
+        />
+
+        <path
+          d="M93.9676 39.0409C96.393 38.4038 97.8624 35.9116 97.0079 33.5539C95.2932 28.8227 92.871 24.3692 89.8167 20.348C85.8452 15.1192 80.8826 10.7238 75.2124 7.41289C69.5422 4.10194 63.2754 1.94025 56.7698 1.05124C51.7666 0.367541 46.6976 0.446843 41.7345 1.27873C39.2613 1.69328 37.813 4.19778 38.4501 6.62326C39.0873 9.04874 41.5694 10.4717 44.0505 10.1071C47.8511 9.54855 51.7191 9.52689 55.5402 10.0491C60.8642 10.7766 65.9928 12.5457 70.6331 15.2552C75.2735 17.9648 79.3347 21.5619 82.5849 25.841C84.9175 28.9121 86.7997 32.2913 88.1811 35.8758C89.083 38.2158 91.5421 39.6781 93.9676 39.0409Z"
+          fill="currentFill"
+        />
+      </svg>
+    </div>
+  );
+}
+
+export default Spinner;
+```
+
+We can reuse this spinner in other parts of our application, so it's a good idea to create a component for it.
+
+#### Defining a generic Loading component
+
+Additionally, let's create a new reusable component called `Loading` that we can use to show a loading indicator:
+
+```tsx {% title="components/Loading.tsx" %}
+import Spinner from '@/components/Spinner';
+
+function Loading(
+  { children }: React.PropsWithChildren
+) {
+  return (
+    <div className="flex flex-col space-y-8 items-center justify-center h-screen">
+      <Spinner />
+
+      <p className="text-gray-500 dark:text-gray-400">
+        { children ?? `Loading...` }
+      </p>
+    </div>
+  );
+}
+
+export default Loading;
+```
+
+The `Loading` component will show the `Spinner` component and a message. If no message is provided, it will show the default message `Loading...`.
+
+#### Defining a root loading indicator
+
+Now, we add this component to the `app/loading.tsx` file:
+
+```tsx title="app/loading.tsx"
+import GlobalLoading from '@/components/Loading';
+
+function Loading() {
+  return (
+    <GlobalLoading />
+  );
+}
+
+export default Loading;
+```
+
+Navigation happening between the pages at the root level of our application will now show the loading indicator. **You can add more loading indicators for each folder/layout if you want to** - so to display a loading indicator for all pages within a folder, you can create a `loading.tsx` file within that folder.
+
+{% Video src="/assets/courses/loading-spinner.mp4" /%}
+
+## The setup is now complete!
+
+We have now set up our Next.js project and our Supabase project. Let's summarize what we have done so far:
+
+1. **Next.js App**: We created a new Next.js project using the `create-next-app` CLI.
+2. **Dependencies**: We installed the required dependencies for our project.
+3. **Supabase**: We set up Supabase and some common scripts
+4. **Home Page**: We have a Home Page from which we can navigate to the auth pages
+5. **Not Found**: We have a 404 page that will be shown when a page is not found
+6. **Error Page**: We have a global 500 page that will be shown when an error occurs
+7. **Loading Indicator**: We have a loading indicator that will be shown when navigating between pages at the root level
+
+---
+
+Great start! 🎉
+
+We are now ready to start building our application.
+
+## What's next?
+
+In the next step, we will start building our application - starting by authenticating users using Supabase Auth.

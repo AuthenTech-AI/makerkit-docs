@@ -1,0 +1,273 @@
+---
+status: "published"
+title: "Forms & Inputs"
+label: "Forms & Inputs"
+order: 1
+description: "Form controls for user input with React Hook Form integration."
+---
+
+Form components provide validated user input with React Hook Form and Zod integration. All form components are accessible and support dark mode.
+
+## Form
+
+The `Form` component wraps React Hook Form's `FormProvider` with integrated validation display.
+
+```typescript
+import { Form, FormField, FormItem, FormLabel, FormControl, FormDescription, FormMessage } from '@kit/ui/form';
+```
+
+### Basic Form
+
+```tsx
+'use client';
+
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import * as z from 'zod';
+
+import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from '@kit/ui/form';
+import { Input } from '@kit/ui/input';
+import { Button } from '@kit/ui/button';
+
+const schema = z.object({
+  email: z.string().email(),
+  name: z.string().min(2),
+});
+
+function MyForm() {
+  const form = useForm({
+    resolver: zodResolver(schema),
+  });
+
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)}>
+        <FormField
+          control={form.control}
+          name="email"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Email</FormLabel>
+              <FormControl
+                render={
+                  <Input placeholder="you@example.com" {...field} />
+                }
+              />
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <Button type="submit">Submit</Button>
+      </form>
+    </Form>
+  );
+}
+```
+
+## Input
+
+Basic text input field.
+
+```typescript
+import { Input } from '@kit/ui/input';
+```
+
+```tsx
+<Input placeholder="Enter text" />
+<Input type="email" placeholder="Email address" />
+<Input type="password" placeholder="Password" />
+<Input disabled placeholder="Disabled input" />
+```
+
+## Textarea
+
+Multi-line text input.
+
+```typescript
+import { Textarea } from '@kit/ui/textarea';
+```
+
+```tsx
+<Textarea placeholder="Enter description..." />
+<Textarea rows={6} placeholder="Longer text area" />
+```
+
+## Select
+
+Dropdown select with search and keyboard navigation.
+
+```typescript
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@kit/ui/select';
+```
+
+```tsx
+<Select onValueChange={handleChange} defaultValue="option1">
+  <SelectTrigger>
+    <SelectValue placeholder="Select option" />
+  </SelectTrigger>
+  <SelectContent>
+    <SelectItem value="option1">Option 1</SelectItem>
+    <SelectItem value="option2">Option 2</SelectItem>
+    <SelectItem value="option3">Option 3</SelectItem>
+  </SelectContent>
+</Select>
+```
+
+### With Form Field
+
+```tsx
+<FormField
+  control={form.control}
+  name="category"
+  render={({ field }) => (
+    <FormItem>
+      <FormLabel>Category</FormLabel>
+      <Select onValueChange={field.onChange} defaultValue={field.value}>
+        <FormControl
+          render={
+            <SelectTrigger>
+              <SelectValue placeholder="Select category" />
+            </SelectTrigger>
+          }
+        />
+        
+        <SelectContent>
+          <SelectItem value="work">Work</SelectItem>
+          <SelectItem value="personal">Personal</SelectItem>
+        </SelectContent>
+      </Select>
+      <FormMessage />
+    </FormItem>
+  )}
+/>
+```
+
+## Checkbox
+
+Boolean checkbox control.
+
+```typescript
+import { Checkbox } from '@kit/ui/checkbox';
+```
+
+```tsx
+<div className="flex items-center gap-2">
+  <Checkbox id="terms" />
+  <label htmlFor="terms">Accept terms and conditions</label>
+</div>
+```
+
+## Radio Group
+
+Single selection from multiple options.
+
+```typescript
+import { RadioGroup, RadioGroupItem } from '@kit/ui/radio-group';
+```
+
+```tsx
+<RadioGroup defaultValue="option1" onValueChange={handleChange}>
+  <div className="flex items-center gap-2">
+    <RadioGroupItem value="option1" id="r1" />
+    <label htmlFor="r1">Option 1</label>
+  </div>
+  <div className="flex items-center gap-2">
+    <RadioGroupItem value="option2" id="r2" />
+    <label htmlFor="r2">Option 2</label>
+  </div>
+</RadioGroup>
+```
+
+## Switch
+
+Toggle switch for boolean values.
+
+```typescript
+import { Switch } from '@kit/ui/switch';
+```
+
+```tsx
+<div className="flex items-center gap-2">
+  <Switch id="notifications" />
+  <label htmlFor="notifications">Enable notifications</label>
+</div>
+
+{/* Small size */}
+<Switch size="sm" />
+```
+
+## Input OTP
+
+One-time password input for verification codes.
+
+```typescript
+import { InputOTP, InputOTPGroup, InputOTPSlot } from '@kit/ui/input-otp';
+```
+
+```tsx
+<InputOTP maxLength={6}>
+  <InputOTPGroup>
+    <InputOTPSlot index={0} />
+    <InputOTPSlot index={1} />
+    <InputOTPSlot index={2} />
+    <InputOTPSlot index={3} />
+    <InputOTPSlot index={4} />
+    <InputOTPSlot index={5} />
+  </InputOTPGroup>
+</InputOTP>
+```
+
+## Label
+
+Accessible form label.
+
+```typescript
+import { Label } from '@kit/ui/label';
+```
+
+```tsx
+<Label htmlFor="email">Email address</Label>
+<Input id="email" type="email" />
+```
+
+## Field
+
+Form field wrapper with label and description.
+
+```typescript
+import { Field, FieldLabel, FieldDescription, FieldError } from '@kit/ui/field';
+```
+
+```tsx
+<Field>
+  <FieldLabel>Username</FieldLabel>
+  <Input placeholder="Enter username" />
+  <FieldDescription>Your unique username</FieldDescription>
+  <FieldError>Username is required</FieldError>
+</Field>
+```
+
+## Image Uploader
+
+Drag-and-drop image upload with preview.
+
+```typescript
+import { ImageUploader } from '@kit/ui/image-uploader';
+```
+
+```tsx
+<ImageUploader
+  value={imageUrl}
+  onValueChange={(url) => setImageUrl(url)}
+>
+  <span>Drop image here or click to upload</span>
+</ImageUploader>
+```
+
+Supports JPEG, PNG, GIF, WebP up to 5MB.
+
+These form components are part of the [Next.js Drizzle SaaS Kit](/drizzle).
+
+---
+
+**Next:** [Buttons & Actions →](./buttons-and-actions)

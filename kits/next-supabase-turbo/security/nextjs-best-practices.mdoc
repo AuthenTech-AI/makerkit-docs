@@ -73,7 +73,7 @@ const config = {
 };
 
 export async function fetchData() {
-    const data = await fecthDataFromExternalApi(config);
+    const data = await fetchDataFromExternalApi(config);
     const storeId = config.storeId;
 
     return { data, storeId };

@@ -1,0 +1,1258 @@
+---
+status: "published"
+title: "Data Model and First Feature with Prisma ORM"
+label: "Data Model & First Feature"
+order: 3
+description: "Design a multi-tenant database schema with Prisma ORM and build complete CRUD for feedback boards using Next.js server actions, Zod validation, and React Hook Form."
+---
+
+This module covers designing the TeamPulse database schema and building your first complete feature: feedback boards with full CRUD operations.
+
+Feedback boards are the foundation of TeamPulse - categorized containers where organizations collect feature requests, bug reports, and ideas from their team.
+
+**What you'll accomplish:**
+- Design and create database tables with proper multi-tenant relationships
+- Build a boards list page that fetches data on the server
+- Implement create, edit, and delete functionality with server actions
+- Learn the form patterns that Makerkit uses throughout the codebase
+
+**Technologies used:**
+- [Prisma ORM](https://www.prisma.io) - Type-safe database toolkit
+- [Zod](https://zod.dev) - Schema validation
+- [next-safe-action](https://next-safe-action.dev) - Type-safe server actions
+- [React Hook Form](https://react-hook-form.com) - Form state management
+
+---
+
+## What We're Building
+
+TeamPulse needs two core tables: `boards` to organize feedback by category, and `feedback_items` to store individual pieces of feedback. The `organizationId` foreign key ensures that each board belongs to a specific organization - this is how Makerkit enforces multi-tenancy at the database level.
+
+```
+board                      feedback_item
+├── id                      ├── id
+├── organizationId (FK)     ├── boardId (FK)
+├── name                    ├── authorId (FK)
+├── description             ├── title
+├── slug                    ├── description
+├── createdAt               ├── type (bug/feature/idea)
+├── updatedAt               ├── status
+                            ├── voteCount
+                            ├── createdAt
+                            ├── updatedAt
+```
+
+This module focuses on **board*s*. You'll build feedback items in [Module 4](./feedback-items).
+
+---
+
+## Step 1: Design the Schema
+
+Add the Board model to `packages/database/src/prisma/schema.prisma`:
+
+```prisma {% title="packages/database/src/prisma/schema.prisma" %}
+model Board {
+  id             String       @id
+  organizationId String       @map("organization_id")
+  name           String
+  description    String?
+  slug           String
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId], name: "boards_organization_id_idx")
+  @@index([slug], name: "boards_slug_idx")
+  @@map("boards")
+}
+```
+
+Add the relation to the `Organization` model:
+
+```prisma
+model Organization {
+  // ... existing fields
+  boards Board[]
+}
+```
+
+**Key design decisions:**
+- **Multi-tenancy via `organizationId`**: Every board belongs to an organization. This foreign key is the foundation of data isolation - queries always filter by organization to prevent data leakage between tenants.
+- **Cascade deletes**: The `onDelete: Cascade` option ensures that when an organization is deleted, all its boards are automatically removed. This prevents orphaned records in the database.
+- **Performance indexes**: Indexes on `organizationId` and `slug` speed up the most common queries - listing boards for an organization and looking up boards by their URL slug.
+- **Automatic timestamps**: The `@updatedAt` modifier tells Prisma to automatically set `updatedAt` to the current time whenever a row is modified.
+
+---
+
+## Step 2: Relations in Prisma
+
+Relations in Prisma enable eager loading with `include`:
+
+```typescript
+// Fetch a board with its organization
+const board = await db.board.findUnique({
+  where: { id: boardId },
+  include: { organization: true },
+});
+
+// Access the related organization
+console.log(board.organization.name);
+```
+
+---
+
+## Step 3: Run the Migration
+
+Create and apply the migration:
+
+```bash
+pnpm --filter @kit/database prisma:migrate
+```
+
+Prisma compares your schema against the database state and generates the necessary SQL. You should see output similar to:
+```
+> prisma migrate dev
+
+Environment variables loaded from .env
+Prisma schema loaded from src/prisma/schema.prisma
+Datasource "db": PostgreSQL database
+
+Applying migration `20240115_add_boards`
+
+The following migration(s) have been created and applied:
+migrations/
+  └─ 20240115_add_boards/
+    └─ migration.sql
+
+Your database is now in sync with your schema.
+```
+
+After running migrations, regenerate the Prisma client:
+
+```bash
+pnpm --filter @kit/database prisma:generate
+```
+
+**Verify it worked:**
+
+```bash
+# Open Prisma Studio to view tables
+pnpm --filter @kit/database prisma:studio
+```
+
+You should see the `boards` table with all columns.
+
+---
+
+## Step 4: Create the Validation Schema
+
+While the database schema defines what columns exist, Zod schemas define what input is valid. This separation gives you precise control over error messages and lets you transform data (like trimming whitespace) before it reaches the database.
+
+```typescript {% title="apps/web/lib/boards/boards.schema.ts" %}
+import * as z from 'zod';
+
+export const createBoardSchema = z.object({
+  name: z
+    .string()
+    .min(3, 'Name must be at least 3 characters')
+    .max(100, 'Name must be less than 100 characters')
+    .transform((val) => val.trim()),
+  description: z
+    .string()
+    .max(500, 'Description must be less than 500 characters')
+    .optional()
+    .transform((val) => val?.trim()),
+});
+
+// Extend the create schema to include the board ID for updates
+export const updateBoardSchema = createBoardSchema.extend({
+  id: z.string().min(1, 'Board ID is required'),
+});
+
+// Delete only needs the ID
+export const deleteBoardSchema = z.object({
+  id: z.string().min(1, 'Board ID is required'),
+});
+
+export type CreateBoardInput = z.output<typeof createBoardSchema>;
+export type UpdateBoardInput = z.output<typeof updateBoardSchema>;
+```
+
+---
+
+## Step 5: Create the Server Actions
+
+Server actions handle data mutations. Makerkit's `authenticatedActionClient` wraps your actions with authentication checks and schema validation.
+
+```typescript {% title="apps/web/lib/boards/boards-server-actions.ts" %}
+'use server';
+
+import { revalidatePath } from 'next/cache';
+
+import { authenticatedActionClient } from '@kit/action-middleware';
+import { getActiveOrganizationId } from '@kit/better-auth/context';
+import { db } from '@kit/database';
+import { getLogger } from '@kit/shared/logger';
+import { generateSlug, generateId } from '@kit/shared/utils';
+
+import {
+  createBoardSchema,
+  updateBoardSchema,
+  deleteBoardSchema,
+} from './boards.schema';
+
+export const createBoardAction = authenticatedActionClient
+  .inputSchema(createBoardSchema)
+  .action(async ({ parsedInput: data, ctx }) => {
+    const userId = ctx.user.id;
+    const organizationId = await getActiveOrganizationId();
+
+    if (!organizationId) {
+      throw new Error('No active organization');
+    }
+
+    const logger = (await getLogger()).child({
+      name: 'create-board',
+      userId,
+      organizationId,
+      boardName: data.name,
+    });
+
+    logger.info('Creating board');
+
+    const board = await db.board.create({
+      data: {
+        id: generateId(),
+        organizationId,
+        name: data.name,
+        description: data.description ?? null,
+        slug: generateSlug(data.name),
+      },
+    });
+
+    logger.info({ boardId: board.id }, 'Board created successfully');
+
+    revalidatePath('/boards', 'layout');
+
+    return { board };
+  });
+
+export const updateBoardAction = authenticatedActionClient
+  .inputSchema(updateBoardSchema)
+  .action(async ({ parsedInput: data, ctx }) => {
+    const userId = ctx.user.id;
+    const organizationId = await getActiveOrganizationId();
+
+    if (!organizationId) {
+      throw new Error('No active organization');
+    }
+
+    const logger = (await getLogger()).child({
+      name: 'update-board',
+      userId,
+      organizationId,
+      boardId: data.id,
+      boardName: data.name,
+    });
+
+    logger.info('Updating board...');
+
+    const board = await db.board.update({
+      where: {
+        id: data.id,
+        organizationId,
+      },
+      data: {
+        name: data.name,
+        description: data.description ?? null,
+        slug: generateSlug(data.name),
+      },
+    });
+
+    logger.info('Board updated successfully');
+
+    revalidatePath('/boards', 'layout');
+
+    return { board };
+  });
+
+export const deleteBoardAction = authenticatedActionClient
+  .inputSchema(deleteBoardSchema)
+  .action(async ({ parsedInput: data, ctx }) => {
+    const userId = ctx.user.id;
+    const organizationId = await getActiveOrganizationId();
+
+    if (!organizationId) {
+      throw new Error('No active organization');
+    }
+
+    const logger = (await getLogger()).child({
+      name: 'delete-board',
+      userId,
+      organizationId,
+      boardId: data.id,
+    });
+
+    logger.info('Deleting board...');
+
+    await db.board.delete({
+      where: {
+        id: data.id,
+        organizationId,
+      },
+    });
+
+    logger.info('Board deleted successfully');
+
+    revalidatePath('/boards', 'layout');
+
+    return { success: true };
+  });
+```
+
+**Key patterns:**
+- **`authenticatedActionClient`**: This wrapper ensures the user is logged in before the action runs. If the user isn't authenticated, the action returns an error without executing your code.
+- **`getActiveOrganizationId()`**: Retrieves the current organization from the user's session. Every database operation includes this ID to enforce multi-tenant data isolation.
+- **`revalidatePath('/path', 'layout')`**: Next.js caches server component output. After a mutation, this function tells Next.js to re-render the page with fresh data. The `'layout'` parameter ensures localized routes are also revalidated.
+- **Organization scoping**: Every query includes an `organizationId` check. This prevents users from accessing or modifying boards that belong to other organizations.
+
+See the [Server Actions Documentation](/docs/nextjs-prisma/development-guide/server-actions) for more details.
+
+## Step 6: Create the Data Loader
+
+While server actions handle writes, loaders handle reads. This separation keeps your code organized. Loaders are called from server components to fetch page data.
+
+```typescript {% title="apps/web/lib/boards/boards-page.loader.ts" %}
+import 'server-only';
+
+import { cache } from 'react';
+
+import { getActiveOrganizationId } from '@kit/better-auth/context';
+import { db } from '@kit/database';
+
+export const loadBoards = cache(async () => {
+  const organizationId = await getActiveOrganizationId();
+
+  if (!organizationId) {
+    return [];
+  }
+
+  return db.board.findMany({
+    where: { organizationId },
+    orderBy: { createdAt: 'desc' },
+  });
+});
+
+export const loadBoard = cache(async (boardId: string) => {
+  const organizationId = await getActiveOrganizationId();
+
+  if (!organizationId) {
+    return null;
+  }
+
+  return db.board.findFirst({
+    where: {
+      id: boardId,
+      organizationId,
+    },
+  });
+});
+
+export type Board = NonNullable<Awaited<ReturnType<typeof loadBoard>>>;
+export type Boards = Awaited<ReturnType<typeof loadBoards>>;
+```
+
+**Key patterns:**
+- **`'server-only'`**: Causes a build error if accidentally imported in a client component
+- **`cache()`**: Deduplicates requests during a single render - multiple components calling `loadBoards()` only query the database once
+- **Organization filtering**: Loaders always filter by `organizationId` for data isolation
+- **Type exports**: Lets other files use types without importing loader functions
+
+---
+
+## Step 7: Create the Form Component
+
+Forms in Makerkit combine React Hook Form for state management with Zod for validation. The `zodResolver` bridges these libraries, validating input against your schema and displaying field-level errors.
+
+```typescript {% title="apps/web/app/[locale]/(internal)/boards/_components/create-board-form.tsx" %}
+'use client';
+
+import { zodResolver } from '@hookform/resolvers/zod';
+import { createBoardAction } from '@lib/boards/boards-server-actions';
+import {
+  type CreateBoardInput,
+  createBoardSchema,
+} from '@lib/boards/boards.schema';
+import { useAction } from 'next-safe-action/hooks';
+import { useForm } from 'react-hook-form';
+
+import { Button } from '@kit/ui/button';
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@kit/ui/form';
+import { Input } from '@kit/ui/input';
+import { toast } from '@kit/ui/sonner';
+import { Textarea } from '@kit/ui/textarea';
+
+interface CreateBoardFormProps {
+  onSuccess?: () => void;
+}
+
+export function CreateBoardForm({ onSuccess }: CreateBoardFormProps) {
+  const { executeAsync, status } = useAction(createBoardAction);
+
+  const form = useForm({
+    resolver: zodResolver(createBoardSchema),
+    defaultValues: {
+      name: '',
+      description: '',
+    },
+  });
+
+  const isPending = status === 'executing';
+
+  // Using executeAsync with manual error handling
+  const onSubmit = async (data: CreateBoardInput) => {
+    const result = await executeAsync(data);
+
+    if (result?.serverError) {
+      toast.error(result.serverError);
+      return;
+    }
+
+    if (result?.validationErrors) {
+      toast.error('Please check your input');
+      return;
+    }
+
+    toast.success('Board created successfully');
+    form.reset();
+    onSuccess?.();
+  };
+
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <FormField
+          name="name"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Board Name</FormLabel>
+
+              <FormControl 
+                render={<Input
+                  placeholder="Product Feedback"
+                  disabled={isPending}
+                  data-testid="create-board-name-input"
+                  {...field}
+                />} 
+              />
+
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          name="description"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Description (optional)</FormLabel>
+
+              <FormControl render={<Textarea
+                placeholder="Collect feedback from users about our product"
+                disabled={isPending}
+                data-testid="create-board-description-input"
+                {...field}
+              />} />
+
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <Button
+          type="submit"
+          disabled={isPending}
+          data-testid="create-board-submit"
+        >
+          {isPending ? 'Creating...' : 'Create Board'}
+        </Button>
+      </form>
+    </Form>
+  );
+}
+```
+
+**Key patterns:**
+- **`'use client'`**: Forms require client-side interactivity, so this directive marks the component as a client component.
+- **`zodResolver`**: Connects your Zod schema to React Hook Form, enabling automatic validation as users type.
+- **`useAction`**: The next-safe-action hook that calls your server action. It provides `status` to track loading state and `executeAsync` to run the action.
+- **Error handling**: Server actions can return `serverError` (unexpected errors) or `validationErrors` (schema validation failures). Handle both to give users clear feedback.
+- **Pending state**: Disable form inputs and show loading text while the action is executing to prevent double submissions.
+
+---
+
+## Step 8: Create the Dialog Component
+
+The dialog wraps the form and can be reused across pages. Using controlled state (`open` and `onOpenChange`) lets you close the dialog programmatically after successful submission.
+
+```typescript {% title="apps/web/app/[locale]/(internal)/boards/_components/create-board-dialog.tsx" %}
+'use client';
+
+import { useState } from 'react';
+
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@kit/ui/dialog';
+
+import { CreateBoardForm } from './create-board-form';
+
+export function CreateBoardDialog({ children }: React.PropsWithChildren) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger render={children as React.ReactElement} />
+
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Create Feedback Board</DialogTitle>
+          <DialogDescription>
+            Create a new board to collect feedback from your team.
+          </DialogDescription>
+        </DialogHeader>
+
+        <CreateBoardForm onSuccess={() => setOpen(false)} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+```
+
+## Step 9: Create the Boards Page and Layout
+
+### Creating the Boards Layout
+
+Create the layout for the boards page. You can copy the structure from the Dashboard layout:
+
+```tsx {% title="apps/web/app/[locale]/(internal)/boards/layout.tsx" %}
+import { AppSidebar } from '../_components/app-sidebar';
+
+export default function BoardsLayout({
+  children,
+}: React.PropsWithChildren) {
+  return <AppSidebar>{children}</AppSidebar>;
+}
+```
+
+This layout wraps the page with the sidebar and main navigation.
+
+### Adding the Boards Navigation Item
+
+Update `apps/web/app/[locale]/(internal)/_config/navigation.config.tsx` to add the boards route:
+
+```tsx {% title="apps/web/app/[locale]/(internal)/_config/navigation.config.tsx" %}
+import { Home, MessageSquare } from 'lucide-react';
+
+import { env } from '@kit/shared/env';
+import { NavigationConfigSchema } from '@kit/ui/navigation-schema';
+import * as z from 'zod';
+
+const iconClasses = 'w-4';
+
+/**
+ * Navigation routes for the internal app section
+ * Items adapt based on the current account context via getContextAwareNavigation
+ */
+export const routes: z.output<typeof NavigationConfigSchema>['routes'] = [
+  {
+    label: 'common.routes.application',
+    children: [
+      {
+        label: 'common.routes.dashboard',
+        path: env('NEXT_PUBLIC_APP_HOME_PATH') ?? '/dashboard',
+        Icon: <Home className={iconClasses} />,
+      },
+      {
+        label: 'Boards',
+        path: '/boards',
+        Icon: <MessageSquare className={iconClasses} />,
+        context: 'organization',
+      },
+    ],
+  },
+];
+```
+
+For i18n support, add translations to `apps/web/i18n/messages/en/common.json`:
+
+```json {% title="apps/web/i18n/messages/en/common.json" %}
+{
+  "routes": {
+    "boards": "Boards"
+  }
+}
+```
+
+### Creating the Boards Page
+
+This server component fetches data during render - no `useEffect` needed. It renders either an empty state or a grid of board cards.
+
+```typescript {% title="apps/web/app/[locale]/(internal)/boards/page.tsx" %}
+import type { Metadata } from 'next';
+import { headers } from 'next/headers';
+import Link from 'next/link';
+
+import { loadBoards } from '@lib/boards/boards-page.loader';
+import { Plus } from 'lucide-react';
+
+import { auth } from '@kit/better-auth';
+import { AppBreadcrumbs } from '@kit/ui/app-breadcrumbs';
+import { Button } from '@kit/ui/button';
+import {
+  CardButton,
+  CardButtonHeader,
+  CardButtonTitle,
+} from '@kit/ui/card-button';
+import {
+  EmptyState,
+  EmptyStateButton,
+  EmptyStateHeading,
+  EmptyStateText,
+} from '@kit/ui/empty-state';
+import { If } from '@kit/ui/if';
+import { PageBody, PageHeader } from '@kit/ui/page';
+
+import { CreateBoardDialog } from './_components/create-board-dialog';
+
+export const metadata: Metadata = {
+  title: 'Feedback Boards',
+  description: 'Manage your feedback boards',
+};
+
+export default async function BoardsPage() {
+  const [boards, { success: canCreateBoard }] = await Promise.all([
+    loadBoards(),
+    auth.api.hasPermission({
+      headers: await headers(),
+      body: {
+        permissions: {
+          board: ['create'],
+        },
+      },
+    }),
+  ]);
+
+  return (
+    <PageBody>
+      <PageHeader>
+        <div className="flex-1">
+          <AppBreadcrumbs />
+        </div>
+
+        <If condition={canCreateBoard}>
+          <CreateBoardDialog>
+            <Button size="sm">
+              <Plus className="mr-2 h-4 w-4" />
+              Create Board
+            </Button>
+          </CreateBoardDialog>
+        </If>
+      </PageHeader>
+
+      {boards.length === 0 ? (
+        <EmptyStateSection canCreateBoard={canCreateBoard} />
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+          {boards.map((board) => (
+            <BoardCard key={board.id} board={board} />
+          ))}
+        </div>
+      )}
+    </PageBody>
+  );
+}
+
+function EmptyStateSection({ canCreateBoard }: { canCreateBoard: boolean }) {
+  return (
+    <EmptyState>
+      <EmptyStateHeading>No boards yet</EmptyStateHeading>
+
+      <EmptyStateText>
+        Create your first feedback board to start collecting feedback.
+      </EmptyStateText>
+
+      <If condition={canCreateBoard}>
+        <CreateBoardDialog>
+          <EmptyStateButton size="sm">
+            <Plus className="mr-2 h-4 w-4" />
+            Create Board
+          </EmptyStateButton>
+        </CreateBoardDialog>
+      </If>
+    </EmptyState>
+  );
+}
+
+function BoardCard({
+  board,
+}: {
+  board: Awaited<ReturnType<typeof loadBoards>>[number];
+}) {
+  return (
+    <CardButton
+      render={
+        <Link className="w-full" href={`/boards/${board.id}`}>
+          <CardButtonHeader className="text-left">
+            <CardButtonTitle>{board.name}</CardButtonTitle>
+
+            {board.description && (
+              <span className="text-muted-foreground max-w-full text-xs">
+                {board.description}
+              </span>
+            )}
+          </CardButtonHeader>
+        </Link>
+      }
+    />
+  );
+}
+```
+
+{% img src="/assets/courses/next-drizzle/teampulse-empty-boards.webp" width="1000" height="1000" alt="TeamPulse Empty Boards" /%}
+
+{% img src="/assets/courses/next-drizzle/teampulse-create-board.webp" width="1000" height="1000" alt="TeamPulse Create Board" /%}
+
+{% img src="/assets/courses/next-drizzle/teampulse-boards-grid.webp" alt="TeamPulse Boards Grid" width="1000" height="1000" /%}
+
+
+## Step 10: Edit and Delete Functionality
+
+The edit form reuses the same structure as create. Delete uses `AlertDialog` to require explicit confirmation - it cannot be dismissed by clicking outside, which is better for destructive actions.
+
+### Edit Board Form
+
+The edit form pre-populates fields with existing values and calls `updateBoardAction`.
+
+```typescript {% title="apps/web/app/[locale]/(internal)/boards/_components/edit-board-form.tsx" %}
+'use client';
+
+import { useAction } from 'next-safe-action/hooks';
+
+import { zodResolver } from '@hookform/resolvers/zod';
+import type { Board } from '@lib/boards/boards-page.loader';
+import { updateBoardAction } from '@lib/boards/boards-server-actions';
+import {
+  type UpdateBoardInput,
+  updateBoardSchema,
+} from '@lib/boards/boards.schema';
+import { useForm } from 'react-hook-form';
+
+import { Button } from '@kit/ui/button';
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@kit/ui/form';
+import { Input } from '@kit/ui/input';
+import { toast } from '@kit/ui/sonner';
+import { Switch } from '@kit/ui/switch';
+import { Textarea } from '@kit/ui/textarea';
+
+interface EditBoardFormProps {
+  board: Board;
+  onSuccess?: () => void;
+}
+
+export function EditBoardForm({ board, onSuccess }: EditBoardFormProps) {
+  const { executeAsync, status } = useAction(updateBoardAction);
+
+  const form = useForm({
+    resolver: zodResolver(updateBoardSchema),
+    defaultValues: {
+      id: board.id,
+      name: board.name,
+      description: board.description ?? '',
+    },
+  });
+
+  const isPending = status === 'executing';
+
+  const onSubmit = async (data: UpdateBoardInput) => {
+    const result = await executeAsync(data);
+
+    if (result?.serverError) {
+      toast.error(`Board update failed`);
+      return;
+    }
+
+    if (result?.validationErrors) {
+      toast.error('Please check your input');
+      return;
+    }
+
+    toast.success('Board updated successfully');
+    onSuccess?.();
+  };
+
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <FormField
+          name="name"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Board Name</FormLabel>
+
+              <FormControl
+                render={
+                  <Input
+                    placeholder="Product Feedback"
+                    disabled={isPending}
+                    data-testid="edit-board-name-input"
+                    {...field}
+                  />
+                }
+              />
+
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          name="description"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Description (optional)</FormLabel>
+              
+              <FormControl
+                render={
+                  <Textarea
+                    placeholder="Collect feedback from users about our product"
+                    disabled={isPending}
+                    data-testid="edit-board-description-input"
+                    {...field}
+                  />
+                }
+              />
+
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          name="isPublic"
+          render={({ field }) => (
+            <FormItem>
+              <div className="space-y-0.5">
+                <FormLabel>Public Board</FormLabel>
+                <FormDescription>
+                  Allow anyone to view and submit feedback
+                </FormDescription>
+              </div>
+
+              <FormControl
+                render={
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                    disabled={isPending}
+                  />
+                }
+              />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          name="allowAnonymous"
+          render={({ field }) => (
+            <FormItem>
+              <div className="space-y-0.5">
+                <FormLabel>Allow Anonymous submissions</FormLabel>
+
+                <FormDescription>
+                  Allow public board submissions from anonymous users
+                </FormDescription>
+              </div>
+
+              <FormControl render={
+                <Switch
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                  disabled={isPending}
+                />}
+              />
+                  
+            </FormItem>
+          )}
+        />
+
+        <Button
+          type="submit"
+          disabled={isPending}
+          data-testid="edit-board-submit"
+        >
+          {isPending ? 'Saving...' : 'Save Changes'}
+        </Button>
+      </form>
+    </Form>
+  );
+}
+```
+
+### Edit Board Dialog
+
+This wraps the form in a modal and receives the current board as a prop. Creating a separate component avoids instantiating the form before the dialog opens, improving performance and ensuring proper cleanup when closed.
+
+```typescript {% title="apps/web/app/[locale]/(internal)/boards/_components/edit-board-dialog.tsx" %}
+'use client';
+
+import { useState } from 'react';
+
+import type { Board } from '@lib/boards/boards-page.loader';
+import { Pencil } from 'lucide-react';
+
+import { Button } from '@kit/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@kit/ui/dialog';
+
+import { EditBoardForm } from './edit-board-form';
+
+interface EditBoardDialogProps {
+  board: Board;
+}
+
+export function EditBoardDialog({ board }: EditBoardDialogProps) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger
+        render={
+          <Button variant="outline" size="sm" data-testid="edit-board-button">
+            <Pencil className="mr-2 h-4 w-4" />
+            Edit
+          </Button>
+        }
+      />
+
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit Board</DialogTitle>
+          <DialogDescription>
+            Update your feedback board details.
+          </DialogDescription>
+        </DialogHeader>
+
+        <EditBoardForm board={board} onSuccess={() => setOpen(false)} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+```
+
+### Delete Board Dialog
+
+`AlertDialog` requires explicit confirmation, reducing accidental data loss.
+
+```typescript {% title="apps/web/app/[locale]/(internal)/boards/_components/delete-board-dialog.tsx" %}
+'use client';
+
+import { useState } from 'react';
+
+import { Trash2 } from 'lucide-react';
+import { useAction } from 'next-safe-action/hooks';
+
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@kit/ui/alert-dialog';
+import { Button } from '@kit/ui/button';
+import { toast } from '@kit/ui/sonner';
+
+import { deleteBoardAction } from '@lib/boards/boards-server-actions';
+
+interface DeleteBoardDialogProps {
+  boardId: string;
+  boardName: string;
+}
+
+export function DeleteBoardDialog({
+  boardId,
+  boardName,
+}: DeleteBoardDialogProps) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <AlertDialog open={open} onOpenChange={setOpen}>
+      <AlertDialogTrigger
+        render={
+          <Button
+            variant="destructive"
+            size="sm"
+            data-testid="delete-board-button"
+          >
+            <Trash2 className="mr-2 h-4 w-4" />
+            Delete
+          </Button>
+        }
+      />
+
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete Board</AlertDialogTitle>
+          <AlertDialogDescription>
+            Are you sure you want to delete <b>{boardName}</b>? This action
+            cannot be undone and will delete all feedback items in this board.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <DeleteBoardForm boardId={boardId} onSuccess={() => setOpen(false)} />
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+function DeleteBoardForm({
+  boardId,
+  onSuccess,
+}: {
+  boardId: string;
+  onSuccess: () => void;
+}) {
+  const { executeAsync, status } = useAction(deleteBoardAction);
+  const isPending = status === 'executing';
+
+  const handleDelete = async () => {
+    const promise = executeAsync({ id: boardId }).then((result) => {
+      if (result?.serverError || result?.validationErrors) {
+        throw new Error(result.serverError);
+      }
+
+      return result;
+    });
+
+    await toast
+      .promise(promise, {
+        loading: 'Deleting board...',
+        success: 'Board deleted successfully',
+        error: 'Failed to delete board',
+      })
+      .unwrap();
+
+    onSuccess();
+  };
+
+  return (
+    <AlertDialogFooter>
+      <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
+
+      <AlertDialogAction
+        onClick={handleDelete}
+        disabled={isPending}
+        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+      >
+        {isPending ? 'Deleting...' : 'Delete Board'}
+      </AlertDialogAction>
+    </AlertDialogFooter>
+  );
+}
+```
+
+## Step 11: Create the Board Detail Page
+
+Dynamic route segments like `[boardId]` capture URL parameters. The page fetches the board and renders a 404 if it doesn't exist or doesn't belong to the current organization.
+
+```typescript {% title="apps/web/app/[locale]/(internal)/boards/[boardId]/page.tsx" %}
+import type { Metadata } from 'next';
+
+import { notFound } from 'next/navigation';
+
+import { AppBreadcrumbs } from '@kit/ui/app-breadcrumbs';
+import { PageBody, PageHeader } from '@kit/ui/page';
+
+import { loadBoard } from '@lib/boards/boards-page.loader';
+
+import { DeleteBoardDialog } from '../_components/delete-board-dialog';
+import { EditBoardDialog } from '../_components/edit-board-dialog';
+
+interface BoardPageProps {
+  params: Promise<{ boardId: string }>;
+}
+
+export async function generateMetadata({
+  params,
+}: BoardPageProps): Promise<Metadata> {
+  const { boardId } = await params;
+  const board = await loadBoard(boardId);
+
+  return {
+    title: board?.name ?? 'Board Not Found',
+  };
+}
+
+export default async function BoardPage({ params }: BoardPageProps) {
+  const { boardId } = await params;
+  const board = await loadBoard(boardId);
+
+  if (!board) {
+    notFound();
+  }
+
+  return (
+    <PageBody>
+      <PageHeader>
+        <div className="flex-1">
+          <AppBreadcrumbs
+            values={{
+              boards: 'Boards',
+              [board.id]: board.name,
+            }}
+          />
+        </div>
+
+        <div className="flex gap-2">
+          <EditBoardDialog board={board} />
+
+          <DeleteBoardDialog boardId={board.id} boardName={board.name} />
+        </div>
+      </PageHeader>
+
+      {/* Feedback items list will go here - see Module 4 */}
+    </PageBody>
+  );
+}
+```
+
+{% img src="/assets/courses/next-drizzle/teampulse-board-page.webp" width="1000" height="1000" alt="TeamPulse Board Detail" /%}
+
+Test the edit and delete functionality to verify everything works.
+
+## Checkpoint: Verify It Works
+
+Test each piece of functionality:
+
+- [ ] `boards` table exists in database
+- [ ] `/boards` page loads without errors
+- [ ] Can create a new board
+- [ ] New board appears in list
+- [ ] Can view board details
+- [ ] Can edit board name/description
+- [ ] Can delete board
+- [ ] Boards are scoped to organization (switch organization in the sidebar to verify)
+
+Before committing, run the healthcheck:
+
+```bash
+pnpm run healthcheck
+```
+
+---
+
+## Patterns Reference
+
+### Server Action Pattern
+```typescript
+export const myAction = authenticatedActionClient
+  .inputSchema(mySchema)
+  .action(async ({ parsedInput: data, ctx }) => {
+    const organizationId = await getActiveOrganizationId();
+    // ... implementation
+    revalidatePath('/path', 'layout');
+    return { result };
+  });
+```
+
+### Loader Pattern
+```typescript
+export const loadData = cache(async () => {
+  const organizationId = await getActiveOrganizationId();
+  return db.table.findMany({ where: { organizationId } });
+});
+```
+
+### Form Pattern
+```typescript
+const form = useForm({
+  resolver: zodResolver(schema),
+  defaultValues: { ... },
+});
+
+const { executeAsync, status } = useAction(action);
+```
+
+---
+
+## Module Complete
+
+You now have:
+- [x] Database schema for boards with multi-tenant relationships
+- [x] Server actions for create, update, and delete operations
+- [x] Data loader with request deduplication
+- [x] Form with validation and error handling
+- [x] List page with server-side data fetching
+- [x] Edit and delete dialogs with confirmation
+- [x] Navigation integration with i18n support
+
+**Next:** In [Module 4: Feedback Items](./feedback-items), you'll build the core feature - feedback submission with voting and status workflow. This module will introduce parent-child relationships in Prisma and more complex form patterns.
+
+---
+
+## Learn More
+
+### Database Documentation
+- [Database Documentation](/docs/nextjs-prisma/database/overview)
+
+### Prisma ORM
+- [Schema Declaration](https://www.prisma.io/docs/sql-schema-declaration) - Defining tables and columns
+- [Relations](https://www.prisma.io/docs/relations) - Setting up table relationships
+- [Migrations](https://www.prisma.io/docs/migrations) - Database migration workflow
+- [Queries](https://www.prisma.io/docs/select) - Select, insert, update, delete
+
+### Zod
+- [Basic Usage](https://zod.dev/?id=basic-usage) - Creating schemas
+- [Primitives](https://zod.dev/?id=primitives) - String, number, etc.
+- [Objects](https://zod.dev/?id=objects) - Object schemas
+- [Error Handling](https://zod.dev/?id=error-handling) - Validation errors
+
+### next-safe-action
+- [Getting Started](https://next-safe-action.dev/docs/getting-started) - Setup and basics
+- [Action Client](https://next-safe-action.dev/docs/safe-action-client) - Creating action clients
+- [useAction Hook](https://next-safe-action.dev/docs/execution/hooks/useaction) - Client-side execution
+
+### React Hook Form
+- [Getting Started](https://react-hook-form.com/get-started) - Basic setup
+- [useForm](https://react-hook-form.com/docs/useform) - Main hook API
+- [Schema Validation](https://react-hook-form.com/get-started#SchemaValidation) - Zod integration

@@ -1,0 +1,100 @@
+---
+status: "published"
+title: "Mailpit for local development"
+label: "Local Development"
+description: "Learn how to use Mailpit for local development."
+order: 3
+---
+
+{% sequence title="Steps to use Mailpit for local development" description="Learn how to use Mailpit for local development." %}
+
+[What is Mailpit?](#what-is-mailpit)
+
+[Accessing Mailpit](#accessing-mailpit)
+
+[Common Use Cases](#common-use-cases)
+
+[Production Emails](#mailpit-vs-production-emails)
+
+{% /sequence %}
+
+When developing locally, We recommend using [Mailpit](https://mailpit.axllent.org) to capture emails sent during development. This allows you to test email functionality without actually sending emails to real addresses.
+
+## What is Mailpit?
+
+Mailpit is a disposable email service that captures all emails sent during local development. It's particularly useful for testing:
+
+- Email verification flows
+- Password reset emails
+- Team invitations
+- Notification emails
+- Any other transactional emails
+
+## Accessing Mailpit
+
+When running the provided Docker compose file, Mailpit is automatically available at:
+
+```bash
+http://localhost:8025
+```
+
+You can view any captured emails by:
+
+1. Going to [http://localhost:8025](http://localhost:8025)
+2. Finding your test email in the list of received messages
+
+## Common Use Cases
+
+### 1. Email Verification
+
+When testing user signup:
+1. Create a new account using any email address
+2. Go to Mailpit at [http://localhost:8025](http://localhost:8025)
+3. Find the verification email
+4. Click the verification link or copy the verification code
+
+### 2. Password Reset
+
+To test password reset flows:
+1. Request a password reset using any email
+2. Check Mailpit for the reset email
+3. Use the reset link or code to complete the process
+
+### 3. Team Invitations
+
+When testing team invites:
+1. Send an invitation to any email address
+2. Check Mailpit for the invitation email
+3. Use the invitation link to accept
+
+## Mailpit vs Production Emails
+
+Remember that Mailpit is for development only. In production:
+
+1. Configure a proper email service provider (Resend, SendGrid, etc.)
+2. Set up proper email authentication (SPF, DKIM)
+3. Use production-grade SMTP settings
+4. Monitor email deliverability
+
+## Using a different email provider during local development
+
+If you want to use a different email provider, switch the environment variables at `apps/web/.env.development`:
+
+```bash
+EMAIL_SENDER=test@makerkit.dev
+EMAIL_PORT=
+EMAIL_HOST=
+EMAIL_TLS=
+EMAIL_USER=
+EMAIL_PASSWORD=
+```
+
+## Conclusion
+
+Mailpit is a valuable tool for local development, allowing you to:
+- Test email flows without sending real emails
+- Iterate quickly on email templates
+- Debug email-related issues
+- Develop with confidence
+
+Remember to switch to a proper email provider when deploying to production!

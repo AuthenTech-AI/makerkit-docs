@@ -1,0 +1,169 @@
+---
+status: published
+title: Rate Limiting
+label: Rate Limiting
+order: 7
+description: Protect authentication endpoints from abuse
+---
+
+Prevent brute force attacks and credential stuffing by limiting requests per IP - 200 requests per 5 minutes by default, configurable to stricter limits.
+
+This page is part of the [Authentication documentation](./overview).
+
+Rate limiting protects your authentication endpoints from brute force attacks and abuse by limiting the number of requests within a time window. The kit applies rate limiting to all Better Auth API endpoints automatically. When a client exceeds the limit, they receive a `429 Too Many Requests` response. Rate limit data is stored in PostgreSQL by default, working across multiple server instances.
+
+Rate limiting is a technique that controls the number of requests a client (identified by IP address) can make to an endpoint within a time window.
+
+- **Keep rate limiting enabled when:** you're in production. Auth endpoints are prime targets for automated attacks.
+- **Disable rate limiting when:** running CI/CD tests (set `NEXT_PUBLIC_CI=true`) or debugging auth flows locally.
+
+## Overview
+
+The rate limiting configuration is automatically applied to all Better Auth API endpoints.
+
+## Configuration
+
+### Default Settings
+
+| Setting | Value | Description |
+|---------|-------|-------------|
+| Window | 5 minutes | Time window for rate limiting |
+| Max Requests | 200 | Maximum requests per window per IP |
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `NEXT_PUBLIC_CI` | Disables rate limiting when set | - |
+| `BETTER_AUTH_RATE_LIMIT_STORAGE` | Storage backend: `database` or `secondary-storage` | `database` |
+
+### Environment-Based Enablement
+
+Rate limiting is enabled by default and only disabled in CI:
+
+| Environment | Rate Limiting |
+|-------------|---------------|
+| Production | Enabled |
+| Development | Enabled |
+| CI/CD (`NEXT_PUBLIC_CI` set) | Disabled |
+
+```typescript
+const IS_RATE_LIMIT_ENABLED = !process.env.NEXT_PUBLIC_CI;
+```
+
+## Implementation
+
+### Location
+
+```
+packages/better-auth/src/plugins/rate-limit.ts
+```
+
+### Configuration Object
+
+```typescript
+export const rateLimitConfig = {
+  enabled: IS_RATE_LIMIT_ENABLED,
+  window: WINDOW_SECONDS,  // 5 minutes
+  max: MAX,                // 200 requests
+  ...getRateLimitStorageConfig(),
+};
+```
+
+### Storage Backends
+
+The rate limit data can be stored in:
+
+- **database** (default) - Uses PostgreSQL via Drizzle, works across instances
+- **secondary-storage** - External stores like Redis/Upstash
+
+```typescript
+const RATE_LIMIT_STORAGE = z
+  .enum(['database', 'secondary-storage'])
+  .default('database')
+  .parse(process.env.BETTER_AUTH_RATE_LIMIT_STORAGE);
+```
+
+### Integration with Better Auth
+
+The rate limit config is applied in the main auth configuration:
+
+```typescript
+// packages/better-auth/src/auth.ts
+import { rateLimitConfig } from './plugins/rate-limit';
+
+export const auth = betterAuth({
+  // ... other config
+  rateLimit: rateLimitConfig,
+});
+```
+
+## Customization
+
+To customize rate limiting, modify `packages/better-auth/src/plugins/rate-limit.ts`:
+
+```typescript
+const WINDOW_SECONDS = 5 * 60; // 5 minutes
+const MAX = 200; // 200 requests per window
+```
+
+### Stricter Rate Limiting
+
+For stricter protection, reduce the values:
+
+```typescript
+const WINDOW_SECONDS = 1 * 60; // 1 minute
+const MAX = 50; // 50 requests per minute
+```
+
+## Testing
+
+Rate limiting is disabled in CI environments to prevent test flakiness. Set `NEXT_PUBLIC_CI=true` in your CI configuration.
+
+## Monitoring
+
+Monitor rate limit events in your application logs. When a client exceeds the rate limit, Better Auth returns a `429 Too Many Requests` response.
+
+## Custom Rate Limiting
+
+For rate limiting outside of Better Auth endpoints (API routes, server actions, file uploads), use the database-backed rate limit service.
+
+See: [Rate Limit Service Documentation](../database/rate-limit-service)
+
+```typescript
+import { createRateLimitService } from '@kit/database';
+
+const rateLimitService = createRateLimitService();
+
+const result = await rateLimitService.limit('api:upload:user123', {
+  windowSeconds: 60,
+  max: 10,
+});
+
+if (!result.success) {
+  return new Response('Rate limited', { status: 429 });
+}
+```
+
+## Common Pitfalls
+
+- **Disabling rate limiting in production**: Auth endpoints without rate limiting are vulnerable to brute force. Keep it enabled.
+- **Setting limits too strict**: Legitimate users on shared IPs (offices, universities) may hit limits. 200/5min is a reasonable default.
+- **Forgetting to disable in CI**: Tests that hit auth endpoints repeatedly will fail. Set `NEXT_PUBLIC_CI=true`.
+- **Not monitoring 429 responses**: A spike in rate limit hits indicates an attack. Set up alerts on 429 responses.
+- **Rate limiting on top of cloudflare/CDN limits**: If you have rate limiting at the CDN layer too, coordinate the settings to avoid confusing error messages.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "What is the default rate limit?", "answer": "200 requests per 5 minutes per IP address. This covers all Better Auth API endpoints."},
+     {"question": "How is the client identified?", "answer": "By IP address. The kit extracts the real IP from headers like X-Forwarded-For when behind a proxy."},
+     {"question": "Where is rate limit data stored?", "answer": "In PostgreSQL by default, using the rateLimit table. This works across multiple server instances. You can switch to Redis/Upstash via BETTER_AUTH_RATE_LIMIT_STORAGE=secondary-storage."},
+     {"question": "What happens when a user hits the limit?", "answer": "They receive a 429 Too Many Requests response with a Retry-After header indicating when they can retry."},
+     {"question": "Does rate limiting apply to OAuth sign-in?", "answer": "Yes. OAuth endpoints are rate-limited like other auth endpoints. The limit applies to the redirect initiation, not the OAuth provider servers."}
+   ]
+/%}
+
+---
+
+**Next:** [One-Time Token Plugin →](./one-time-token-plugin)

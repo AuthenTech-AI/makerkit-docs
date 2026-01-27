@@ -102,7 +102,7 @@ create policy "Users can view their account's documents"
     using (public.has_role_on_account(account_id, 'admin'));
 ```
 
-NB: we're expecting the `public.documents` table to have an `account_id` column that references the `public.accounts` table.
+**Note:** We're expecting the `public.documents` table to have an `account_id` column that references the `public.accounts` table.
 
 ### Verifying a user has the required permissions
 

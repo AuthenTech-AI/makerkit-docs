@@ -2,58 +2,190 @@
 status: "published"
 title: "Storage Explorer"
 label: "Storage Explorer"
-order: 2
-description: "Learn how to use the Storage Explorer to explore the files in your storage bucket"
+order: 3
+description: "Browse, upload, and manage files in your Supabase Storage buckets. Navigate folders, preview files, and link storage items to database records."
 ---
 
-The Storage Explorer is a feature that allows you to explore the files in your storage bucket. It is useful to navigate and browse the files in your storage bucket, as well as uploading, downloading, and deleting files.
+The Storage Explorer provides a visual file manager for Supabase Storage. Browse your buckets, upload files, preview images and videos, and link files to database records through the Data Explorer.
 
-## Accessing the Storage Explorer
+**Key capabilities:**
+- Browse files and folders across all accessible buckets
+- Upload files with drag-and-drop
+- Preview images, videos, and audio inline
+- Download, rename, and delete files
+- Link files to database records
 
-The Storage Explorer is available at `/assets` and can be accessed through the Supamode UI's Sidebar. The storage explorer requires a Select Data Permission for the Assets scope. The path pattern and the bucket of the storage item must match the permission you have.
+{% img src="/images/supamode/storage-explorer.webp" alt="Storage Explorer showing files and folders in a bucket" width="1724" height="292" /%}
 
-{% img src="/images/supamode/storage-explorer.webp" alt="Storage Explorer" width="1724" height="292" /%}
+## Accessing Storage Explorer
 
-## Viewing files
+Navigate to **Storage** in the sidebar (or go to `/assets`).
 
-You can navigate the files in your storage bucket just like you navigate your files in a file explorer on your computer.
+**Permission required:** Your role needs storage permissions (`Data > Storage > Select`) for the buckets you want to access. See [Storage Permissions](#storage-permissions) below.
 
-When clicking on a file, you can see the details of the file, including the file name, size, and the last modified date.
+## Browsing Files
 
-{% img src="/images/supamode/storage-explorer-details.webp" alt="Storage Explorer File Details" width="1724" height="292" /%}
+The Storage Explorer works like a standard file manager:
 
-You can also download, delete, or rename the file.
+- Click folders to navigate into them
+- Use breadcrumbs to navigate back up
+- Search files by name
+- View file details (size, type, modified date)
 
-## Uploading files
+{% img src="/images/supamode/storage-explorer-search.webp" alt="Storage Explorer with search bar filtering files" width="1724" height="292" /%}
 
-You can upload files to your storage bucket by clicking on the **Upload Files** button at the top right of the page.
+## File Details
 
-{% img src="/images/supamode/storage-explorer-upload.webp" alt="Storage Explorer Upload" width="1724" height="292" /%}
+Click any file to view its details:
 
-## Searching files
+{% img src="/images/supamode/storage-explorer-details.webp" alt="File detail panel showing metadata and actions" width="1724" height="292" /%}
 
-You can search for files in your storage bucket by using the search bar at the top of the page.
+The detail panel shows:
+- File name and extension
+- File size
+- Last modified date
+- MIME type
+- Public URL (for public buckets)
 
-{% img src="/images/supamode/storage-explorer-search.webp" alt="Storage Explorer Search" width="1724" height="292" /%}
+**Available actions:**
+- **Download**: Download the file to your computer
+- **Rename**: Change the file name
+- **Delete**: Permanently remove the file
 
-## Using storage items in the Data Explorer
+## Uploading Files
 
-Once you've uploaded a file, you can use it in the Data Explorer, assuming the data type of the column is a storage reference, such as `Image`, `File`, `Video` or `Audio`.
+Click **Upload Files** or drag files directly into the browser window.
 
-{% img src="/images/supamode/storage-explorer-data-explorer.webp" alt="Storage Explorer Data Explorer" width="1724" height="292" /%}
+{% img src="/images/supamode/storage-explorer-upload.webp" alt="Upload dialog with file selection" width="1724" height="292" /%}
 
-Users have three options to use the storage item in the Data Explorer:
+**Upload behavior:**
+- Files upload to the current folder
+- Existing files with the same name are overwritten (no versioning)
+- Upload progress is shown for large files
+- Multiple files can be uploaded simultaneously
 
-1. **Upload a new file**: This will upload a new file to the storage bucket - as configured in the storage bucket settings.
-2. **Pick an existing file**: Users can pick an existing file from the storage bucket - which will store a reference to the file in the column.
-3. **Enter URL manually**: Users can also enter the URL manually.
+## Creating Folders
 
-### Browsing files from the file picker
+Supabase Storage uses virtual folders based on path prefixes. To create a folder:
 
-If users choose to pick an existing file, they will be able to browse the files in the storage bucket.
+1. Upload a file with a path prefix (e.g., `newfolder/file.txt`)
+2. The folder appears automatically
 
-{% img src="/images/supamode/storage-explorer-file-picker.webp" alt="Storage Explorer File Picker" width="1724" height="292" /%}
+Alternatively, some operations allow you to specify a path when uploading.
 
-Once the user selected a bucket, they can browse the files in the bucket:
+## Linking Files to Records
 
-{% img src="/images/supamode/storage-explorer-file-picker-item.webp" alt="Storage Explorer File Picker Item" width="1724" height="292" /%}
+Storage files can be linked to database records through columns configured as storage types (Image, File, Video, Audio).
+
+### In the Data Explorer
+
+When editing a record with a storage column:
+
+{% img src="/images/supamode/storage-explorer-data-explorer.webp" alt="Data Explorer field with file picker options" width="1724" height="292" /%}
+
+**Three options:**
+1. **Upload new file**: Upload directly from your computer
+2. **Pick existing file**: Browse Storage Explorer and select a file
+3. **Enter URL manually**: Paste an external URL
+
+### Picking Files
+
+When you choose to pick an existing file:
+
+{% img src="/images/supamode/storage-explorer-file-picker.webp" alt="File picker showing bucket selection" width="1724" height="292" /%}
+
+Select a bucket, then browse to find your file:
+
+{% img src="/images/supamode/storage-explorer-file-picker-item.webp" alt="File picker showing file selection within a bucket" width="1724" height="292" /%}
+
+Click the file to select it and link it to the record.
+
+## Storage Permissions
+
+Storage access is controlled by data permissions with the `Storage` scope.
+
+| Action | Required Permission |
+|--------|---------------------|
+| Browse files | `Data > Storage > Select` |
+| Upload files | `Data > Storage > Insert` |
+| Rename files | `Data > Storage > Update` |
+| Delete files | `Data > Storage > Delete` |
+
+### Permission Patterns
+
+Permissions can be scoped to specific buckets and paths:
+
+```
+# All buckets and paths
+*
+
+# All files in avatars bucket
+avatars/*
+
+# Files in a specific folder
+documents/invoices/*
+
+# Single bucket root only
+uploads
+```
+
+Configure storage permissions in [Roles and Permissions](../configuration/permissions).
+
+## Bucket Configuration
+
+Storage Explorer reads from your existing Supabase Storage buckets. Configure buckets through Supabase Studio:
+
+1. Go to Supabase Dashboard > Storage
+2. Create buckets for different file categories (avatars, documents, etc.)
+3. Set bucket policies (public or private)
+4. Configure allowed file types and size limits
+
+Supamode does not create buckets automatically. Ensure buckets exist before configuring storage columns.
+
+## Public vs Private Buckets
+
+**Public buckets:** Files have permanent public URLs. Anyone with the URL can access the file.
+
+**Private buckets:** Files require signed URLs with expiration. Supamode generates signed URLs automatically when displaying files.
+
+Consider your security requirements when choosing bucket visibility:
+- User avatars: Often public
+- Invoices/documents: Usually private
+- Uploaded content: Depends on use case
+
+## Best Practices
+
+### Organize with Folder Prefixes
+
+Use consistent path prefixes to organize files:
+
+```
+avatars/{user_id}/profile.jpg
+documents/{account_id}/invoices/{year}/invoice-{id}.pdf
+uploads/{date}/original-filename.ext
+```
+
+### Set Appropriate Bucket Policies
+
+- Enable RLS on private buckets
+- Restrict uploads by file type where needed
+- Set reasonable size limits
+
+### Clean Up Orphaned Files
+
+Deleting a database record doesn't delete linked storage files. Implement cleanup processes for orphaned files:
+
+- Database triggers that delete storage files on record deletion
+- Scheduled jobs to find and remove unlinked files
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "What file types can I upload?", "answer": "Supamode doesn't restrict file types by default. Restrictions are set at the Supabase Storage bucket level. Configure allowed MIME types in your bucket policies through Supabase Studio."},
+     {"question": "Is there a file size limit?", "answer": "The limit depends on your Supabase plan and bucket configuration. Free tier allows up to 50MB per file. Supamode itself doesn't impose additional limits."},
+     {"question": "How do I create a new folder?", "answer": "Supabase Storage uses virtual folders based on path prefixes. Upload a file with a path prefix (e.g., 'newfolder/file.txt'), and the folder appears automatically."},
+     {"question": "Can users access storage without Data Explorer access?", "answer": "Yes. Storage permissions are separate from table permissions. A user can browse and manage files without having access to any database tables."},
+     {"question": "How do I link a file to a database record?", "answer": "Configure the column as a storage data type (Image, File, Video, Audio) in table settings. When editing records, users can then pick files from storage or upload new ones directly."},
+     {"question": "What happens to files when I delete a database record?", "answer": "Storage files are not automatically deleted. The file remains in storage even if the record referencing it is deleted. Implement database triggers or scheduled cleanup jobs if you want automatic file deletion."}
+   ]
+/%}

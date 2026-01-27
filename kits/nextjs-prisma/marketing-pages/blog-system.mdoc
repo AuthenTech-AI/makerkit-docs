@@ -1,0 +1,206 @@
+---
+status: "published"
+title: "Blog System"
+label: "Blog System"
+order: 2
+description: "Create and manage blog content for content marketing and SEO with Keystatic CMS and Markdoc."
+---
+
+The blog system powers your content marketing and SEO strategy. Posts are written in Markdoc format, managed through Keystatic CMS, and rendered as server-side pages with full SEO metadata. The system supports categories, tags, featured posts, and automatic sitemap generation. By default, posts live in `apps/web/content/posts/` and are accessible at `/blog`.
+
+The blog system is a file-based content management solution that renders Markdoc posts as SEO-optimized pages, with support for categories, tags, and a visual admin UI.
+
+- **Use the blog when:** publishing tutorials, announcements, thought leadership, case studies, or SEO-focused content designed to drive organic traffic.
+- **Use the changelog when:** announcing specific releases, bug fixes, or feature updates in a structured, dated format.
+- **Use documentation when:** explaining how to use your product with step-by-step guides that users reference repeatedly.
+
+## Blog Structure
+
+Blog posts are stored in the `content/posts` directory:
+
+```
+apps/web/content/posts/
+├── getting-started-with-saas.mdoc
+├── authentication-best-practices.mdoc
+├── announcing-new-features.mdoc
+└── customer-story-acme.mdoc
+```
+
+Posts are accessible at `/blog/[slug]` where the slug is derived from the filename.
+
+## Post Frontmatter
+
+Every blog post requires frontmatter at the top of the file:
+
+```yaml
+---
+title: "Getting Started with Your SaaS"
+description: "Learn how to build your SaaS product faster with our comprehensive guide."
+publishedAt: 2025-01-15
+status: "published"
+collection: "tutorials.json"
+featured: false
+showOnLandingPage: false
+tags:
+  - tutorial
+  - getting-started
+image: "/images/blog/getting-started.webp"
+---
+```
+
+### Frontmatter Fields
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `title` | Yes | string | Post title (appears in page title and cards) |
+| `description` | Yes | string | Meta description for SEO (140-160 chars recommended) |
+| `publishedAt` | Yes | date | Publication date in YYYY-MM-DD format |
+| `status` | Yes | `"draft"` \| `"published"` | Only published posts appear on the site |
+| `collection` | No | string | Collection file for categorization |
+| `featured` | No | boolean | Feature on blog homepage (default: false) |
+| `showOnLandingPage` | No | boolean | Show in landing page blog section |
+| `tags` | No | string[] | Array of tag slugs for filtering |
+| `image` | No | string | Featured image path for cards and OG images |
+
+## Writing Posts
+
+Posts use Markdoc syntax, which extends Markdown with custom components:
+
+```markdown
+---
+title: "Authentication Best Practices"
+description: "Secure your SaaS with these authentication patterns."
+publishedAt: 2025-01-20
+status: "published"
+tags:
+  - security
+  - authentication
+---
+
+Building secure authentication is critical for any SaaS. 
+Here's what we've learned from shipping auth for thousands of apps.
+
+## Password Requirements
+
+Use strong password policies with minimum 8 characters.
+
+{% alert type="warning" title="Security Note" %}
+Never store passwords in plain text. Always use bcrypt or argon2.
+{% /alert %}
+
+## Multi-Factor Authentication
+
+MFA significantly reduces account compromise risk.
+
+```typescript
+// Enable MFA for sensitive operations
+const mfaRequired = await checkMfaStatus(userId);
+```
+```
+
+## Using the Admin UI
+
+Keystatic provides a visual editor at `/keystatic` for managing blog posts:
+
+1. Navigate to `http://localhost:3000/keystatic`
+2. Select "Posts" from the sidebar
+3. Click "Create" or edit an existing post
+4. Use the rich text editor or switch to Markdoc source
+5. Save changes (commits to your repository in GitHub mode)
+
+For Keystatic configuration details, see [Keystatic CMS](../content/keystatic).
+
+## Categories and Tags
+
+### Tags
+
+Tags are defined as an array in frontmatter:
+
+```yaml
+tags:
+  - nextjs
+  - authentication
+  - tutorial
+```
+
+Tags appear on post cards and enable filtering on the blog index.
+
+### Collections
+
+Collections group related posts. Define collections in the Keystatic configuration and reference them in frontmatter:
+
+```yaml
+collection: "tutorials.json"
+```
+
+## SEO Best Practices
+
+Every blog post should include:
+
+1. **Descriptive title** with primary keyword (50-60 characters)
+2. **Meta description** that summarizes the post (140-160 characters)
+3. **Featured image** in WebP format with descriptive alt text
+4. **Internal links** to related posts and documentation
+5. **Proper heading hierarchy** (H2, H3, H4)
+
+Posts automatically generate:
+- Open Graph meta tags for social sharing
+- JSON-LD Article structured data
+- Sitemap entries for search engine indexing
+
+## Fetching Posts Programmatically
+
+Use the CMS API to fetch posts in your components:
+
+```typescript
+import { createCmsClient } from '@kit/cms';
+
+async function getBlogPosts() {
+  const client = await createCmsClient();
+  
+  const { items } = await client.getContentItems({
+    collection: 'posts',
+    limit: 10,
+    status: 'published',
+    sortBy: 'publishedAt',
+    sortDirection: 'desc',
+  });
+  
+  return items;
+}
+```
+
+For complete API documentation, see [CMS API Reference](../content/cms-api).
+
+## Common Pitfalls
+
+- **Missing required frontmatter**: Posts without `title`, `description`, `publishedAt`, or `status` will fail to render. The build will error with a validation message.
+- **Invalid date format**: Use `YYYY-MM-DD` format for `publishedAt`. Other formats may parse incorrectly or cause timezone issues.
+- **Draft posts appearing in production**: Only posts with `status: "published"` appear on the site. Double-check status before deploying announcements.
+- **Slug conflicts**: Filenames must be unique. Two posts named `getting-started.mdoc` in different folders will conflict.
+- **Large images**: Optimize images before adding. Use WebP format and keep images under 200KB for fast page loads.
+- **Broken internal links**: Use relative links to other posts (`./other-post`) and verify they work after publishing.
+- **Forgetting to commit**: In Keystatic local mode, changes are local files. Commit and push to persist across deployments.
+
+## Related Documentation
+
+- [CMS Integration](../content/cms) - CMS architecture and configuration
+- [Keystatic CMS](../content/keystatic) - File-based CMS setup
+- [Changelog](./changelog) - Product update announcements
+- [Documentation](./documentation) - Help center content
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "How do I schedule a post for future publication?", "answer": "Set the publishedAt date to a future date and status to published. The post will appear once that date passes. Note: this requires ISR or rebuild to take effect."},
+     {"question": "Can I use MDX instead of Markdoc?", "answer": "Makerkit uses Markdoc by default through Keystatic. You can create a custom CMS client for MDX, but you'll need to handle rendering differently."},
+     {"question": "How do I add custom components to posts?", "answer": "Define custom Markdoc tags in your Keystatic configuration. Components like alerts, callouts, and code blocks are already available."},
+     {"question": "Where are images stored?", "answer": "Store images in the public/images/blog/ directory and reference them with absolute paths like /images/blog/my-image.webp."},
+     {"question": "How do I enable RSS feeds?", "answer": "RSS is generated automatically at /blog/rss.xml. The feed includes all published posts sorted by date."},
+     {"question": "Can multiple authors publish posts?", "answer": "Yes. In GitHub mode, multiple team members can edit posts through the Keystatic admin UI. Changes create branches and pull requests."}
+   ]
+/%}
+
+---
+
+**Next:** [Documentation →](./documentation)

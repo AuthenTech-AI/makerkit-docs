@@ -1,0 +1,128 @@
+---
+status: "published"
+title: "Mailpit for local development"
+label: "Local Development"
+description: "Learn how to use Mailpit for local development."
+order: 5
+---
+
+Test emails locally with Mailpit, a disposable SMTP server included in MakerKit's Docker Compose. All emails sent during development are captured at `localhost:8025` instead of reaching real inboxes. Mailpit starts automatically with `docker compose up` and requires no configuration - your existing Nodemailer settings work out of the box.
+
+This guide is part of the [Email Configuration](./configuration) documentation.
+
+**Definition:** Mailpit is a local SMTP server that captures all outgoing emails for inspection, providing a web UI at `localhost:8025` to view, debug, and test email content without sending to real addresses.
+
+**Use Mailpit when:** developing locally to test any email flow (auth, invitations, notifications). **Switch to real SMTP when:** testing deliverability, SPF/DKIM, or production email rendering. **Avoid Mailpit in CI when:** you need to verify emails programmatically - use Mailpit's API or a test SMTP service instead. **If unsure:** always use Mailpit locally - accidentally sending real emails during development is embarrassing.
+
+{% sequence title="Steps to use Mailpit for local development" description="Learn how to use Mailpit for local development." %}
+
+[What is Mailpit?](#what-is-mailpit)
+
+[Accessing Mailpit](#accessing-mailpit)
+
+[Common Use Cases](#common-use-cases)
+
+[Production Emails](#mailpit-vs-production-emails)
+
+{% /sequence %}
+
+When developing locally, use [Mailpit](https://mailpit.axllent.org) to capture emails. It intercepts all SMTP traffic and displays emails in a web interface - no emails reach real inboxes.
+
+## What is Mailpit?
+
+Mailpit is a disposable email service that captures all emails sent during local development. It's particularly useful for testing:
+
+- Email verification flows
+- Password reset emails
+- Team invitations
+- Notification emails
+- Any other transactional emails
+
+## Accessing Mailpit
+
+When running the development Docker Compose file, Mailpit is automatically available at:
+
+```bash
+# Start the development services (including Mailpit)
+pnpm run compose:dev:up
+
+# Mailpit web UI
+http://localhost:8025
+```
+
+You can view any captured emails by:
+
+1. Going to [http://localhost:8025](http://localhost:8025)
+2. Finding your test email in the list of received messages
+
+## Common Use Cases
+
+### 1. Email Verification
+
+When testing user signup:
+1. Create a new account using any email address
+2. Go to Mailpit at [http://localhost:8025](http://localhost:8025)
+3. Find the verification email
+4. Click the verification link or copy the verification code
+
+### 2. Password Reset
+
+To test password reset flows:
+1. Request a password reset using any email
+2. Check InBucket/Mailpit for the reset email
+3. Use the reset link or code to complete the process
+
+### 3. Team Invitations
+
+When testing team invites:
+1. Send an invitation to any email address
+2. Check Mailpit for the invitation email
+3. Use the invitation link to accept
+
+## Mailpit vs Production Emails
+
+Remember that Mailpit is for development only. In production:
+
+1. Configure a proper email service provider (Resend, SendGrid, etc.)
+2. Set up proper email authentication (SPF, DKIM)
+3. Use production-grade SMTP settings
+4. Monitor email deliverability
+
+## Using a different email provider during local development
+
+If you want to use a different email provider, switch the environment variables at `apps/web/.env.development`:
+
+```bash
+EMAIL_SENDER=test@makerkit.dev
+EMAIL_PORT=
+EMAIL_HOST=
+EMAIL_TLS=
+EMAIL_USER=
+EMAIL_PASSWORD=
+```
+
+We've found Mailpit invaluable during MakerKit development - it catches email bugs before they reach production, and the HTML preview helps verify template rendering across email clients.
+
+## Common Pitfalls
+
+- **Mailpit not running**: Emails silently fail if Mailpit isn't running. Start it with `docker compose up` before testing email flows.
+- **Wrong port in .env.development**: Mailpit uses port 1025 for SMTP, not 8025 (that's the web UI). Check `EMAIL_PORT=1025` in development.
+- **Production credentials in .env.development**: Never put real SMTP credentials in `.env.development`. Mailpit doesn't need credentials - leave them empty or use dummy values.
+- **Emails not appearing**: Check that your `EMAIL_HOST` points to `localhost` or `mailpit` (if using Docker networking). External hosts bypass Mailpit.
+- **Testing with Resend locally**: Resend uses HTTP, not SMTP. It bypasses Mailpit entirely. For local testing, use `MAILER_PROVIDER=nodemailer` with Mailpit.
+- **Clearing old emails**: Mailpit stores emails in memory by default. Restart Docker to clear them, or use Mailpit's delete API.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Does Mailpit work with Resend?", "answer": "No. Resend uses HTTP API, not SMTP. For local testing, switch to MAILER_PROVIDER=nodemailer. Mailpit only captures SMTP traffic."},
+     {"question": "Can I access Mailpit from a different machine?", "answer": "Yes, but you need to expose port 8025 in Docker and access via the host machine's IP. By default, it's only accessible from localhost."},
+     {"question": "How do I test email rendering in different clients?", "answer": "Mailpit shows HTML preview, but for true client testing, use services like Litmus or Email on Acid. Mailpit is for functional testing, not cross-client rendering."},
+     {"question": "Is Mailpit suitable for CI/CD pipelines?", "answer": "Yes. Mailpit has a REST API for programmatic access. Assert on email content in tests by querying localhost:8025/api/v1/messages."},
+     {"question": "What's the difference between Mailpit and Mailhog?", "answer": "Mailpit is a modern rewrite of Mailhog with better performance, active maintenance, and additional features like search and API improvements. MakerKit uses Mailpit."}
+   ]
+/%}
+
+---
+
+**Previous:** [Custom Mailer](./custom-mailer)

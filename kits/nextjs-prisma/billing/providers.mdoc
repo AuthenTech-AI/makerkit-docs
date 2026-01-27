@@ -1,0 +1,456 @@
+---
+status: published
+title: Billing Providers
+label: Providers
+order: 2
+description: Configure and use the unified billing client for payment processing
+---
+
+Access billing operations through the `BillingClient` API from `@kit/billing-api`. Call `getBilling(auth)` to get an instance, then use methods like `checkout()`, `portal()`, `listSubscriptions()`, and `checkPlanLimit()`. The same code works with both Stripe and Polar - only the environment variable changes.
+
+This guide is part of the [Billing & Subscriptions](./overview) documentation.
+
+The `BillingClient` is a unified TypeScript interface that abstracts provider-specific billing APIs (Stripe, Polar) into a consistent set of methods for checkout, subscription management, plan limits, entitlements, and usage metering.
+
+**Supported providers:**
+- **Stripe** - [Stripe](https://stripe.com) is a full-featured payment processor with per-organization customers, entitlements, and usage meters
+- **Polar** - [Polar](https://polar.sh) is an up-and-coming developer-focused billing provider that acts as a merchant of record for your business
+
+The `BillingClient` API provides:
+
+- **Core operations**: checkout, portal, subscriptions, cancel/restore
+- **Plan limits**: check and enforce countable quotas (seats, projects, storage)
+- **Entitlements**: boolean feature gating (Stripe Entitlements)
+- **Usage meters**: usage-based billing (Stripe Billing Meters)
+
+We provide raw access to the provider SDK as an escape hatch, in case the API doesn't cover all your requirements.
+
+## Configuration
+
+Set the billing provider via environment variable:
+
+```bash
+# Use Stripe (default)
+NEXT_PUBLIC_BILLING_PROVIDER=stripe
+
+# Use Polar
+NEXT_PUBLIC_BILLING_PROVIDER=polar
+```
+
+Currently supported: `stripe`, `polar`
+
+You also need `NEXT_PUBLIC_SITE_URL` set (absolute URL) for server-side return URLs used by billing actions.
+
+## Using the Billing Client
+
+### Get Billing Client Instance
+
+The `getBilling` function returns a unified `BillingClient` that provides access to all billing operations:
+
+```typescript
+import { getBilling } from '@kit/billing-api';
+import { auth } from '@kit/better-auth';
+
+// In a server action or loader
+const billing = await getBilling(auth);
+```
+
+The `auth` parameter is required and should be your Better Auth instance.
+
+### Context: `referenceId` and `customerType`
+
+Many billing APIs are **contextual**. Always decide:
+
+- `referenceId`: user id (personal) or organization id (org billing)
+- `customerType`: `'user'` or `'organization'`
+
+For Stripe, `customerType` is especially important for **per-organization customers** (so the provider can resolve `organizations.stripeCustomerId`).
+
+### Create Checkout Session
+
+```typescript
+const result = await billing.checkout({
+  userId: user.id,
+  planId: 'pro-monthly',
+  successUrl: '/billing/success',
+  cancelUrl: '/billing/cancel',
+  referenceId: org.id, // For organization billing
+  customerType: 'organization',
+  customer: {
+    email: user.email,
+    name: user.name,
+  },
+  metadata: {
+    source: 'upgrade-page',
+  },
+});
+
+// Redirect to result.url
+```
+
+### Customer Portal
+
+```typescript
+const portal = await billing.portal({
+  referenceId: user.id, // Required - user or organization ID
+  customerType: 'user', // use 'organization' for org billing
+  returnUrl: '/settings/billing',
+});
+
+// Redirect to portal.url
+```
+
+### List Subscriptions
+
+```typescript
+const { subscriptions, pagination } = await billing.listSubscriptions({
+  referenceId: user.id, // or organization ID
+  customerType: 'user', // use 'organization' for org billing
+  page: 1,
+  limit: 10,
+});
+```
+
+### Cancel Subscription
+
+`subscriptionId` is **provider implementation-defined**. In the Makerkit UI flows, the value passed to cancel/restore comes from `subscription.providerSubscriptionId` returned by `billing.listSubscriptions()`.
+
+```typescript
+await billing.cancelSubscription({
+  subscriptionId: 'sub_xxx',
+  referenceId: user.id,
+  customerType: 'user',
+});
+```
+
+## Plan Limits
+
+The billing client provides methods to check and enforce plan limits configured in your billing config.
+
+## Seat-based (Quantity) Billing
+
+Makerkit supports **quantity-based (“per-seat”) checkout** for organizations by deriving a seat count from the organization member count during checkout (with a minimum of 1).
+
+See:
+
+- [Customization](./customization) for how seat count is computed and how to tailor it for your product.
+- [Seat enforcement for organization invites](./seat-enforcement) for limiting team size based on purchased quantity.
+
+If you want to require billing before orgs can invite/add members, implement it via the Policy API (see “Requiring a subscription” in [Seat enforcement for organization invites](./seat-enforcement)).
+
+### Get Plan Limits
+
+```typescript
+const { limits, hasSubscription } = await billing.getPlanLimits(referenceId);
+
+// limits is a Record<string, number | null>
+// null means unlimited
+console.log(limits.seats);    // e.g., 10
+console.log(limits.projects); // e.g., null (unlimited)
+```
+
+### Check Plan Limit
+
+Use this before allowing actions that consume limited resources:
+
+```typescript
+const result = await billing.checkPlanLimit({
+  referenceId: user.id,
+  limitKey: 'seats',
+  currentUsage: currentMemberCount,
+});
+
+if (!result.allowed) {
+  throw new Error(`Seat limit reached (${result.current}/${result.limit})`);
+}
+
+// result shape:
+// {
+//   allowed: boolean,      // Can the action proceed?
+//   limit: number | null,  // The limit (null = unlimited)
+//   current: number,       // Current usage
+//   remaining: number | null, // Remaining capacity
+//   hasSubscription: boolean  // Has active subscription?
+// }
+```
+
+### Find Plan by Name
+
+Look up plan configuration from the billing config:
+
+```typescript
+const plan = billing.findPlanByName('pro-monthly');
+
+if (plan) {
+  console.log(plan.cost);       // 19.99
+  console.log(plan.limits);     // { seats: 10 }
+  console.log(plan.priceId);    // Stripe price ID
+}
+```
+
+## Entitlements (Feature Flags)
+
+Entitlements provide boolean feature gating using Stripe Entitlements. Methods return safe defaults when the provider doesn't support entitlements.
+
+### Check Entitlement
+
+```typescript
+const { entitled, source } = await billing.checkEntitlement(
+  customerId,
+  'advanced-analytics'
+);
+
+if (!entitled) {
+  throw new Error('Upgrade to access advanced analytics');
+}
+
+// source is 'provider' or 'unsupported'
+```
+
+### Get All Entitlements
+
+```typescript
+const entitlements = await billing.listEntitlements(customerId);
+
+// Returns Entitlement[] or empty array if unsupported
+for (const e of entitlements) {
+  console.log(e.lookupKey); // 'api-access', 'advanced-analytics', etc.
+}
+```
+
+## Usage Meters
+
+Usage meters enable usage-based billing. Stripe uses **Stripe Billing Meters**; Polar uses **Polar meters**. Methods return safe defaults when unsupported.
+
+**Polar limitation:** the kit’s Polar integration returns **all-time usage** (no time-range filtering).
+
+### Record Usage
+
+```typescript
+const result = await billing.recordUsage(
+  'api_calls',     // event name
+  customerId,      // Provider customer ID (e.g. Stripe cus_…)
+  1,               // value
+);
+
+if (!result.recorded) {
+  console.error(result.error);
+}
+```
+
+### Get Usage
+
+```typescript
+const usage = await billing.getUsage(
+  'meter_123',  // meter ID
+  customerId,
+);
+
+// Returns MeterUsageSummary[] or empty array
+if (usage.length > 0) {
+  console.log(`Used ${usage[0].aggregatedValue} API calls this period`);
+}
+```
+
+## Provider Capabilities
+
+Check what the current provider supports:
+
+```typescript
+const { capabilities } = billing;
+
+if (capabilities.supportsRestore) {
+  // Show restore button for canceled subscriptions
+}
+
+if (capabilities.supportsEntitlements) {
+  // Use entitlement-based feature gating
+}
+
+// Available capabilities:
+// - supportsRestore: boolean
+// - supportsCancel: boolean
+// - supportsPortal: boolean
+// - supportsOrganizations: boolean
+// - supportsEntitlements: boolean
+// - supportsUsageMeters: boolean
+```
+
+## Escape Hatches
+
+For advanced use cases not covered by the unified API:
+
+### Get Raw Provider
+
+```typescript
+const provider = billing.getProvider();
+// Returns the underlying BillingProvider instance
+```
+
+### Get Provider Client
+
+```typescript
+const stripe = billing.getProviderClient() as Stripe;
+// Access the raw Stripe SDK
+const invoice = await stripe.invoices.retrieve('inv_xxx');
+```
+
+## Stripe Provider
+
+The default provider uses Stripe via Better Auth's Stripe plugin.
+
+### Setup
+
+Configure Stripe keys:
+
+```bash
+STRIPE_SECRET_KEY=sk_xxx
+STRIPE_WEBHOOK_SECRET=whsec_xxx
+```
+
+Create products and prices in Stripe Dashboard, and apply them in billing config:
+
+```typescript {% title="packages/billing/config/src/config.ts" %}
+import { BillingConfig } from '@kit/billing';
+
+export const billingConfig: BillingConfig = {
+  products: [
+    {
+      id: 'pro',
+      name: 'Pro Plan',
+      description: 'For growing teams',
+      currency: 'USD',
+      features: ['All features', 'Priority support'],
+      plans: [
+        {
+          name: 'pro-monthly',
+          planId: process.env.STRIPE_PRICE_PRO_MONTHLY!,
+          displayName: 'Pro Monthly',
+          interval: 'month',
+          cost: 29,
+        },
+      ],
+    },
+  ],
+};
+```
+
+### Webhook Events
+
+Stripe webhooks are handled automatically by Better Auth. Key events:
+
+| Event | Handler |
+|-------|---------|
+| `checkout.session.completed` | Creates subscription |
+| `customer.subscription.updated` | Updates subscription status |
+| `customer.subscription.deleted` | Marks subscription canceled |
+| `invoice.payment_failed` | Triggers payment failed hook |
+
+## Polar Provider
+
+Polar is a developer-focused payment processor that integrates via Better Auth's Polar plugin.
+
+### Setup
+
+Configure Polar credentials:
+
+```bash
+NEXT_PUBLIC_BILLING_PROVIDER=polar
+POLAR_ACCESS_TOKEN=polar_at_xxx
+POLAR_ENVIRONMENT=sandbox  # or 'production'
+
+POLAR_WEBHOOK_SECRET=whsec_xxx # optional
+```
+
+Create products in Polar Dashboard, and map products in billing config:
+
+```typescript {% title="packages/billing/config/src/config.ts" %}
+export const billingConfig: BillingConfig = {
+  products: [
+    {
+      id: 'pro',
+      name: 'Pro Plan',
+      description: 'For growing teams',
+      currency: 'USD',
+      features: ['All features', 'Priority support'],
+      plans: [
+        {
+          name: 'pro-monthly',
+          planId: process.env.POLAR_PRODUCT_PRO_MONTHLY!,
+          displayName: 'Pro Monthly',
+          interval: 'month',
+          cost: 29,
+        },
+      ],
+    },
+  ],
+};
+```
+
+### Benefits
+
+Polar supports “benefits”, but Makerkit **does not currently map benefits to `BillingClient` entitlements** (entitlements are Stripe-only in this kit). If you need benefits, use the raw Polar SDK via `billing.getProviderClient()`.
+
+## Provider Capabilities Comparison
+
+| Capability | Stripe | Polar |
+|------------|--------|-------|
+| Checkout | ✅ | ✅ |
+| Customer Portal | ✅ | ✅ |
+| Cancel (API) | ✅ | ❌ (via portal) |
+| Restore (API) | ✅ | ❌ (via portal) |
+| Entitlements | ✅ | ❌ |
+| Usage Meters | ✅ | ✅ |
+| Organizations (per-org customers) | ✅ | ⚠️ Limited (no org customer context) |
+| Trial Periods | ✅ | ✅ |
+
+Use `billing.capabilities` to check what the active provider supports:
+
+```typescript
+const { capabilities } = billing;
+
+// Only show cancel button if provider supports it
+if (capabilities.supportsCancel) {
+  // Show cancel button
+}
+```
+
+## Decision Rules
+
+**Use Stripe when:**
+- You need per-organization customers with separate billing
+- You want entitlements (boolean feature flags tied to subscriptions)
+- You need API-based cancel/restore (not just portal)
+- Your customers expect Stripe's brand recognition
+
+**Use Polar when:**
+- You prefer a merchant of record model (Polar handles taxes, VAT)
+- You're building a developer-focused product (Polar's niche)
+- You don't need per-organization customer records
+- You want simpler setup at the cost of fewer features
+
+**If unsure:** Start with Stripe. It has broader feature support and you can always switch later (though subscriptions don't migrate).
+
+## Common Pitfalls
+
+- **Forgetting `auth` parameter**: `getBilling(auth)` requires your Better Auth instance. Without it, the client can't resolve provider configuration.
+- **Using wrong ID type**: `subscriptionId` in cancel/restore is `providerSubscriptionId` from `listSubscriptions()`, not your internal ID.
+- **Assuming entitlements work on Polar**: Entitlements are Stripe-only. On Polar, `checkEntitlement()` returns `{ entitled: false, source: 'unsupported' }`.
+- **Ignoring capabilities**: Not all providers support all features. Check `billing.capabilities.supportsCancel` before showing cancel buttons.
+- **Mixing customerType**: For organization billing, use `customerType: 'organization'` and `referenceId: org.id`. Mismatching these causes customer lookup failures.
+- **Not handling pagination**: `listSubscriptions()` returns `{ subscriptions, pagination }`. Large accounts may have multiple pages.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "How do I access the raw Stripe/Polar SDK?", "answer": "Call billing.getProviderClient() to get the underlying SDK instance. Cast it to the correct type (Stripe or Polar) based on your provider."},
+     {"question": "What's the difference between referenceId and customerId?", "answer": "referenceId is your internal user or organization ID. customerId is the provider's customer identifier (e.g., cus_... for Stripe). The billing client maps between them."},
+     {"question": "Can I call billing methods from client components?", "answer": "No. getBilling() is server-only. Use server actions to call billing methods and return results to the client."},
+     {"question": "How do I check if a user has an active subscription?", "answer": "Call listSubscriptions() and check if any subscription has status 'active' or 'trialing'. The hasSubscription flag in checkPlanLimit() also indicates this."},
+     {"question": "What happens if the provider is unavailable?", "answer": "Billing methods will throw. Wrap calls in try/catch and handle gracefully. For checkouts, show an error and suggest retrying."}
+   ]
+/%}
+
+---
+
+**Next:** [Stripe Setup →](./stripe-setup)

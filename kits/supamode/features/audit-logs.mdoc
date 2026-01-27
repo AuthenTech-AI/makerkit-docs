@@ -1,32 +1,220 @@
 ---
 status: "published"
-title: "Keep track of changes to your data and permissions using the Supamode Audit Logs"
+title: "Audit Logs for Compliance and Activity Tracking"
 label: "Audit Logs"
 order: 5
-description: "Learn how to use the Supamode Audit Logs to keep track of changes to your data and permissions"
+description: "Track all changes to your data and permissions. Use audit logs for compliance, debugging, and accountability across your admin team."
 ---
 
-Actions that are performed in the application are logged to the audit logs. This is important for auditing and compliance, and keeping track of changes to the data/permissions.
+Supamode automatically logs all administrative actions, giving you a complete audit trail. Every data change, permission update, and user management action is recorded with who did it, when, and what changed.
 
-## Audit Logs
+**Use audit logs to:**
+- Track who modified sensitive data
+- Debug issues by reviewing recent changes
+- Meet compliance requirements (SOC 2, HIPAA, GDPR)
+- Monitor admin activity across your team
 
-Audit logs are available at `/logs` and can be accesed through the Supamode UI's Sidebar. All Admin users can view their own audit logs - however, to view all audit logs, users require a Select System Permission for the Logs scope.
+## Accessing Audit Logs
 
-{% img src="/images/supamode/audit-logs.webp" alt="Audit Logs" width="1724" height="292" /%}
+Navigate to **Audit Logs** in the sidebar (or go to `/logs`).
 
-## Audit Log Details
+{% img src="/images/supamode/audit-logs.webp" alt="Audit logs list showing recent administrative actions" width="1724" height="292" /%}
 
-When you click on an audit log, you can see the details of the audit log.
+**Permission required:** Users see their own audit logs by default. To view all logs, your role needs `System > Log > Select` permission.
 
-{% img src="/images/supamode/audit-logs-new-data.webp" alt="Audit Log Details" width="1724" height="292" /%}
+## Log Entry Details
 
-## Audit Log Filters
+Click any log entry to see the full details:
 
-You can filter the audit logs by the following fields:
+{% img src="/images/supamode/audit-logs-new-data.webp" alt="Audit log detail showing before and after values" width="1724" height="292" /%}
 
-- **Account ID**: The account that performed the action.
-- **Action**: The action that was performed. You can add multiple actions to the filter.
-- **Start Date**: The start date of the action.
-- **End Date**: The end date of the action.
+Each entry includes:
 
-{% img src="/images/supamode/audit-logs-filters.webp" alt="Audit Logs Filters" width="1724" height="292" /%}
+| Field | Description |
+|-------|-------------|
+| **Actor** | Who performed the action (account ID, email) |
+| **Timestamp** | When the action occurred |
+| **Action** | What operation was performed (insert, update, delete) |
+| **Resource** | Which table and record was affected |
+| **Changes** | Before and after values for updates |
+| **Metadata** | IP address, user agent, request context |
+
+## Filtering Logs
+
+Use filters to find specific log entries:
+
+{% img src="/images/supamode/audit-logs-filters.webp" alt="Audit log filter panel with account, action, and date options" width="1724" height="292" /%}
+
+**Available filters:**
+- **Account**: Filter by who performed the action
+- **Action**: Filter by operation type (insert, update, delete)
+- **Date Range**: Filter by when the action occurred
+
+Combine filters to narrow down results. For example, find all deletions by a specific user in the last 7 days.
+
+## What Gets Logged
+
+Supamode automatically logs actions across these categories:
+
+### Data Operations
+
+All CRUD operations on managed tables:
+- **Insert**: New record created, with all field values
+- **Update**: Record modified, with before and after values
+- **Delete**: Record removed, with deleted values
+
+### User Management
+
+Actions performed in the [Users Explorer](./users-explorer):
+- Create user
+- Update user details
+- Delete user
+- Ban/unban user
+- Send password reset
+- Send magic link
+
+### Permission Changes
+
+Changes to the RBAC system:
+- Role created, updated, or deleted
+- Permission created, updated, or deleted
+- Permission group modified
+- Role assigned to or removed from account
+
+### System Settings
+
+Configuration changes:
+- Table metadata updates
+- System settings modified
+- MFA enforcement changes
+
+## Reading Change History
+
+For update operations, the log shows exactly what changed:
+
+```json
+{
+  "before": {
+    "status": "draft",
+    "title": "My Post"
+  },
+  "after": {
+    "status": "published",
+    "title": "My Post"
+  }
+}
+```
+
+This makes it easy to see that the `status` field changed from `draft` to `published`, while `title` remained unchanged.
+
+## Compliance Use Cases
+
+Audit logs help meet regulatory requirements:
+
+| Regulation | How Audit Logs Help |
+|------------|---------------------|
+| **SOC 2** | Demonstrate access controls and change tracking |
+| **HIPAA** | Track who accessed patient data and when |
+| **GDPR** | Document data processing activities |
+| **PCI DSS** | Log access to cardholder data |
+
+For compliance audits, export logs using direct database queries (see FAQ below).
+
+## Retention and Storage
+
+Audit logs are stored in `supamode.audit_logs` in your Supabase database. By default, logs are retained indefinitely.
+
+**Storage considerations:**
+- Each log entry is approximately 1-5 KB
+- High-volume applications may accumulate significant storage
+- Implement archival or deletion policies based on your compliance requirements
+
+**Example retention policy (archive logs older than 90 days):**
+
+```sql
+-- Move old logs to an archive table
+INSERT INTO supamode.audit_logs_archive
+SELECT * FROM supamode.audit_logs
+WHERE created_at < NOW() - INTERVAL '90 days';
+
+-- Delete archived logs from main table
+DELETE FROM supamode.audit_logs
+WHERE created_at < NOW() - INTERVAL '90 days';
+```
+
+Schedule this as a Supabase Edge Function or external cron job.
+
+## Querying Logs Directly
+
+For advanced analysis, query the `supamode.audit_logs` table:
+
+```sql
+-- Find all deletions in the last 24 hours
+SELECT *
+FROM supamode.audit_logs
+WHERE action = 'delete'
+  AND created_at > NOW() - INTERVAL '24 hours'
+ORDER BY created_at DESC;
+
+-- Find all actions by a specific user
+SELECT *
+FROM supamode.audit_logs
+WHERE account_id = 'user-uuid-here'
+ORDER BY created_at DESC
+LIMIT 100;
+
+-- Count actions by type this month
+SELECT action, COUNT(*)
+FROM supamode.audit_logs
+WHERE created_at > DATE_TRUNC('month', NOW())
+GROUP BY action;
+```
+
+## Best Practices
+
+### Review Logs Regularly
+
+Set up a routine to review audit logs, especially for:
+- Administrative permission changes
+- Bulk delete operations
+- Access to sensitive tables
+
+### Set Up Alerts
+
+Use Supabase webhooks or database triggers to alert on specific actions:
+
+```sql
+-- Example: Trigger on high-risk actions
+CREATE OR REPLACE FUNCTION notify_on_delete()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.action = 'delete' AND NEW.resource_type = 'users' THEN
+    -- Send notification (webhook, email, etc.)
+    PERFORM pg_notify('admin_alerts', json_build_object(
+      'type', 'user_deleted',
+      'actor', NEW.account_id,
+      'timestamp', NEW.created_at
+    )::text);
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### Protect Log Integrity
+
+- Restrict direct database access to audit log tables
+- Never grant delete permissions on `supamode.audit_logs` through Supamode
+- Consider database-level immutability for compliance scenarios
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "How long are audit logs retained?", "answer": "Audit logs are stored indefinitely by default. Implement your own retention policy by periodically archiving or deleting old logs via SQL. Consider compliance requirements when setting retention periods."},
+     {"question": "Can I export audit logs?", "answer": "Query the supamode.audit_logs table directly using SQL or Supabase Studio. For automated exports, create a scheduled Edge Function to export to S3, BigQuery, or your analytics platform."},
+     {"question": "Do audit logs capture failed operations?", "answer": "Audit logs primarily capture successful operations. Failed authentication attempts can be logged depending on Supabase Auth configuration. Database constraint violations are not logged in the audit trail."},
+     {"question": "Can users delete their own audit logs?", "answer": "No. Even with full permissions, users cannot delete audit logs through Supamode's UI. Direct database access with superuser privileges would be required, which should be restricted in production."},
+     {"question": "How do I see what changed in an update?", "answer": "Click any update log entry to see the detail view. You'll see both the previous values (before) and new values (after) for all changed fields, making it easy to identify exactly what was modified."},
+     {"question": "Are audit logs included in database backups?", "answer": "Yes. Audit logs are stored in your Supabase database and included in Supabase's automated backups. For point-in-time recovery, audit logs are restored along with your other data."}
+   ]
+/%}

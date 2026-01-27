@@ -1,0 +1,98 @@
+---
+status: "published"
+title: "Organization Dashboard"
+label: "Dashboard"
+order: 2
+description: "Organization dashboard implementation and customization."
+---
+
+The organization dashboard is the main workspace for team members. It uses the same route and component as the personal dashboard - the displayed content adapts based on the active account context.
+
+The organization dashboard in the Next.js Prisma kit is a context-aware workspace that displays different content based on the active account (personal or organization). The same `/dashboard` route serves both account types - the `useTeamAccountWorkspace()` hook provides access to current organization data for conditional rendering and data fetching.
+
+The organization dashboard is the primary workspace view where team members access organization-specific data, metrics, and actions. It shares the `/dashboard` route with personal accounts, distinguished by application context.
+
+| Property | Value |
+|----------|-------|
+| Route | `/dashboard` |
+| Location | `apps/web/app/[locale]/(internal)/dashboard/page.tsx` |
+| Context | Determined by active account in state |
+
+{% img src="/images/docs/dashboard.webp" width="2388" height="1798" /%}
+
+## Customizing the Dashboard
+
+The default dashboard shows mock data as a starting point. Replace it with your organization-specific content:
+
+```typescript
+// apps/web/app/[locale]/(internal)/dashboard/page.tsx
+import { useTeamAccountWorkspace } from '@kit/team-accounts/hooks/use-team-account-workspace';
+
+function DashboardPage() {
+  const { account } = useTeamAccountWorkspace();
+
+  // account.id = organization ID
+  // Use this to fetch organization-specific data
+
+  return (
+    <div>
+      <h1>{account.name} Dashboard</h1>
+      {/* Your organization dashboard content */}
+    </div>
+  );
+}
+```
+
+## Conditional Content by Account Type
+
+To show different content for personal vs organization accounts:
+
+```typescript
+import { useTeamAccountWorkspace } from '@kit/team-accounts/hooks/use-team-account-workspace';
+
+function DashboardPage() {
+  const { account } = useTeamAccountWorkspace();
+  const isOrganization = account.isPersonalAccount === false;
+
+  if (isOrganization) {
+    return <OrganizationDashboard account={account} />;
+  }
+
+  return <PersonalDashboard account={account} />;
+}
+```
+
+## Data Fetching Pattern
+
+For server components, use loaders that filter by account:
+
+```typescript
+// _lib/server/dashboard.loader.ts
+import 'server-only';
+import { getSupabaseServerClient } from '@kit/supabase/server-client';
+
+export async function loadDashboardData(accountId: string) {
+  const client = getSupabaseServerClient();
+
+  const { data, error } = await client
+    .from('projects')
+    .select('*')
+    .eq('account_id', accountId);
+
+  if (error) throw error;
+  return data;
+}
+```
+
+RLS ensures users only access data for accounts they belong to - no additional authorization checks needed.
+
+## Common Pitfalls
+
+- **Using `useUserWorkspace()` instead of `useTeamAccountWorkspace()`**: The personal workspace hook doesn't have organization context. Always use `useTeamAccountWorkspace()` in organization pages.
+- **Fetching data without account_id filter**: Even with RLS, always filter by `account_id` explicitly for performance and clarity.
+- **Mixing client/server patterns**: The `useTeamAccountWorkspace()` hook is client-only. For server components, get the account from page params or loader functions.
+- **Not handling loading states**: Dashboard data fetching can be slow. Always show loading skeletons while data loads.
+
+---
+
+**Next:** [Account Switcher →](./account-switcher)

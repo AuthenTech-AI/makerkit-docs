@@ -1,0 +1,336 @@
+---
+status: "published"
+title: 'Creating a Custom Analytics Provider'
+label: 'Custom Provider'
+description: 'Learn how to implement custom analytics providers for Google Analytics, PostHog, Mixpanel, or any analytics service in your Makerkit application.'
+order: 1
+---
+
+Makerkit's analytics system is designed for flexibility. You implement providers for the analytics services you want to use. This guide shows you how to create providers for popular services like Google Analytics and PostHog.
+
+{% sequence title="Implementation Steps" description="Create and register a custom analytics provider" %}
+
+[Implement the AnalyticsService Interface](#implement-the-analyticsservice-interface)
+
+[Register Your Provider](#register-your-provider)
+
+[Example: Google Analytics](#example-google-analytics)
+
+[Example: PostHog](#example-posthog)
+
+{% /sequence %}
+
+## Implement the AnalyticsService Interface
+
+Every analytics provider must implement the `AnalyticsService` interface. Create a new file in the analytics package:
+
+```typescript {% title="packages/analytics/src/providers/my-analytics-service.ts" %}
+import type { AnalyticsService } from '../types';
+
+export class MyAnalyticsService implements AnalyticsService {
+  async initialize(): Promise<void> {
+    // Load the analytics SDK, initialize with API keys, etc.
+  }
+
+  async identify(
+    userId: string,
+    traits?: Record<string, string>
+  ): Promise<void> {
+    // Associate this user ID with subsequent events
+  }
+
+  async trackPageView(path: string): Promise<void> {
+    // Record a page view event
+  }
+
+  async trackEvent(
+    eventName: string,
+    eventProperties?: Record<string, string | string[]>
+  ): Promise<void> {
+    // Record a custom event
+  }
+}
+```
+
+All methods return Promises. You can use `async/await` or return `Promise.resolve()` for synchronous operations. The `void` keyword can be used to ignore return values in non-async contexts.
+
+## Register Your Provider
+
+Update the analytics configuration to include your provider:
+
+```typescript {% title="packages/analytics/src/index.ts" %}
+import { createAnalyticsManager } from './analytics-manager';
+import { MyAnalyticsService } from './providers/my-analytics-service';
+import type { AnalyticsManager } from './types';
+
+export const analytics: AnalyticsManager = createAnalyticsManager({
+  providers: {
+    myAnalytics: () => new MyAnalyticsService(),
+  },
+});
+```
+
+The AnalyticsManager calls `initialize()` automatically when registering providers.
+
+## Example: Google Analytics
+
+Here's a complete implementation for Google Analytics 4:
+
+```typescript {% title="packages/analytics/src/providers/google-analytics-service.ts" %}
+import type { AnalyticsService } from '../types';
+
+declare global {
+  interface Window {
+    gtag: (...args: unknown[]) => void;
+    dataLayer: unknown[];
+  }
+}
+
+export class GoogleAnalyticsService implements AnalyticsService {
+  private readonly measurementId: string;
+  private initialized = false;
+
+  constructor() {
+    const measurementId = process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID;
+
+    if (!measurementId) {
+      throw new Error('NEXT_PUBLIC_GA_MEASUREMENT_ID is not defined');
+    }
+
+    this.measurementId = measurementId;
+  }
+
+  async initialize(): Promise<void> {
+    if (this.initialized || typeof window === 'undefined') {
+      return;
+    }
+
+    // Skip on localhost if configured
+    if (
+      process.env.NEXT_PUBLIC_GA_DISABLE_LOCALHOST_TRACKING === 'true' &&
+      window.location.hostname === 'localhost'
+    ) {
+      return;
+    }
+
+    // Load the gtag script
+    const script = document.createElement('script');
+    script.src = `https://www.googletagmanager.com/gtag/js?id=${this.measurementId}`;
+    script.async = true;
+    document.head.appendChild(script);
+
+    // Initialize gtag
+    window.dataLayer = window.dataLayer || [];
+    window.gtag = function gtag() {
+      window.dataLayer.push(arguments);
+    };
+
+    window.gtag('js', new Date());
+    window.gtag('config', this.measurementId, {
+      send_page_view: false, // We handle page views manually
+    });
+
+    this.initialized = true;
+  }
+
+  async identify(
+    userId: string,
+    traits?: Record<string, string>
+  ): Promise<void> {
+    if (!this.initialized) return;
+
+    window.gtag('set', 'user_properties', {
+      user_id: userId,
+      ...traits,
+    });
+  }
+
+  async trackPageView(path: string): Promise<void> {
+    if (!this.initialized) return;
+
+    window.gtag('event', 'page_view', {
+      page_path: path,
+    });
+  }
+
+  async trackEvent(
+    eventName: string,
+    eventProperties?: Record<string, string | string[]>
+  ): Promise<void> {
+    if (!this.initialized) return;
+
+    window.gtag('event', eventName, eventProperties);
+  }
+}
+```
+
+**Environment Variables:**
+
+```bash {% title=".env.local" %}
+NEXT_PUBLIC_GA_MEASUREMENT_ID=G-XXXXXXXXXX
+NEXT_PUBLIC_GA_DISABLE_LOCALHOST_TRACKING=true
+```
+
+## Example: PostHog
+
+Here's a complete implementation for PostHog with both client and server support:
+
+```typescript {% title="packages/analytics/src/providers/posthog-service.ts" %}
+import type { AnalyticsService } from '../types';
+
+declare global {
+  interface Window {
+    posthog: {
+      init: (apiKey: string, options: object) => void;
+      identify: (userId: string, traits?: object) => void;
+      capture: (event: string, properties?: object) => void;
+    };
+  }
+}
+
+export class PostHogClientService implements AnalyticsService {
+  private readonly apiKey: string;
+  private readonly host: string;
+  private initialized = false;
+
+  constructor() {
+    const apiKey = process.env.NEXT_PUBLIC_POSTHOG_KEY;
+    const host = process.env.NEXT_PUBLIC_POSTHOG_HOST;
+
+    if (!apiKey || !host) {
+      throw new Error('PostHog environment variables are not defined');
+    }
+
+    this.apiKey = apiKey;
+    this.host = host;
+  }
+
+  async initialize(): Promise<void> {
+    if (this.initialized || typeof window === 'undefined') {
+      return;
+    }
+
+    // Load PostHog script
+    const script = document.createElement('script');
+    script.innerHTML = `
+      !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.async=!0,p.src=s.api_host+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="capture identify alias people.set people.set_once set_config register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags getFeatureFlag getFeatureFlagPayload reloadFeatureFlags group updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures getActiveMatchingSurveys getSurveys".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+    `;
+    document.head.appendChild(script);
+
+    // Wait for script to load and initialize
+    await new Promise<void>((resolve) => {
+      const checkPostHog = setInterval(() => {
+        if (window.posthog) {
+          clearInterval(checkPostHog);
+          window.posthog.init(this.apiKey, {
+            api_host: this.host,
+            capture_pageview: false, // We handle page views manually
+          });
+          resolve();
+        }
+      }, 100);
+    });
+
+    this.initialized = true;
+  }
+
+  async identify(
+    userId: string,
+    traits?: Record<string, string>
+  ): Promise<void> {
+    if (!this.initialized) return;
+
+    window.posthog.identify(userId, traits);
+  }
+
+  async trackPageView(path: string): Promise<void> {
+    if (!this.initialized) return;
+
+    window.posthog.capture('$pageview', {
+      $current_url: path,
+    });
+  }
+
+  async trackEvent(
+    eventName: string,
+    eventProperties?: Record<string, string | string[]>
+  ): Promise<void> {
+    if (!this.initialized) return;
+
+    window.posthog.capture(eventName, eventProperties);
+  }
+}
+```
+
+**Environment Variables:**
+
+```bash {% title=".env.local" %}
+NEXT_PUBLIC_POSTHOG_KEY=phc_your_key_here
+NEXT_PUBLIC_POSTHOG_HOST=https://eu.posthog.com
+```
+
+## Using Multiple Providers
+
+Register multiple providers to send events to all of them simultaneously:
+
+```typescript {% title="packages/analytics/src/index.ts" %}
+import { createAnalyticsManager } from './analytics-manager';
+import { GoogleAnalyticsService } from './providers/google-analytics-service';
+import { PostHogClientService } from './providers/posthog-service';
+import type { AnalyticsManager } from './types';
+
+export const analytics: AnalyticsManager = createAnalyticsManager({
+  providers: {
+    googleAnalytics: () => new GoogleAnalyticsService(),
+    posthog: () => new PostHogClientService(),
+  },
+});
+```
+
+When you call `analytics.trackEvent('signup', { plan: 'pro' })`, the event is sent to both Google Analytics and PostHog.
+
+## Using Analytics in Components
+
+Once registered, use the analytics service anywhere in your application:
+
+```typescript {% title="Example usage" %}
+import { analytics } from '@kit/analytics';
+
+// Identify a user
+void analytics.identify('user_123', { name: 'John Doe' });
+
+// Track an event
+void analytics.trackEvent('feature_used', { featureName: 'export' });
+
+// Track a page view (usually handled automatically)
+void analytics.trackPageView('/dashboard');
+```
+
+The `void` keyword is used because these methods return Promises but we don't need to await them in fire-and-forget scenarios.
+
+## Dynamic Provider Management
+
+You can activate or deactivate registered providers at runtime:
+
+```typescript
+import { analytics } from '@kit/analytics';
+
+// Re-initialize a registered provider with new config
+await analytics.addProvider('googleAnalytics', { debug: true });
+
+// Temporarily disable a provider
+analytics.removeProvider('googleAnalytics');
+```
+
+Note that `addProvider` only works with providers already defined in the `providers` object when creating the AnalyticsManager. It re-initializes the provider with optional configuration. Use `removeProvider` to temporarily disable a provider without removing its registration.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Why doesn't Makerkit include pre-built analytics providers?", "answer": "Analytics needs vary widely between projects. Some need GDPR-compliant solutions like Plausible, others need product analytics like Mixpanel. By providing the abstraction without implementations, you choose exactly what fits your needs without unnecessary dependencies."},
+     {"question": "How do I test analytics in development?", "answer": "Most providers have localhost detection you can configure. You can also use the NullAnalyticsService during development, or check the console for debug output from your provider implementation."},
+     {"question": "Can I track the same event differently per provider?", "answer": "The AnalyticsManager broadcasts the same event to all providers. If you need different behavior per provider, implement that logic in the provider's trackEvent method."}
+   ]
+/%}
+
+**Next:** [Server-Side Analytics →](server-side-analytics)

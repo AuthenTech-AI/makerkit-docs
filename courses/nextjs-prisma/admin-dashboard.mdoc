@@ -1,0 +1,602 @@
+---
+status: "published"
+title: "Building an Admin Dashboard with Makerkit Next.js Prisma"
+label: "Admin Dashboard"
+order: 11
+description: "Understand Makerkit's admin dashboard for user and organization management. View all TeamPulse feedback across organizations."
+---
+
+In this module, you'll explore the admin dashboard that lets you manage users and organizations, view system metrics, and perform administrative actions.
+
+**Technologies used:**
+- Better Auth Admin Plugin - User management, impersonation, banning
+- Prisma ORM - Direct database queries for metrics
+- DataTable - Advanced table with filtering, sorting, pagination
+
+**What you'll accomplish:**
+- Understand admin architecture and access control
+- View dashboard metrics
+- Manage users (search, ban, impersonate)
+- Browse organizations
+- Know how to extend admin functionality
+
+---
+
+## Understanding Admin Architecture
+
+The admin system provides a separate area for platform administrators to manage users and organizations.
+
+### Admin Page Structure
+
+| URL | Purpose |
+|-----|---------|
+| `/admin` | Dashboard with metrics |
+| `/admin/users` | User management |
+| `/admin/organizations` | Organization management |
+
+### Admin Layout
+
+All admin pages share a layout with sidebar navigation:
+
+```typescript
+// apps/web/app/[locale]/admin/layout.tsx
+import { redirect } from 'next/navigation';
+
+import { getSidebarOpenState } from '../_lib/utils';
+
+import { AdminLayout as AdminLayoutComponent } from '@kit/admin/layout';
+import { requireAdmin } from '@kit/auth/require-admin';
+
+export default async function AdminLayout({
+  children,
+}: React.PropsWithChildren) {
+  const [admin, sidebarOpenState] = await Promise.all([
+    requireAdmin(),
+    getSidebarOpenState(),
+  ]);
+
+  if (!admin) {
+    redirect('/auth/sign-in');
+  }
+
+  return (
+    <AdminLayoutComponent defaultOpen={sidebarOpenState}>
+      {children}
+    </AdminLayoutComponent>
+  );
+}
+```
+
+The `requireAdmin()` function protects all admin pages server-side.
+
+### Admin Role Configuration
+
+Admin roles are defined in the Better Auth admin plugin:
+
+```typescript
+// packages/better-auth/src/plugins/admin.ts
+export const ADMIN_ROLES = ['admin'];
+
+export const adminPlugin = admin({
+  defaultRole: 'user',
+  adminRoles: ADMIN_ROLES,
+  impersonationSessionDuration: 60 * 60, // 1 hour
+  defaultBanExpiresIn: undefined, // permanent
+  roles: {
+    user: userAc,    // User access control permissions
+    admin: adminRole, // Admin access control permissions
+  },
+});
+```
+
+The `roles` configuration defines access control permissions for each role using Better Auth's access control system.
+
+A user is an admin if their `role` field equals `'admin'`.
+
+### Admin Action Protection
+
+All admin server actions use the `adminActionClient` middleware:
+
+```typescript
+// Import: import { adminActionClient } from '@kit/action-middleware';
+// Source: packages/action-middleware/src/require-admin-action-middleware.ts
+
+import { ADMIN_ROLES } from '@kit/better-auth/admin-config';
+
+export const adminActionClient = authenticatedActionClient.use(
+  async ({ next, ctx }) => {
+    const { user } = ctx;
+    const hasAdminRole = user.role && ADMIN_ROLES.includes(user.role as never);
+
+    if (!hasAdminRole) {
+      return forbidden();
+    }
+
+    return next({ ctx: { user } });
+  },
+);
+```
+
+This ensures all admin operations are protected server-side.
+
+> **Note:** User management actions (ban, unban, remove, impersonate) are located at `packages/admin/src/users/lib/actions/user-admin-server-actions.ts`. The examples below are simplified for teaching purposes.
+
+---
+
+## Dashboard Metrics
+
+The admin dashboard shows key platform metrics.
+
+### Available Metrics
+
+| Metric | Description | Query |
+|--------|-------------|-------|
+| **Total Users** | All registered users | `count(users)` |
+| **Active Sessions** | Sessions active in last 24 hours | Sessions created recently and not expired |
+| **Banned Users** | Users with banned status | `count(users) where banned = true` |
+| **New Users This Week** | Users created in last 7 days | `count(users) where createdAt > 7 days ago` |
+
+### How Metrics Are Calculated
+
+The dashboard service runs parallel queries for performance:
+
+```typescript
+// packages/admin/src/dashboard/lib/services/admin-dashboard.service.ts
+async getAdminStats() {
+  const now = new Date();
+  const oneWeekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+  const [totalUsers, bannedUsers, newUsers, activeSessions] = await Promise.all([
+    db.user.count(),
+    db.user.count({ where: { banned: true } }),
+    db.user.count({ where: { createdAt: { gte: oneWeekAgo } } }),
+    db.session.count({
+      where: {
+        createdAt: { gte: oneDayAgo },
+        expiresAt: { gte: now },
+      },
+    }),
+  ]);
+
+  return {
+    totalUsers,
+    bannedUsers,
+    newUsersThisWeek: newUsers,
+    activeSessions,
+  };
+}
+```
+
+### Stats Card Component
+
+Each metric is displayed in a card:
+
+```typescript
+<StatsCard
+  title="Total Users"
+  value={stats.totalUsers}
+  description="All registered users"
+  testId="admin-stats-total-users"
+/>
+```
+
+The `StatsCard` component accepts `title`, `value`, `description`, and `testId` props.
+
+---
+
+## User Management
+
+The users page provides comprehensive user management.
+
+### User Listing Features
+
+| Feature | Description |
+|---------|-------------|
+| **Search** | Find users by email or name |
+| **Filter by Role** | Show only users or admins |
+| **Filter by Status** | Show active or banned users |
+| **Sort** | By name, email, createdAt, role, banned |
+| **Pagination** | 25 users per page |
+
+### User Details Sheet
+
+Clicking a user opens a details panel showing:
+- Profile information (name, email, avatar)
+- Account status (verified, banned, 2FA enabled)
+- Account information (email, user ID, created date, last updated)
+- Subscriptions
+- Ban information (if banned)
+- Active sessions
+
+### User Actions
+
+| Action | Description | Constraints |
+|--------|-------------|-------------|
+| **Change Role** | Switch between user/admin | Cannot demote yourself |
+| **Ban User** | Block access with reason | Cannot ban admins |
+| **Unban User** | Restore access | - |
+| **Remove User** | Permanently delete | Cannot remove self or admins |
+| **Revoke Sessions** | Log user out everywhere | - |
+| **Impersonate** | Act as user temporarily | Cannot impersonate admins/banned |
+
+### Ban User Flow
+
+When banning a user:
+1. Provide a reason (required, 10-500 characters)
+2. Optionally set expiration (any positive number of days, or leave empty for permanent)
+3. All user sessions are immediately revoked
+4. User is immediately logged out from all sessions
+
+```typescript
+export const banUserAction = adminActionClient
+  .inputSchema(banUserSchema)
+  .action(async ({ parsedInput }) => {
+    const { userId, reason, expiresInDays } = parsedInput;
+
+    await auth.api.banUser({
+      body: {
+        userId,
+        banReason: reason,
+        banExpiresIn: expiresInDays,
+      },
+      headers: await headers(),
+    });
+
+    revalidatePath('/admin', 'layout');
+    return { success: true };
+  });
+```
+
+---
+
+## Impersonation
+
+Admins can temporarily act as any non-admin user.
+
+### How It Works
+
+1. Admin clicks "Impersonate" on a user
+2. Confirmation dialog explains the action
+3. Admin session becomes an impersonation session (1 hour limit)
+4. Warning banner shows at top of all pages
+5. Admin can end impersonation anytime
+
+### Constraints
+
+- Cannot impersonate admin users
+- Cannot impersonate banned users
+- Session limited to 1 hour
+- All actions are logged
+
+### Implementation
+
+```typescript
+// Client-side impersonation
+const { data, error } = await authClient.admin.impersonateUser({
+  userId,
+});
+
+// Redirects to /dashboard as the impersonated user
+```
+
+---
+
+## Organization Management
+
+The organizations page lets admins browse all organizations.
+
+### Organization Listing
+
+| Feature | Description |
+|---------|-------------|
+| **Search** | Find by name or slug |
+| **Sort** | By name, memberCount, createdAt |
+| **Member Count** | Shows total members per org |
+| **Pagination** | 25 organizations per page |
+
+### Organization Details
+
+Clicking an organization shows:
+- Organization info (name, slug, logo)
+- Creation date
+- Member list with roles
+- Subscriptions (if billing enabled)
+
+Clicking a member navigates to their user details.
+
+---
+
+## Checkpoint: Explore Admin Dashboard
+
+Let's explore the admin area. **Note:** You need admin access first.
+
+### Step 1: Check Admin Access
+
+1. Try navigating to `/admin`
+2. If redirected to sign-in, you don't have admin access yet
+3. We'll fix this in the hands-on section
+
+### Step 2: View Dashboard (if admin)
+
+1. Go to `/admin`
+2. You should see four metrics cards
+3. Note the sidebar navigation
+
+### Step 3: Browse Users (if admin)
+
+1. Go to `/admin/users`
+2. Use the search to find a user
+3. Click a user to see their details
+
+---
+
+## Hands-On: Become an Admin
+
+To access the admin dashboard, you need to set your user's role to `'admin'`.
+
+### Option 1: Database Update
+
+Connect to your database and run:
+
+```sql
+UPDATE "user"
+SET role = 'admin'
+WHERE email = 'your-email@example.com';
+```
+
+### Option 2: Prisma Studio
+
+1. Run `pnpm --filter @kit/database prisma:studio` to open Prisma Studio
+2. Navigate to the `users` table
+3. Find your user by email
+4. Edit the `role` field to `'admin'`
+5. Save the change
+
+### Option 3: Seed Script
+
+The seed script already creates an admin user. Run:
+
+```bash
+pnpm seed
+```
+
+This creates a default admin user with the following credentials:
+
+- **Email:** `admin1@makerkit.dev`
+- **Password:** `testingpassword`
+
+### Verify Access
+
+1. Sign out and sign back in (to refresh session)
+2. Navigate to `/admin`
+3. You should see the admin dashboard
+
+---
+
+## Hands-On: Manage Users
+
+Now let's perform common admin tasks.
+
+### Step 1: Search for a User
+
+1. Go to `/admin/users`
+2. Enter a name or email in the search box
+3. Press Enter or click Search
+4. Results filter to matching users
+
+### Step 2: View User Details
+
+1. Click on any user row
+2. The details sheet opens
+3. Review their:
+   - Profile information
+   - Account status
+   - Active sessions
+   - Organization memberships
+
+### Step 3: Ban a User
+
+1. Find a test user (not yourself)
+2. Click the **...** (actions) menu
+3. Click **Ban User**
+4. Enter a reason: "Testing ban functionality"
+5. Leave expiration empty (permanent) or set days
+6. Click **Ban**
+
+The user is now banned and cannot sign in.
+
+### Step 4: Unban the User
+
+1. Filter by status: **Banned**
+2. Find your banned user
+3. Click **...** → **Unban User**
+4. Confirm the action
+
+The user can now sign in again.
+
+### Step 5: Impersonate a User
+
+1. Find a non-admin user
+2. Click **...** → **Impersonate**
+3. Read the warning dialog
+4. Click **Impersonate**
+
+You're now viewing the app as that user. Notice:
+- Warning banner at the top
+- You see their dashboard and data
+- Click "Stop Impersonating" to return
+
+---
+
+## What Else Is Possible
+
+### Session Management
+
+Admins can manage user sessions:
+
+```typescript
+import { auth } from '@kit/better-auth';
+import { headers } from 'next/headers';
+
+// List all sessions for a user
+const { sessions } = await auth.api.listUserSessions({
+  body: { userId },
+  headers: await headers(),
+});
+
+// Revoke a specific session
+await auth.api.revokeUserSession({
+  body: { sessionToken },
+  headers: await headers(),
+});
+
+// Revoke all sessions for a user
+await auth.api.revokeUserSessions({
+  body: { userId },
+  headers: await headers(),
+});
+```
+
+### Role Management
+
+Change user roles:
+
+```typescript
+// Make a user an admin
+await auth.api.setRole({
+  body: { userId, role: 'admin' },
+  headers: await headers(),
+});
+
+// Demote to regular user
+await auth.api.setRole({
+  body: { userId, role: 'user' },
+  headers: await headers(),
+});
+```
+
+### User Removal
+
+Permanently delete a user (with safeguards):
+
+```typescript
+export const removeUserAction = adminActionClient
+  .inputSchema(removeUserSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    const { userId } = parsedInput;
+
+    // Prevent self-deletion
+    if (ctx.user.id === userId) {
+      throw new Error('You cannot remove yourself');
+    }
+
+    // Prevent removing admin users
+    const targetUser = await getUserById(userId);
+    if (isAdminRole(targetUser.role)) {
+      throw new Error('Cannot remove admin users');
+    }
+
+    await auth.api.removeUser({
+      body: { userId },
+      headers: await headers(),
+    });
+
+    return { success: true };
+  });
+```
+
+### Adding Custom Metrics
+
+Extend the dashboard with custom metrics:
+
+```typescript
+// In admin-dashboard.service.ts
+async getAdminStats() {
+  const [
+    // ... existing metrics
+    activeSubscriptions,
+    totalOrganizations,
+  ] = await Promise.all([
+    // ... existing queries
+    db.subscription.count({ where: { status: 'active' } }),
+    db.organization.count(),
+  ]);
+
+  return {
+    // ... existing metrics
+    activeSubscriptions,
+    totalOrganizations,
+  };
+}
+```
+
+> **Note:** The subscriptions table tracks subscription status but not amounts. For revenue data, query your payment provider (Stripe) directly or store transaction amounts in a custom table.
+
+### Audit Logging
+
+All admin actions use logging:
+
+```typescript
+const logger = await getLogger();
+
+logger.info({
+  message: 'Admin banned user',
+  adminId: ctx.user.id,
+  targetUserId: userId,
+  reason: reason,
+  expiresAt: banExpires,
+});
+```
+
+Consider extending with a dedicated audit log table for compliance.
+
+### Adding Admin Pages
+
+To add a custom admin page:
+
+1. Create the page in `apps/web/app/[locale]/admin/your-page/page.tsx`
+2. Add route to `AdminSidebar` component in `packages/admin/src/admin-sidebar.tsx`:
+   - Find the `const config` object near the top of the file
+   - Add your route to the appropriate group in the `routes` array with `path`, `label`, `Icon`, and `end` properties
+3. Create loader/actions following the existing patterns
+
+```typescript
+// Example: Admin analytics page
+export default async function AnalyticsPage() {
+  await requireAdmin();
+  const analytics = await loadAnalytics();
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Analytics"
+        description="Platform usage analytics"
+      />
+      <AnalyticsCharts data={analytics} />
+    </div>
+  );
+}
+```
+
+---
+
+## Module Complete
+
+You now have:
+- [x] Understanding of admin architecture and access control
+- [x] Experience viewing dashboard metrics
+- [x] Ability to manage users (search, ban, impersonate)
+- [x] Knowledge of organization browsing
+- [x] Awareness of session management and audit logging
+
+**Next:** In [Module 12: Production Readiness](./production-readiness), you'll prepare TeamPulse for production deployment.
+
+---
+
+## Learn More
+
+- [Admin Documentation](/docs/nextjs-prisma/admin/overview)
+- [Better Auth Admin Plugin](https://www.better-auth.com/docs/plugins/admin)
+- [Prisma ORM Queries](https://www.prisma.io/docs/rqb)
+- [Playwright Testing](https://playwright.dev/)

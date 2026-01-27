@@ -1,6 +1,6 @@
 ---
 status: "published"
-title: 'Disabling Personal Accounts in the Next.js Supabase Turbo SaaS Kit and Only Allowing Team Accounts'
+title: 'Disabling Personal Accounts in Next.js Supabase'
 label: 'Disabling Personal Accounts'
 order: 1
 description: 'Learn how to disable personal accounts in the Next.js Supabase Turbo SaaS kit and only allow team accounts'
@@ -19,9 +19,9 @@ Let's walk through the steps to disable personal accounts in the Next.js Supabas
 
 To make sure that users are always redirected to the team selection page, you need to store the team slug in a cookie. If the team slug is not found, redirect the user to the team selection page. We will do all of this in the middleware.
 
-First, let's create these functions in the `apps/web/middleware.ts` file:
+First, let's create these functions in the `apps/web/proxy.ts` file (or `apps/web/middleware.ts` for versions prior to Next.js 16):
 
- ```tsx {% title="apps/web/middleware.ts" %}
+ ```tsx {% title="apps/web/proxy.ts" %}
 const createTeamCookie = (userId: string) => `${userId}-selected-team-slug`;
 
 function handleTeamAccountsOnly(request: NextRequest, userId: string) {
@@ -95,9 +95,9 @@ function redirectToTeam(request: NextRequest, userId: string): NextResponse {
 }
 ```
 
-We will now add the `handleTeamAccountsOnly` function to the middleware chain in the `apps/web/middleware.ts` file. This function will check if the user is on a team account route and store the team slug in a cookie. If the user is on the home route, it will redirect them to the team selection page.
+  We will now add the `handleTeamAccountsOnly` function to the middleware chain in the `apps/web/proxy.ts` file (or `apps/web/middleware.ts` for versions prior to Next.js 16). This function will check if the user is on a team account route and store the team slug in a cookie. If the user is on the home route, it will redirect them to the team selection page.
 
- ```tsx {% title="apps/web/middleware.ts" %}
+ ```tsx {% title="apps/web/proxy.ts" %}
  {
   pattern: new URLPattern({ pathname: '/home/*?' }),
   handler: async (req: NextRequest, res: NextResponse) => {

@@ -1,0 +1,359 @@
+---
+status: "published"
+title: "Layout & Structure"
+label: "Layout & Structure"
+order: 3
+description: "Page layouts, cards, tabs, and structural components."
+---
+
+Layout components for organizing page structure, content sections, and collapsible areas.
+
+## Card
+
+Container component for grouping related content.
+
+```typescript
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter, CardAction } from '@kit/ui/card';
+```
+
+```tsx
+<Card>
+  <CardHeader>
+    <CardTitle>Card Title</CardTitle>
+    <CardDescription>Card description text</CardDescription>
+  </CardHeader>
+  <CardContent>
+    Card content goes here
+  </CardContent>
+  <CardFooter>
+    <Button>Action</Button>
+  </CardFooter>
+</Card>
+```
+
+### With Action Button
+
+```tsx
+<Card>
+  <CardHeader>
+    <CardTitle>Settings</CardTitle>
+    <CardDescription>Manage your preferences</CardDescription>
+    <CardAction>
+      <Button variant="ghost" size="icon">
+        <Settings className="h-4 w-4" />
+      </Button>
+    </CardAction>
+  </CardHeader>
+  <CardContent>
+    Content here
+  </CardContent>
+</Card>
+```
+
+### Small Size
+
+```tsx
+<Card size="sm">
+  <CardContent>Compact card</CardContent>
+</Card>
+```
+
+## Page
+
+Application page layout with header, navigation, and body sections.
+
+```typescript
+import { Page, PageHeader, PageTitle, PageDescription, PageBody, PageNavigation, PageMobileNavigation, PageHeaderActions } from '@kit/ui/page';
+```
+
+```tsx
+<Page>
+  <PageNavigation>
+    <Sidebar />
+  </PageNavigation>
+
+  <PageMobileNavigation>
+    <MobileNav />
+  </PageMobileNavigation>
+
+  <PageBody>
+    <PageHeader>
+      <div>
+        <PageTitle>Dashboard</PageTitle>
+        <PageDescription>Overview of your account</PageDescription>
+      </div>
+      <PageHeaderActions>
+        <Button>New Item</Button>
+      </PageHeaderActions>
+    </PageHeader>
+
+    {/* Page content */}
+  </PageBody>
+</Page>
+```
+
+## Sidebar
+
+Collapsible sidebar navigation with built-in state management and keyboard shortcuts.
+
+```typescript
+import {
+  Sidebar,
+  SidebarProvider,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuItem,
+  SidebarMenuButton,
+  SidebarTrigger,
+  useSidebar,
+} from '@kit/ui/sidebar';
+```
+
+```tsx
+<SidebarProvider>
+  <Sidebar>
+    <SidebarContent>
+      <SidebarGroup>
+        <SidebarGroupLabel>Navigation</SidebarGroupLabel>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton render={<Link href="/dashboard" />}>
+              <Home className="h-4 w-4" />
+              Dashboard
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarGroup>
+    </SidebarContent>
+  </Sidebar>
+
+  <main>
+    <SidebarTrigger />
+    {/* Page content */}
+  </main>
+</SidebarProvider>
+```
+
+### useSidebar Hook
+
+Access sidebar state and controls from any component within the provider:
+
+```tsx
+import { useSidebar } from '@kit/ui/sidebar';
+
+function MyComponent() {
+  const {
+    state,        // 'expanded' | 'collapsed'
+    open,         // boolean - desktop open state
+    setOpen,      // (open: boolean) => void
+    openMobile,   // boolean - mobile open state
+    setOpenMobile,// (open: boolean) => void
+    isMobile,     // boolean - is mobile viewport
+    toggleSidebar,// () => void - toggle open/closed
+  } = useSidebar();
+
+  return (
+    <Button onClick={toggleSidebar}>
+      Sidebar is {state}
+    </Button>
+  );
+}
+```
+
+### Keyboard Shortcut
+
+The sidebar includes a built-in keyboard shortcut:
+
+| Shortcut | Action |
+|----------|--------|
+| `Cmd/Ctrl + B` | Toggle sidebar open/closed |
+
+### Sidebar Variants
+
+```tsx
+{/* Default sidebar */}
+<Sidebar variant="sidebar">...</Sidebar>
+
+{/* Floating sidebar with shadow */}
+<Sidebar variant="floating">...</Sidebar>
+
+{/* Inset sidebar */}
+<Sidebar variant="inset">...</Sidebar>
+```
+
+### Side Position
+
+```tsx
+{/* Left side (default) */}
+<Sidebar side="left">...</Sidebar>
+
+{/* Right side */}
+<Sidebar side="right">...</Sidebar>
+```
+
+### Collapsible Behavior
+
+```tsx
+{/* Slides off-screen when collapsed */}
+<Sidebar collapsible="offExamples">...</Sidebar>
+
+{/* Shows only icons when collapsed */}
+<Sidebar collapsible="icon">...</Sidebar>
+
+{/* Not collapsible */}
+<Sidebar collapsible="none">...</Sidebar>
+```
+
+### Configuration
+
+The sidebar uses CSS variables for sizing:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `--sidebar-width` | `16rem` | Desktop width |
+| `--sidebar-width-mobile` | `18rem` | Mobile width |
+| `--sidebar-width-icon` | `3rem` | Icon-only width |
+
+State is persisted to a cookie (`sidebar_state`) for 7 days.
+
+## Tabs
+
+Tabbed content interface.
+
+```typescript
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@kit/ui/tabs';
+```
+
+```tsx
+<Tabs defaultValue="tab1">
+  <TabsList>
+    <TabsTrigger value="tab1">Tab 1</TabsTrigger>
+    <TabsTrigger value="tab2">Tab 2</TabsTrigger>
+    <TabsTrigger value="tab3">Tab 3</TabsTrigger>
+  </TabsList>
+  <TabsContent value="tab1">Content for tab 1</TabsContent>
+  <TabsContent value="tab2">Content for tab 2</TabsContent>
+  <TabsContent value="tab3">Content for tab 3</TabsContent>
+</Tabs>
+```
+
+### Line Variant
+
+```tsx
+<Tabs defaultValue="tab1">
+  <TabsList variant="line">
+    <TabsTrigger value="tab1">Overview</TabsTrigger>
+    <TabsTrigger value="tab2">Settings</TabsTrigger>
+  </TabsList>
+  <TabsContent value="tab1">Overview content</TabsContent>
+  <TabsContent value="tab2">Settings content</TabsContent>
+</Tabs>
+```
+
+### Vertical Orientation
+
+```tsx
+<Tabs defaultValue="tab1" orientation="vertical">
+  <TabsList>
+    <TabsTrigger value="tab1">Profile</TabsTrigger>
+    <TabsTrigger value="tab2">Account</TabsTrigger>
+  </TabsList>
+  <TabsContent value="tab1">Profile settings</TabsContent>
+  <TabsContent value="tab2">Account settings</TabsContent>
+</Tabs>
+```
+
+## Accordion
+
+Collapsible content sections.
+
+```typescript
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from '@kit/ui/accordion';
+```
+
+```tsx
+<Accordion type="single" collapsible>
+  <AccordionItem value="item-1">
+    <AccordionTrigger>Section 1</AccordionTrigger>
+    <AccordionContent>
+      Content for section 1
+    </AccordionContent>
+  </AccordionItem>
+  <AccordionItem value="item-2">
+    <AccordionTrigger>Section 2</AccordionTrigger>
+    <AccordionContent>
+      Content for section 2
+    </AccordionContent>
+  </AccordionItem>
+</Accordion>
+```
+
+### Multiple Open
+
+```tsx
+<Accordion type="multiple">
+  {/* Multiple items can be open simultaneously */}
+</Accordion>
+```
+
+## Collapsible
+
+Toggle visibility of content.
+
+```typescript
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '@kit/ui/collapsible';
+```
+
+```tsx
+<Collapsible>
+  <CollapsibleTrigger>
+    <Button variant="ghost">
+      Toggle Content
+      <ChevronDown className="h-4 w-4" />
+    </Button>
+  </CollapsibleTrigger>
+  <CollapsibleContent>
+    Hidden content revealed on toggle
+  </CollapsibleContent>
+</Collapsible>
+```
+
+## Scroll Area
+
+Custom scrollbar container.
+
+```typescript
+import { ScrollArea } from '@kit/ui/scroll-area';
+```
+
+```tsx
+<ScrollArea className="h-72 w-48">
+  <div className="p-4">
+    {/* Long content that needs scrolling */}
+  </div>
+</ScrollArea>
+```
+
+## Aspect Ratio
+
+Maintain aspect ratio for content.
+
+```typescript
+import { AspectRatio } from '@kit/ui/aspect-ratio';
+```
+
+```tsx
+<AspectRatio ratio={16 / 9}>
+  <img
+    src="/image.jpg"
+    alt="Image"
+    className="h-full w-full object-cover"
+  />
+</AspectRatio>
+```
+
+---
+
+**Next:** [Navigation →](./navigation)

@@ -1,0 +1,400 @@
+---
+status: "published"
+title: "User Settings and Profile Management in Makerkit Next.js Drizzle"
+label: "Settings & Profile"
+order: 10
+description: "Understand Makerkit's settings architecture and manage user profiles and organization settings. By the end, you'll know how to customize settings pages and manage team members."
+---
+
+In this module, you'll explore how Makerkit organizes settings pages and learn to manage user profiles and organization settings.
+
+**Technologies used:**
+- Better Auth - User and organization management
+- React Hook Form - Form handling
+- next-safe-action - Server actions
+
+**What you'll accomplish:**
+- Understand the settings architecture
+- Learn the personal vs organization settings distinction
+- Update profile settings
+- Manage team members and invitations
+- Know how to extend settings functionality
+
+---
+
+## Understanding Settings Architecture
+
+Makerkit organizes settings into two contexts: **Personal Account** settings and **Organization** settings. The system automatically detects which context you're in - so if you're logged into an organization, you will see the relative organization's settings. The profile settings are always visible.
+
+### Settings Page Hierarchy
+
+| URL | Context | Purpose |
+|-----|---------|---------|
+| `/settings` | Personal | Profile (name, image, deletion) |
+| `/settings/security` | Personal | Password, email, MFA, OAuth |
+| `/settings/preferences` | Personal | Theme, language |
+| `/settings/organization` | Organization | Name, logo, deletion |
+| `/settings/members` | Organization | Members and invitations |
+| `/settings/roles` | Organization | Custom roles (if enabled) |
+| `/settings/billing` | Both | Subscriptions (context-dependent) |
+
+### The Settings Layout
+
+All settings pages share a common layout with a sidebar navigation:
+
+```typescript {% title="apps/web/app/[locale]/(internal)/settings/layout.tsx" %}
+import { SettingsSidebar } from './_components/settings-sidebar';
+
+export default function SettingsLayout({ children }: React.PropsWithChildren) {
+  return <SettingsSidebar>{children}</SettingsSidebar>;
+}
+```
+
+The `SettingsSidebar` component dynamically builds navigation based on the current context (personal or organization).
+
+### Account Context Detection
+
+Server components detect the account context to show appropriate settings:
+
+```typescript
+import { getAccountContext } from '@kit/better-auth/context';
+
+// In a server component
+const ctx = await getAccountContext();
+
+if (ctx.isPersonal) {
+  // Show personal account settings
+} else if (ctx.isOrganization) {
+  // Show organization settings
+}
+```
+
+---
+
+## Personal Account Settings
+
+Personal settings manage the user's account across all organizations.
+
+### Profile Page (`/settings`)
+
+The profile page includes:
+- **Display Name** - User's visible name
+- **Profile Image** - Avatar upload
+- **Account Deletion** - Delete entire account
+
+### Security Page (`/settings/security`)
+
+The security page varies based on authentication method:
+
+| Feature | Credential Users | OAuth-Only Users |
+|---------|-----------------|------------------|
+| Change Password | Yes | No |
+| Change Email | Yes | No |
+| Enable MFA | Yes | No |
+| OAuth Accounts | Link more | Manage existing |
+
+NB: MFA is only applies to users who signed in with email and password. Users who signed in with OAuth providers are not required to have MFA enabled (it is expected they use the OAuth provider's own MFA system).
+
+### Preferences Page (`/settings/preferences`)
+
+Users can set:
+- **Theme** - Light, dark, or system
+- **Language** - Available locales
+
+---
+
+## Organization Settings
+
+Organization settings are scoped to the current organization and require appropriate roles.
+
+### Organization Profile (`/settings/organization`)
+
+| Feature | Owner | Admin | Member |
+|---------|-------|-------|--------|
+| Update name | Yes | Yes | No |
+| Update logo | Yes | Yes | No |
+| Delete organization | Yes | No | No |
+
+### Organization Deletion
+
+Deletion has eligibility requirements:
+1. Must be the **owner**
+2. No **active subscriptions** (must cancel first)
+3. User must verify via **email OTP**
+
+The deletion card shows warnings before allowing deletion:
+
+```typescript
+// Delete card checks eligibility before rendering
+const eligibility = await checkOrganizationDeletionEligibility({
+  organizationId: orgId,
+});
+
+if (!eligibility.canDelete) {
+  // Show warnings based on eligibility.blockedReasons
+  // e.g., blockedReasons.activeSubscriptions
+}
+```
+
+---
+
+## Checkpoint: Explore Settings Pages
+
+Let's explore what's available by default.
+
+### Step 1: Personal Settings
+
+1. Sign in to your app
+2. Click your avatar in the top right
+3. Select **Account Settings** or go to `/settings`
+4. You should see:
+   - Your profile section (name, image)
+   - Account deletion option
+
+### Step 2: Security Settings
+
+1. Go to `/settings/security`
+2. Depending on how you signed up, you'll see:
+   - Password change (if you have a password)
+   - Email change
+   - MFA settings
+   - Connected OAuth accounts
+
+### Step 3: Organization Settings
+
+1. Go to `/settings/organization`
+2. You should see:
+   - Organization name editor
+   - Organization logo upload
+   - Danger zone (deletion)
+
+### Step 4: Members Page
+
+1. Go to `/settings/members`
+2. You should see:
+   - Current members list with roles
+   - Pending invitations (if any)
+   - Invite member button
+
+---
+
+## Hands-On: Update Profile Settings
+
+Let's trace through how a profile update works.
+
+### Step 1: Update Your Display Name
+
+1. Go to `/settings`
+2. Find the "Display Name" section
+3. Change your name to something different
+4. Click **Save**
+
+You should see a success toast. The change is reflected immediately.
+
+### Step 2: Understand the Flow
+
+The update follows this pattern:
+
+```
+Form Component (client)
+        ↓
+React Hook Form + Zod Validation
+        ↓
+Server Action (authenticated)
+        ↓
+Better Auth API (auth.api.updateUser)
+        ↓
+Database Update
+        ↓
+Path Revalidation
+        ↓
+UI Updates
+```
+
+---
+
+## Hands-On: Invite & Manage Members
+
+### Step 1: Invite a New Member
+
+1. Go to `/settings/members`
+2. Click **Invite Member**
+3. Enter an email address
+4. Select a role (try **Admin**)
+5. Click **Send Invitation**
+
+The invitation appears in the "Pending Invitations" section.
+
+### Step 2: View the Invitation Email
+
+1. Open Mailpit at http://localhost:8025
+2. Find the invitation email
+3. Note the invitation link format: `/accept-invitation/{invitationId}`
+
+### Step 3: Manage Existing Members
+
+If you have the completed the invitation flow from Module 5:
+
+1. Find the member in the members list
+2. Click the **...** (actions) menu
+3. You can:
+   - **Update Role** - Change their role (if you outrank them)
+   - **Remove** - Remove them from the organization
+
+### Step 4: Cancel an Invitation
+
+1. Find a pending invitation
+2. Click the **...** (actions) menu
+3. Click **Cancel Invitation**
+4. Confirm the cancellation
+
+### Member Actions Summary
+
+| Action | Owner | Admin | Member |
+|--------|-------|-------|--------|
+| Invite members | Yes (any role) | Yes (admin or lower) | Yes (member only) |
+| Update roles | Yes (any) | Yes (not owners) | No |
+| Remove members | Yes (any) | Yes (not owners) | No |
+| Cancel invitations | Yes | Yes | No |
+
+---
+
+## What Else Is Possible
+
+### MFA/Two-Factor Authentication Setup
+
+The MFA setup is a multi-step wizard:
+
+1. **Password Verification** - Confirm identity
+2. **QR Code Display** - Scan with authenticator app
+3. **OTP Verification** - Enter code from app
+4. **Backup Codes** - Save recovery codes
+
+```typescript
+// Using the hook (client-side):
+import { useEnableTwoFactor } from '@kit/auth/hooks/use-enable-two-factor';
+
+const enableTwoFactor = useEnableTwoFactor();
+
+// Trigger MFA enrollment:
+const result = await enableTwoFactor.mutateAsync({
+  password: userPassword,
+});
+
+// Returns:
+// - totpURI: QR code data for authenticator apps (note: uppercase URI)
+// - backupCodes: One-time recovery codes
+```
+
+### OAuth Account Linking
+
+Users can link multiple OAuth providers using dedicated hooks:
+
+```typescript
+import { useLinkAccount } from '@kit/auth/hooks/use-link-account';
+import { useUnlinkAccount } from '@kit/auth/hooks/use-unlink-account';
+
+// Link a new provider (uses react-query mutation)
+const linkAccount = useLinkAccount();
+await linkAccount.mutateAsync({ provider: 'google', callbackURL: '/settings' });
+
+// Unlink a provider (uses react-query mutation)
+const unlinkAccount = useUnlinkAccount();
+await unlinkAccount.mutateAsync({ provider: 'google' });
+```
+
+### Email Change Flow
+
+Email changes require verification:
+
+1. User submits new email (must confirm)
+2. Verification link sent to **current** email (security)
+3. User clicks link to confirm change
+4. Email updated in database
+
+### Password Requirements
+
+Password changes validate:
+- Current password (for verification)
+- New password (minimum 8 characters)
+- Confirmation (must match)
+- Must be different from current password
+
+### Account Deletion Eligibility
+
+Before deletion, the system checks:
+
+```typescript
+const eligibility = await checkAccountDeletionEligibility({
+  userId,
+});
+
+// Returns:
+// - canDelete: boolean (whether deletion is allowed)
+// - blockedReasons: {
+//     activeSubscriptions: Subscription[],
+//     blockedOrganizations: Organization[],
+//   }
+// - organizationsToDelete: Organization[]
+```
+
+### Adding Custom Settings Pages
+
+To add a new settings page:
+
+1. Create the page in `apps/web/app/[locale]/(internal)/settings/your-page/page.tsx`
+2. Add to the sidebar navigation in `settings-sidebar.tsx`
+3. Follow the card + form pattern for consistency
+
+```typescript
+// Example: Custom integrations page
+export default async function IntegrationsPage() {
+  const integrations = await loadUserIntegrations();
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title="Integrations"
+        description="Connect external services"
+      />
+      <IntegrationsList integrations={integrations} />
+    </div>
+  );
+}
+```
+
+---
+
+## Module 10 Complete!
+
+You now have:
+- [x] Understanding of settings architecture (personal vs organization)
+- [x] Knowledge of profile management patterns
+- [x] Experience with member management
+- [x] Awareness of security features (MFA, OAuth, email/password)
+- [x] Knowledge of how to extend settings
+
+**Next:** In [Module 11: Admin Dashboard](./admin-dashboard), you'll explore the admin dashboard for platform management.
+
+---
+
+## Frequently Asked Questions
+
+{% faq
+   title="Settings FAQ"
+   items=[
+     {"question": "Can users have multiple organizations?", "answer": "Yes. Users can belong to multiple organizations with different roles in each. The organization switcher in the sidebar lets them change context. Each organization has completely isolated data."},
+     {"question": "How do I require users to complete their profile?", "answer": "Add a middleware check that verifies required profile fields are set. If incomplete, redirect to a profile completion page. Store a 'profileComplete' flag or check for null required fields."},
+     {"question": "What happens when a user deletes their account?", "answer": "Account deletion cascades: their data is removed, they're removed from all organizations, and sole-owner organizations are deleted. The eligibility check prevents deletion if they have active subscriptions."},
+     {"question": "Can I disable certain authentication methods?", "answer": "Yes. Control which methods are available via NEXT_PUBLIC_AUTH_PASSWORD and NEXT_PUBLIC_AUTH_MAGIC_LINK environment variables. OAuth providers are controlled by NEXT_PUBLIC_AUTH_OAUTH_PROVIDERS. Disable any method by removing its configuration."}
+   ]
+/%}
+
+---
+
+## Learn More
+
+- [Better Auth User Management](https://www.better-auth.com/docs/concepts/user)
+- [Better Auth Organizations](https://www.better-auth.com/docs/plugins/organizations)
+- [React Hook Form](https://react-hook-form.com/)
+- [next-safe-action](https://next-safe-action.dev/)

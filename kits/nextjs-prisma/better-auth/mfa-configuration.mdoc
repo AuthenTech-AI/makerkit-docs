@@ -1,0 +1,80 @@
+---
+status: "published"
+title: "Multi-Factor Authentication Configuration"
+label: "MFA Configuration"
+order: 4
+description: "Configure TOTP-based multi-factor authentication for enhanced account security."
+---
+
+Add TOTP-based multi-factor authentication to protect user accounts - users enable MFA in their security settings and use authenticator apps like Google Authenticator or 1Password.
+
+This page is part of the [Authentication documentation](./overview).
+
+MFA (Multi-Factor Authentication) requires users to enter a 6-digit code from an authenticator app after their password. The kit includes a pre-built MFA setup flow with QR code generation, verification, and recovery codes. Users opt into MFA from their security settings page. Once enabled, every sign-in requires both password and TOTP code.
+
+**Definition:** [TOTP](https://datatracker.ietf.org/doc/html/rfc6238) (Time-based One-Time Password) is a standard algorithm that generates 6-digit codes that change every 30 seconds, compatible with authenticator apps like Google Authenticator, Authy, and 1Password.
+
+**Enable MFA for your app when:** you handle sensitive data (financial, health, personal), your users requested it, or you need compliance with security standards (SOC 2, HIPAA).
+
+**Keep MFA optional when:** your app handles low-sensitivity data and you want to minimize sign-in friction.
+
+**If unsure:** make MFA available but optional. Users who want extra security can enable it; others won't be blocked.
+
+## How MFA Works
+
+### User Enables MFA
+
+1. User navigates to Security Settings (`/home/settings/security`)
+2. Clicks "Enable Two-Factor Authentication"
+3. QR code is generated and displayed
+4. User scans QR code with their authenticator app
+5. User enters the 6-digit code to verify setup
+6. Recovery codes are generated and displayed
+7. User saves recovery codes securely
+8. MFA is enabled for the account
+
+### User Signs In with MFA
+
+1. User enters email and password
+2. Credentials are verified
+3. System checks if MFA is enabled
+4. TOTP input form is displayed
+5. User enters 6-digit code from authenticator app
+6. Code is verified against the user's secret
+7. Session is created
+8. User is signed in
+
+## Recovery Codes
+
+When MFA is enabled, the system generates one-time recovery codes. Users should save these codes securely - they allow sign-in if the authenticator app is unavailable (lost phone, new device).
+
+Each recovery code can only be used once. After use, it's invalidated. Users can regenerate recovery codes from their security settings, which invalidates all previous codes.
+
+## Configuration
+
+MFA is enabled by default through Better Auth's [two-factor plugin](https://www.better-auth.com/docs/plugins/2fa). The plugin is configured in `packages/better-auth/src/plugins/mfa.ts`.
+
+No additional environment variables are required. The feature is available to all users immediately.
+
+## Common Pitfalls
+
+- **Not saving recovery codes**: If users lose their authenticator and have no recovery codes, they're locked out. Emphasize saving codes during setup.
+- **Testing with production authenticator entries**: Create a separate entry in your authenticator app for development. Delete it when done.
+- **Clock drift**: TOTP codes depend on time synchronization. If codes aren't working, check that the server and user's device have accurate time.
+- **Disabling MFA without re-verification**: The kit requires password re-entry before disabling MFA to prevent unauthorized changes.
+- **Storing authenticator secrets insecurely**: Secrets are stored encrypted in the database. Don't log or expose them.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Can I require MFA for all users?", "answer": "By default, MFA is opt-in. To require it, you would customize the sign-in flow to check MFA enrollment and redirect unenrolled users to setup. This requires custom middleware logic."},
+     {"question": "Which authenticator apps work?", "answer": "Any TOTP-compatible app: Google Authenticator, Authy, 1Password, Bitwarden, Microsoft Authenticator, and hardware keys that support TOTP."},
+     {"question": "What happens if a user loses their phone?", "answer": "They use a recovery code. If they have no recovery codes, an admin can disable MFA for their account via the admin panel."},
+     {"question": "Can I use SMS-based MFA instead?", "answer": "The kit uses TOTP by default, which is more secure than SMS (no SIM-swapping risk). Better Auth supports other MFA methods - see the Better Auth 2FA documentation."},
+     {"question": "How do I customize the MFA UI?", "answer": "The MFA setup and verification components are in packages/auth/src/components/. They use standard React components with Tailwind CSS."}
+   ]
+/%}
+
+---
+
+**Next:** [Captcha Plugin →](./captcha-plugin)

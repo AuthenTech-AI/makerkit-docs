@@ -1,0 +1,726 @@
+---
+status: "published"
+title: "Emails and Notifications with React Email in Makerkit Next.js Drizzle"
+label: "Emails"
+order: 9
+description: "Configure transactional emails for your SaaS with React Email templates. Learn to customize email templates, set up Mailpit for local development, integrate Resend for production delivery, and build custom notification emails."
+---
+
+With billing integrated, TeamPulse can charge for subscriptions and enforce plan limits. But a SaaS application needs more than payment processing - users expect email notifications for account verification, password resets, team invitations, and application-specific events.
+
+This module explores Makerkit's email architecture and shows you how to customize templates for TeamPulse branding. You'll also build custom notification emails that keep users informed about feedback activity.
+
+**Technologies used:**
+- [React Email](https://react.email/) - Email template rendering
+- Nodemailer / Resend - Email providers
+- next-intl - Email localization
+
+**What you'll accomplish:**
+- Understand the email architecture
+- View transactional emails in Mailpit
+- Customize an email template
+- Learn about localization and provider options
+
+---
+
+## Understanding the Email System
+
+Makerkit uses a flexible email system that supports multiple providers and React-based templates. Understanding this architecture helps you customize existing emails and add new ones for TeamPulse-specific functionality.
+
+### Email Flow
+
+When a user action triggers an email, the request flows through several layers. Each layer has a specific responsibility, making the system easy to extend:
+
+```
+User Action (Sign Up, Reset Password, Invite)
+           ↓
+Better Auth Plugin/Hook
+           ↓
+Sender Function (e.g., sendVerificationEmail)
+           ↓
+Template Renderer (React Email)
+           ↓
+Mailer Registry → Provider Instance
+           ↓
+SMTP Server (Nodemailer) or API (Resend)
+           ↓
+User's Inbox
+```
+
+- **User Action** - A user triggers an email by signing up, requesting a password reset, or inviting a team member. The application logic determines which email type to send.
+- **Better Auth Plugin/Hook** - Better Auth intercepts authentication events and calls the appropriate sender function. This happens automatically for auth-related emails.
+- **Sender Function** - Each email type has a sender function that gathers data and calls the template renderer. Custom emails (like feedback notifications) use their own sender functions.
+- **Template Renderer** - React Email renders JSX components into HTML strings. This lets you write email templates using familiar React patterns.
+- **Mailer Registry** - The registry selects the configured provider (Nodemailer or Resend) and delegates the actual sending.
+- **Provider** - The provider handles SMTP or API delivery. In development, Nodemailer sends to Mailpit; in production, Resend delivers via API.
+
+### Supported Providers
+
+Makerkit abstracts email delivery behind a provider interface, letting you switch providers without changing template code:
+
+| Provider | Type | Package |
+|----------|------|----------|
+| **Nodemailer** | SMTP | `@kit/nodemailer` |
+| **Resend** | HTTP API | `@kit/resend` |
+
+The provider is selected via environment variable. A single configuration change switches your entire email system:
+
+```bash
+# Default in apps/web/.env.development (already configured)
+MAILER_PROVIDER=nodemailer  # or 'resend' for production
+```
+
+- **Nodemailer** is ideal as it works with any SMTP server, so you're not locked into any specific provider. Just switch credentials in your environment variables and you're good to go. This package requirs a Node.js runtime to work.
+- **Resend** is also a valid and growing provider, easy to use and with a great free tier. Resend may work best in runtimes such as Cloudflare Workers or Vercel Edge Functions because it doesn't require Node.js - since we use its HTTP API. This package doesn't require a Node.js runtime to work, so it's ideal if you're using a runtime that doesn't support Node.js like Cloudflare Workers or Vercel Edge Functions.
+
+### Local Development Setup
+
+Testing emails locally without sending real messages is essential for rapid development. 
+
+The provided Docker Compose file runs **Mailpit** - a fake SMTP server that captures all outgoing emails and displays them in a web interface. You can preview exactly how emails will appear without cluttering real inboxes.
+
+The SMTP configuration is already set in `apps/web/.env.development`:
+
+```bash
+# Already configured in .env.development
+EMAIL_HOST=localhost
+EMAIL_PORT=1025
+EMAIL_TLS=false
+EMAIL_USER=user
+EMAIL_PASSWORD=password
+EMAIL_SENDER=TeamPulse <noreply@teampulse.dev>
+```
+
+> **Note:** The `EMAIL_SENDER` examples in this course use "TeamPulse" to match the project you're building. In your actual `.env.development`, you'll see "Makerkit" as the default. For production, customize with your own product name and verified domain.
+
+Access Mailpit at http://localhost:8025 to view captured emails. Each email shows rendered HTML, plain text, headers, and attachments.
+
+---
+
+## Email Templates
+
+Email templates live in `packages/email-templates/src/` and use React Email for rendering. React Email lets you write email markup using JSX - the same syntax you use for React components - rather than raw HTML with inline styles.
+
+### Available Templates
+
+Makerkit includes templates for all common authentication and account management scenarios. Understanding what's already built helps you decide what needs customization:
+
+| Template | File | When Sent |
+|----------|------|-----------|
+| Email Verification | `email-verification.email.tsx` | After sign-up |
+| Password Reset | `reset-password.email.tsx` | Password reset request |
+| Magic Link | `magic-link.email.tsx` | Passwordless sign-in |
+| Organization Invite | `invite.email.tsx` | Team member invitation |
+| OTP Sign-In | `otp-sign-in.email.tsx` | OTP authentication |
+| OTP Generic | `otp.email.tsx` | General OTP delivery |
+| OTP Email Verification | `otp-email-verification.email.tsx` | OTP for email verification |
+| OTP Password Reset | `otp-password-reset.email.tsx` | OTP for password reset |
+| Email Change Verification | `change-email-verification.email.tsx` | Email update request |
+| Email Change Confirmation | `change-email-confirmation.email.tsx` | Confirms email change completed |
+| Account Deletion | `account-delete.email.tsx` | Account deletion confirmation |
+| Delete Account OTP | `delete-account-otp.email.tsx` | OTP for account deletion |
+| User Banned | `user-banned.email.tsx` | Admin bans user |
+| User Unbanned | `user-unbanned.email.tsx` | Admin unbans user |
+
+### Template Structure
+
+All templates follow a consistent structure using reusable components. This consistency makes customization straightforward - change a component once and all emails update:
+
+```typescript {% title="packages/email-templates/src/emails/invite.email.tsx" %}
+import { Body, Head, Html, Preview, Tailwind, Text, render } from '@react-email/components';
+import { BodyStyle } from '../components/body-style';
+import { EmailContent } from '../components/content';
+import { CtaButton } from '../components/cta-button';
+import { EmailFooter } from '../components/footer';
+import { EmailHeader } from '../components/header';
+import { EmailHeading } from '../components/heading';
+import { EmailWrapper } from '../components/wrapper';
+
+export async function renderInviteEmail(props: Props) {
+  const { t } = await initializeEmailI18n({
+    language: props.language,
+    namespace: 'invite-email',
+  });
+
+  const html = await render(
+    <Html>
+      <Head>
+        <BodyStyle />
+      </Head>
+      <Preview>{previewText}</Preview>
+      <Tailwind>
+        <Body>
+          <EmailWrapper>
+            <EmailHeader>
+              <EmailHeading>{heading}</EmailHeading>
+            </EmailHeader>
+            <EmailContent>
+              <Text>{mainText}</Text>
+              <CtaButton href={props.link}>{joinTeam}</CtaButton>
+            </EmailContent>
+            <EmailFooter>{props.productName}</EmailFooter>
+          </EmailWrapper>
+        </Body>
+      </Tailwind>
+    </Html>
+  );
+
+  return { html, subject };
+}
+```
+
+Note that `EmailHeading` is nested inside `EmailHeader`, not a sibling.
+
+### Reusable Components
+
+| Component | Purpose |
+|-----------|---------|
+| `BodyStyle` | Global body styles (placed in `<Head>`) |
+| `EmailWrapper` | Container with max-width and background |
+| `EmailHeader` | Logo/brand header (wraps heading) |
+| `EmailHeading` | Main heading text |
+| `EmailContent` | Body content area |
+| `CtaButton` | Call-to-action button |
+| `EmailFooter` | Footer with product name |
+
+---
+
+## Checkpoint: View Transactional Emails
+
+Let's see the email system in action.
+
+### Step 1: Open Mailpit
+
+1. Ensure your compose file is running (`pnpm compose:dev:up`)
+2. Open http://localhost:8025 in your browser
+3. You should see the Mailpit inbox (may be empty)
+
+### Step 2: Trigger a Verification Email
+
+1. Go to `/auth/sign-up`
+2. Create a new account with a test email
+3. Check Mailpit - you should see the verification email
+4. Click the email to preview it
+
+### Step 3: Trigger an Invitation Email
+
+1. Sign in and go to `/settings/members`
+2. Click **Invite Member**
+3. Enter any email and send the invitation
+4. Check Mailpit - you should see the invitation email
+
+### Step 4: Trigger a Password Reset Email
+
+1. Go to `/auth/password-reset`
+2. Enter an existing user's email
+3. Check Mailpit - you should see the reset email
+
+**Congratulations!** You've seen all the major transactional email types.
+
+---
+
+## Hands-On: Customize the Invitation Email
+
+Let's customize the invitation email for TeamPulse branding.
+
+### Step 1: Locate the Template
+
+Open `packages/email-templates/src/emails/invite.email.tsx`
+
+### Step 2: Customize the Heading
+
+Find the heading section and update it:
+
+```typescript
+// Before
+<EmailHeading>
+  {t('heading', { teamName: organizationName, productName })}
+</EmailHeading>
+
+// After - Add a welcome message
+<EmailHeading>
+  {t('heading', { teamName: organizationName, productName })}
+</EmailHeading>
+<Text className="text-center text-gray-600 mb-4">
+  Collaborate on feedback and feature requests
+</Text>
+```
+
+### Step 3: Customize the CTA Button
+
+The CTA button component is in `packages/email-templates/src/components/cta-button.tsx`:
+
+```typescript
+// Default button style
+<Button
+  className="w-full rounded bg-[#000000] py-3 text-center text-[16px] font-semibold text-white no-underline"
+  href={props.href}
+>
+  {props.children}
+</Button>
+
+// Customize for TeamPulse - change to a brand color
+<Button
+  className="w-full rounded bg-[#4F46E5] py-3 text-center text-[16px] font-semibold text-white no-underline"
+  href={props.href}
+>
+  {props.children}
+</Button>
+```
+
+### Step 4: Test Your Changes
+
+1. Send another invitation from `/settings/members`
+2. Check Mailpit to see your customized email
+
+---
+
+## Email Localization
+
+All email templates support multiple languages via `next-intl`.
+
+### How It Works
+
+1. Templates call `initializeEmailI18n({ language, namespace })`
+2. Translations are loaded from `packages/email-templates/src/locales/{language}/{namespace}.json`
+3. The `t()` function returns translated strings with interpolation
+
+### Translation File Example
+
+```json {% title="packages/email-templates/src/locales/en/invite-email.json" %}
+{
+  "subject": "You have been invited to join a team",
+  "heading": "Join {teamName} on {productName}",
+  "hello": "Hello {invitedUserEmail},",
+  "mainText": "{inviter} has invited you to the {teamName} team on {productName}.",
+  "joinTeam": "Join {teamName}",
+  "copyPasteLink": "or copy and paste this URL into your browser:",
+  "invitationIntendedFor": "This invitation is intended for {invitedUserEmail}."
+}
+```
+
+### Adding a New Language
+
+1. Create a new folder: `packages/email-templates/src/locales/es/` (for Spanish)
+2. Copy all JSON files from `/en/` to `/es/`
+3. Translate the strings
+4. The system automatically uses the user's preferred language
+
+---
+
+## What Else Is Possible
+
+This section covers configuration options and extensions you'll need as TeamPulse grows.
+
+### Switching to Resend for Production
+
+Resend is recommended for production because it provides better deliverability tracking, automatic bounce handling, and detailed analytics. 
+
+Unlike the Nodemailer library, Resend uses an HTTP API that's more reliable across different runtimes (such as Cloudflare Workers or Vercel Edge Functions) - since it doesn't require Node.js.
+
+To switch from Nodemailer to Resend:
+
+1. Create an account at [resend.com](https://resend.com)
+2. Get your API key
+3. Update environment variables:
+
+```bash
+MAILER_PROVIDER=resend
+RESEND_API_KEY=re_xxxxxxxxxxxxx
+EMAIL_SENDER=TeamPulse <noreply@yourdomain.com>
+```
+
+4. Verify your domain in Resend dashboard
+
+**Troubleshooting Resend:** If emails aren't arriving, check the Resend dashboard for delivery status. Common issues include unverified domains (emails silently fail), incorrect API keys (check for copy-paste errors), and sender addresses that don't match your verified domain.
+
+### Development Mode Logging
+
+When debugging authentication flows, checking Mailpit for every OTP code slows development. Makerkit logs sensitive values directly to the console in development mode:
+
+```typescript
+// OTP codes appear in console
+console.log('[DEV] OTP for user@example.com (sign-in): 123456')
+
+// Magic links appear in console
+console.log('[DEV] Magic link for user@example.com: http://...')
+```
+
+This speeds up testing when you're iterating quickly on authentication flows. The logging only happens in development - these values never appear in production logs.
+
+### Adding Custom Email Templates
+
+Application-specific emails (like feedback notifications) require custom templates. Create new templates when you need emails for events that Makerkit doesn't handle by default - product-specific notifications, digest emails, or marketing communications.
+
+To add a new email type:
+
+1. Create template: `packages/email-templates/src/emails/your-email.email.tsx`
+2. Create translations: `packages/email-templates/src/locales/en/your-email.json`
+3. Export render function from package
+4. Create sender function in your app
+
+```typescript
+// Example: Weekly digest email
+export async function renderWeeklyDigestEmail(props: {
+  userName: string;
+  highlights: string[];
+  productName: string;
+  language?: string;
+}) {
+  const { t } = await initializeEmailI18n({
+    language: props.language,
+    namespace: 'weekly-digest-email',
+  });
+
+  const html = await render(
+    <Html>
+      <Head>
+        <BodyStyle />
+      </Head>
+      <Tailwind>
+        <Body>
+          <EmailWrapper>
+            <EmailHeader>
+              <EmailHeading>{t('heading', { userName: props.userName })}</EmailHeading>
+            </EmailHeader>
+            <EmailContent>
+              <Text>{t('intro')}</Text>
+              <ul>
+                {props.highlights.map((item, i) => (
+                  <li key={i}>{item}</li>
+                ))}
+              </ul>
+            </EmailContent>
+            <EmailFooter />
+          </EmailWrapper>
+        </Body>
+      </Tailwind>
+    </Html>
+  );
+
+  return { html, subject: t('subject') };
+}
+```
+
+### Email Sender Configuration
+
+The sender address is configured via environment variable:
+
+```bash
+# Format: "Name <email@domain.com>"
+EMAIL_SENDER=TeamPulse <noreply@teampulse.dev>
+```
+
+For production, ensure this email is from a verified domain.
+
+---
+
+## TeamPulse: Custom Email Templates
+
+Now let's build the email templates that make TeamPulse useful for teams. Feedback tools need notifications - admins should know when new feedback arrives, and users should know when their feedback status changes. Without these emails, users must constantly check the dashboard for updates.
+
+### Feedback Submitted Email
+
+When a user submits feedback, board admins need to know. This email template notifies them immediately, including the feedback type, title, and a link to review it:
+
+```tsx {% title="packages/email-templates/src/emails/feedback-submitted.email.tsx" %}
+import {
+  Body,
+  Head,
+  Html,
+  Preview,
+  Tailwind,
+  Text,
+  render,
+} from '@react-email/components';
+
+import { BodyStyle } from '../components/body-style';
+import { CtaButton } from '../components/cta-button';
+import { EmailContent } from '../components/content';
+import { EmailFooter } from '../components/footer';
+import { EmailHeader } from '../components/header';
+import { EmailHeading } from '../components/heading';
+import { EmailWrapper } from '../components/wrapper';
+
+interface Props {
+  boardName: string;
+  feedbackTitle: string;
+  feedbackType: 'bug' | 'feature' | 'idea';
+  authorName: string;
+  viewLink: string;
+  productName: string;
+  language?: string;
+}
+
+export async function renderFeedbackSubmittedEmail(props: Props) {
+  const typeLabels = {
+    bug: 'Bug Report',
+    feature: 'Feature Request',
+    idea: 'Idea',
+  };
+
+  const html = await render(
+    <Html>
+      <Head>
+        <BodyStyle />
+      </Head>
+      <Preview>New {typeLabels[props.feedbackType]} on {props.boardName}</Preview>
+      <Tailwind>
+        <Body>
+          <EmailWrapper>
+            <EmailHeader>
+              <EmailHeading>New Feedback Submitted</EmailHeading>
+            </EmailHeader>
+            <EmailContent>
+              <Text>
+                <strong>{props.authorName}</strong> submitted a new{' '}
+                <strong>{typeLabels[props.feedbackType]}</strong> on{' '}
+                <strong>{props.boardName}</strong>:
+              </Text>
+              <Text className="bg-gray-100 p-4 rounded-lg">
+                {props.feedbackTitle}
+              </Text>
+              <CtaButton href={props.viewLink}>View Feedback</CtaButton>
+            </EmailContent>
+            <EmailFooter>{props.productName}</EmailFooter>
+          </EmailWrapper>
+        </Body>
+      </Tailwind>
+    </Html>,
+  );
+
+  return {
+    html,
+    subject: `New ${typeLabels[props.feedbackType]}: ${props.feedbackTitle}`,
+  };
+}
+```
+
+For simplicity, we did not use the i18n functionality but we used hard-coded English strings.
+
+### Status Changed Email
+
+Users who submit feedback want to know their voice matters. When an admin changes feedback status from "New" to "Planned" or "In Progress," this email notifies the original author. 
+
+It's a small touch that dramatically improves user engagement with your feedback system:
+
+```tsx {% title="packages/email-templates/src/emails/feedback-status-changed.email.tsx" %}
+import {
+  Body,
+  Head,
+  Html,
+  Preview,
+  Tailwind,
+  Text,
+  render,
+} from '@react-email/components';
+
+import { BodyStyle } from '../components/body-style';
+import { EmailContent } from '../components/content';
+import { CtaButton } from '../components/cta-button';
+import { EmailFooter } from '../components/footer';
+import { EmailHeader } from '../components/header';
+import { EmailHeading } from '../components/heading';
+import { EmailWrapper } from '../components/wrapper';
+
+type Status = 'new' | 'planned' | 'in_progress' | 'done' | 'closed';
+
+export async function renderFeedbackStatusChangedEmail(props: {
+  feedbackTitle: string;
+  oldStatus: Status;
+  newStatus: Status;
+  boardName: string;
+  viewLink: string;
+  productName: string;
+  language?: string;
+}) {
+  const statusLabels = {
+    new: 'New',
+    planned: 'Planned',
+    in_progress: 'In Progress',
+    done: 'Done',
+    closed: 'Closed',
+  };
+
+  const html = await render(
+    <Html>
+      <Head>
+        <BodyStyle />
+      </Head>
+      <Preview>Your feedback is now {statusLabels[props.newStatus]}</Preview>
+      <Tailwind>
+        <Body>
+          <EmailWrapper>
+            <EmailHeader>
+              <EmailHeading>Feedback Status Updated</EmailHeading>
+            </EmailHeader>
+            <EmailContent>
+              <Text>
+                Your feedback on <strong>{props.boardName}</strong> has been
+                updated:
+              </Text>
+              <Text className="rounded-lg bg-gray-100 p-4">
+                &quot;{props.feedbackTitle}&quot;
+              </Text>
+              <Text>
+                Status changed from{' '}
+                <strong>{statusLabels[props.oldStatus]}</strong> to{' '}
+                <strong>{statusLabels[props.newStatus]}</strong>
+              </Text>
+              <CtaButton href={props.viewLink}>View Feedback</CtaButton>
+            </EmailContent>
+            <EmailFooter>{props.productName}</EmailFooter>
+          </EmailWrapper>
+        </Body>
+      </Tailwind>
+    </Html>,
+  );
+
+  return {
+    html,
+    subject: `Status Update: ${props.feedbackTitle}`,
+  };
+}
+```
+
+### Export Templates
+
+For your app to import these templates, they must be exported from the package's main entry point:
+
+```typescript {% title="packages/email-templates/src/index.ts" %}
+// Add to existing exports
+export { renderFeedbackSubmittedEmail } from './emails/feedback-submitted.email';
+export { renderFeedbackStatusChangedEmail } from './emails/feedback-status-changed.email';
+```
+
+### Trigger Emails from Server Actions
+
+With templates created, you need to send them when events occur. 
+
+Integrate email sending directly into your server actions - when feedback is created, send the notification as part of the same operation.
+
+First, we add a new function `sendFeedbackSubmittedEmail` that takes care of collecting the necessary information, and send an email to every owner of the organization that owns the board:
+
+```typescript {% title="apps/web/lib/feedback/feedback-server-actions.ts" %}
+// new imports
+import { auth } from '@kit/better-auth';
+import { headers } from 'next/headers';
+import { renderFeedbackSubmittedEmail } from '@kit/email-templates';
+import { getMailer } from '@kit/mailers';
+
+// at the bottom of the file
+async function sendFeedbackSubmittedEmail({
+  feedback,
+  boardId,
+  authorName,
+}: {
+  feedback: {
+    id: string;
+    title: string;
+    type: 'bug' | 'feature' | 'idea';
+  };
+  boardId: string;
+  authorName: string;
+}) {
+  const mailer = await getMailer();
+
+  const foundBoard = await db
+    .select()
+    .from(board)
+    .where(eq(board.id, boardId))
+    .limit(1)
+    .then(([b]) => b);
+
+  if (!foundBoard) {
+    throw new Error('Board not found');
+  }
+
+  const members = await auth.api.listMembers({
+    headers: await headers(),
+    query: {
+      organizationId: foundBoard.organizationId,
+    },
+  });
+
+  // Filter to only owners on the client side
+  const owners = members.members.filter((member) => member.role === 'owner');
+  const emails = owners.map((owner) => owner.user.email);
+
+  const { html, subject } = await renderFeedbackSubmittedEmail({
+    boardName: foundBoard.name,
+    feedbackTitle: feedback.title,
+    feedbackType: feedback.type,
+    authorName: authorName,
+    viewLink: `${process.env.NEXT_PUBLIC_SITE_URL}/boards/${foundBoard.id}`,
+    productName: 'TeamPulse',
+  });
+
+  const promises = emails.map((email) => {
+    return mailer.sendEmail({
+      from: process.env.EMAIL_SENDER!,
+      to: email,
+      subject,
+      html,
+    });
+  });
+
+  return Promise.allSettled(promises);
+}
+```
+
+Now that we have defined the functions, we need to call it. We do so in the `createFeedbackAction` action after a feedback was successfully stored in the database (approximately at line 107)
+
+```tsx 
+// Sending email
+await sendFeedbackSubmittedEmail({
+  feedback: {
+    id: feedback.id,
+    title: feedback.title,
+    type: feedback.type,
+  },
+  boardId: data.boardId,
+  authorName: ctx.user.name,
+});
+```
+
+Whenever feedback gets created, owners now will receive an email with a link to the board!
+
+---
+
+## Module 9 Complete!
+
+You now have:
+- [x] Understanding of the email architecture (providers, templates, flow)
+- [x] Experience viewing emails in Mailpit
+- [x] Customized an email template
+- [x] Knowledge of localization support
+- [x] Awareness of production setup (Resend) and custom templates
+- [x] TeamPulse-specific feedback notification emails
+
+Transactional emails are often an afterthought, but they're a direct communication channel with your users. The patterns you've learned - React Email templates, provider abstraction, localization support - scale to any email needs you'll encounter as TeamPulse grows.
+
+**Next:** In [Module 10: Settings & Profile](./settings-and-profile), you'll explore the settings infrastructure and understand how Makerkit handles user and organization configuration.
+
+---
+
+## Frequently Asked Questions
+
+{% faq
+   title="Email FAQ"
+   items=[
+     {"question": "Why use React Email instead of plain HTML templates?", "answer": "React Email lets you write email templates using familiar JSX syntax with component reusability. It handles cross-client compatibility issues that make email HTML notoriously difficult. You get the same developer experience as your React components."},
+     {"question": "How do I test emails without sending real ones?", "answer": "Use Mailpit in development (included in Docker setup). It captures all outgoing emails and shows them in a web UI at localhost:8025. For staging, use Resend's test mode or a dedicated test inbox service like Mailtrap."},
+     {"question": "How do I avoid emails going to spam?", "answer": "Verify your sending domain in your email provider (SPF, DKIM, DMARC records). Use a consistent sender address. Keep HTML clean and avoid spam trigger words. Resend and Postmark have higher deliverability than self-hosted SMTP."},
+     {"question": "Should I send emails synchronously in server actions?", "answer": "For critical emails (verification, password reset), yes - wait for confirmation. For notifications, consider queuing them with a service like Inngest or QStash to avoid blocking the user's action and enable retries."}
+   ]
+/%}
+
+---
+
+## Learn More
+
+- [Emails Documentation](/docs/nextjs-drizzle/emails/configuration)
+- [React Email Documentation](https://react.email/docs)
+- [Nodemailer Documentation](https://nodemailer.com/)
+- [Resend Documentation](https://resend.com/docs)
+- [Mailpit](https://mailpit.axllent.org/)

@@ -1,0 +1,106 @@
+---
+status: "published"
+title: "Storage Overview"
+label: "Storage"
+order: 1
+description: "File storage abstraction supporting multiple cloud providers and local filesystem."
+---
+
+The `@kit/storage` package provides a unified storage abstraction layer built on [unstorage](https://unstorage.unjs.io/). It offers a consistent API for file operations across different storage providers.
+
+This allows you to upload files to a variety of storage providers, such as AWS S3, Cloudflare R2, Azure Blob Storage, or Google Cloud Storage.
+
+## Features
+
+- Upload files with metadata (content type, cache control)
+- Download files as Buffer
+- Delete files and prefixes
+- List files by prefix
+- Generate public URLs
+- Support for multiple cloud providers
+
+## Supported Providers
+
+The kit supports the following providers:
+
+- **Filesystem** - Local development (default)
+- **S3** - AWS S3, or S3-compatible storage (R2, Blackblaze, etc.)
+
+Unstorage supports a wide range of providers, you can find the complete list [here](https://unstorage.unjs.io/drivers).
+
+## Quick Start
+
+### Get Storage Instance
+
+```typescript
+import 'server-only';
+
+import { getStorageService } from '@kit/storage';
+
+const storage = await getStorageService();
+```
+
+### Upload a File
+
+To upload a file, you can use the `uploadFile` helper function.
+
+```typescript
+import { getStorageService, uploadFile } from '@kit/storage';
+
+const storage = await getStorageService();
+
+const result = await uploadFile(storage, 'uploads/image.png', buffer, {
+  contentType: 'image/png',
+  metadata: {
+    uploadedBy: userId,
+  },
+});
+
+console.log(result.url); // Public URL
+```
+
+### Download a File
+
+To download a file, you can use the `downloadFile` helper function.
+
+```typescript
+import { getStorageService } from '@kit/storage';
+
+const storage = await getStorageService();
+const data = await storage.getItemRaw('uploads/image.png');
+```
+
+### Delete Files
+
+To delete a file, you can use the `deleteFile` helper function.
+
+```typescript
+import { getStorageService, deletePrefix } from '@kit/storage';
+
+const storage = await getStorageService();
+
+// Delete single file
+await storage.removeItem('uploads/image.png');
+
+// Delete all files with prefix
+await deletePrefix(storage, 'uploads/user-123/');
+```
+
+## Topics
+
+1. **[Configuration](./configuration)** - Environment variables and provider setup
+2. **[Usage](./usage)** - Upload, download, delete operations
+3. **[Providers](./providers)** - Set up S3, R2, Azure, or GCS
+4. **[Bucket Access](./bucket-access)** - Access control for storage buckets
+5. **[API Reference](./api-reference)** - Types and function signatures
+
+## Important Notes
+
+- **Server-only** - Storage operations must run on the server
+- **Provider selection** - Set `STORAGE_PROVIDER` environment variable
+- **Development default** - Uses local filesystem (`./public/storage.dev`)
+- **Production** - Configure a cloud provider
+
+---
+
+**Next:** [Configuration](./configuration)

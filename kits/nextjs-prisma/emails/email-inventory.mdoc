@@ -1,0 +1,201 @@
+---
+status: "published"
+label: "Email Inventory"
+description: "Complete list of all emails shipped by default and how to disable each."
+title: "Email Inventory in Makerkit"
+order: 3
+---
+
+The [Makerkit Prisma stack](/prisma) ships 15 email templates in `packages/email-templates/src/emails/` covering authentication (magic link, OTP, password reset), account management (email change, deletion), and organization workflows (invitations). 
+
+All use React Email for rendering. Disable specific emails via Better Auth config in `packages/better-auth/src/auth.ts` by toggling feature flags or commenting out plugin registrations.
+
+This guide is part of the [Email Configuration](./configuration) documentation.
+
+The email inventory is the complete set of transactional email templates that ship with MakerKit, organized by workflow category (auth, account, organization) with configuration options to disable each.
+
+{% sequence title="Email Inventory" description="Complete inventory of all emails and configuration options." %}
+
+[Overview](#overview)
+
+[Authentication Emails](#authentication-emails)
+
+[Account Management Emails](#account-management-emails)
+
+[Organization Emails](#organization-emails)
+
+[Disabling Emails](#disabling-emails)
+
+{% /sequence %}
+
+## Overview
+
+MakerKit ships with 15 email templates covering authentication, account management, and organization workflows. All templates are located in `packages/email-templates/src/emails/` and use [React Email](https://react.email) for rendering.
+
+Emails are categorized into:
+
+1. **Authentication Emails** - Sign-in, verification, password reset
+2. **Account Management Emails** - Email changes, account deletion
+3. **Organization Emails** - Team invitations
+4. **Admin Emails** - User moderation (templates exist, not wired yet)
+
+## Authentication Emails
+
+| Email | Template | When Sent |
+|-------|----------|-----------|
+| Magic Link | `magic-link.email.tsx` | User requests passwordless sign-in via magic link |
+| Email Verification | `email-verification.email.tsx` | New user signs up (link-based verification) |
+| Reset Password | `reset-password.email.tsx` | User requests password reset |
+| OTP Sign-In | `otp-sign-in.email.tsx` | User signs in via OTP code |
+| OTP Email Verification | `otp-email-verification.email.tsx` | New user signs up (OTP-based verification) |
+| OTP Password Reset | `otp-password-reset.email.tsx` | User resets password via OTP code |
+
+## Account Management Emails
+
+| Email | Template | When Sent |
+|-------|----------|-----------|
+| Change Email Confirmation | `change-email-confirmation.email.tsx` | User initiates email change (sent to current email) |
+| Change Email Verification | `change-email-verification.email.tsx` | User changes email (sent to new email) |
+| Delete Account OTP | `delete-account-otp.email.tsx` | User initiates account deletion |
+
+## Organization Emails
+
+| Email | Template | When Sent |
+|-------|----------|-----------|
+| Invitation | `invite.email.tsx` | Member is invited to join an organization |
+
+## Admin Emails (Templates Only)
+
+These templates exist but are not currently wired to send automatically:
+
+| Email | Template | Purpose |
+|-------|----------|---------|
+| User Banned | `user-banned.email.tsx` | Notify user their account was suspended |
+| User Unbanned | `user-unbanned.email.tsx` | Notify user their account was restored |
+| Account Deleted | `account-delete.email.tsx` | Confirm account deletion |
+
+## Disabling Emails
+
+Email sending is configured in `packages/better-auth/src/auth.ts`. Below are the options for disabling specific email types.
+
+### Disable Email Verification on Signup
+
+```typescript {% filename="packages/better-auth/src/auth.ts" %}
+emailVerification: {
+  sendOnSignUp: false, // Disable verification email on signup
+  autoSignInAfterVerification: true,
+  sendVerificationEmail: async ({ user, url, token }, request) => {
+    await sendVerificationEmail({ user, url, token });
+  },
+},
+```
+
+### Disable Email Change Feature
+
+```typescript {% filename="packages/better-auth/src/auth.ts" %}
+user: {
+  changeEmail: {
+    enabled: false, // Disables both confirmation and verification emails
+  },
+},
+```
+
+### Disable Account Deletion Feature
+
+```typescript {% filename="packages/better-auth/src/auth.ts" %}
+user: {
+  deleteUser: {
+    enabled: false, // Disables delete account OTP email
+  },
+},
+```
+
+### Disable Magic Link Authentication
+
+Remove the magic link plugin from `packages/better-auth/src/plugins/index.ts`:
+
+```typescript {% filename="packages/better-auth/src/plugins/index.ts" %}
+export const betterAuthPlugins = [
+  // magicLinkPlugin, // Comment out to disable magic link emails
+  otpPlugin,
+  organizationPlugin,
+  // ...other plugins
+];
+```
+
+### Disable OTP Authentication
+
+Remove the OTP plugin to disable all OTP-related emails (sign-in, email verification, password reset):
+
+```typescript {% filename="packages/better-auth/src/plugins/index.ts" %}
+export const betterAuthPlugins = [
+  magicLinkPlugin,
+  // otpPlugin, // Comment out to disable all OTP emails
+  organizationPlugin,
+  // ...other plugins
+];
+```
+
+### Disable Organization Invitations
+
+To prevent invitation emails, modify the organization plugin in `packages/better-auth/src/plugins/organizations.ts`:
+
+```typescript {% filename="packages/better-auth/src/plugins/organizations.ts" %}
+export const organizationPlugin = organization({
+  // ...other options
+  sendInvitationEmail: async (data) => {
+    // Comment out or conditionally skip
+    // return sendInvitationEmail(data);
+  },
+});
+```
+
+## Template Locations
+
+All email templates are in `packages/email-templates/src/emails/`:
+
+```
+packages/email-templates/src/emails/
+├── magic-link.email.tsx
+├── email-verification.email.tsx
+├── verification.email.tsx           # Generic verification component
+├── reset-password.email.tsx
+├── otp.email.tsx                    # Generic OTP base template
+├── otp-sign-in.email.tsx
+├── otp-email-verification.email.tsx
+├── otp-password-reset.email.tsx
+├── change-email-confirmation.email.tsx
+├── change-email-verification.email.tsx
+├── delete-account-otp.email.tsx
+├── invite.email.tsx
+├── user-banned.email.tsx
+├── user-unbanned.email.tsx
+└── account-delete.email.tsx
+```
+
+To customize an email template, edit the corresponding file and the changes will apply to all sent emails.
+
+When we built MakerKit's email system, we deliberately kept admin emails (banned, unbanned, deleted) as templates only - wiring them requires explicit admin panel integration, which varies per use case.
+
+## Common Pitfalls
+
+- **Disabling verification but keeping sign-up enabled**: Users can sign up with fake emails. Either require verification or use OAuth-only authentication.
+- **Forgetting both OTP and link-based auth**: If you disable the OTP plugin, ensure magic link or password auth is still enabled. Disabling all auth methods locks users out.
+- **Template changes not taking effect**: Run `pnpm build` in the email-templates package after changes. The render function uses compiled output.
+- **Missing sendInvitationEmail implementation**: The organization plugin expects a sendInvitationEmail function. If you remove it, invitation sending silently fails.
+- **Admin emails not wired**: user-banned, user-unbanned, and account-delete templates exist but aren't automatically sent. You must call them from your admin panel actions.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "How do I add a new email type?", "answer": "Create a template in packages/email-templates/src/emails/, export a render function, add the export to index.ts, then call it from your feature code (Server Action, API route, or Better Auth hook)."},
+     {"question": "Can I use a different email for production vs staging?", "answer": "Yes. Set EMAIL_SENDER differently per environment in .env.production vs .env.staging. The templates use the from address passed at send time."},
+     {"question": "Why are admin emails templates only?", "answer": "Admin moderation workflows vary: some apps auto-ban on reports, others require manual review. We provide templates but leave the triggering logic to your implementation."},
+     {"question": "How do I test all email types locally?", "answer": "Trigger each flow manually: sign up (verification), request password reset, invite a team member, etc. Check Mailpit at localhost:8025 for each email."},
+     {"question": "Can I disable all emails and use SMS instead?", "answer": "Partially. Better Auth supports SMS OTP as an alternative. However, invitation emails require custom implementation - SMS invites aren't built-in."}
+   ]
+/%}
+
+---
+
+**Next:** [Custom Mailer →](./custom-mailer)

@@ -1,0 +1,644 @@
+---
+title: "CRUD Operations with Server Actions and Supabase"
+label: "CRUD: Displaying, updating and deleting Posts"
+description: "In this lesson, we learn how to perform CRUD operations against the user's blog posts using Next.js Server Actions and the Supabase DB"
+order: 6
+---
+
+In this lesson, we learn how to perform CRUD operations against the user's blog posts. We'll start by displaying the user's posts on the dashboard, creating a post page to see the post's content, then we'll add a page to edit posts, and finally, we'll add the ability to delete posts.
+
+## Displaying posts
+
+Let's start by displaying the user's posts on the dashboard. From here, we will be able to click on a post to see its content, edit it, or delete it.
+
+First, let's define the query that we need to fetch the user's posts. We'll add it to the `lib/queries/posts.ts` file:
+
+```tsx {% title="lib/queries/posts.ts" %}
+import { Database } from '@/database.types';
+import { SupabaseClient } from '@supabase/supabase-js';
+
+type Client = SupabaseClient<Database>;
+
+export async function fetchPosts(
+  client: Client,
+  userId: string
+) {
+  return client
+    .from('posts')
+    .select(
+      `
+      id,
+      uuid,
+      title,
+      description
+  `
+    )
+    .eq('user_id', userId);
+}
+```
+
+Additionally, to the same file, we export a function to fetch a post by its UUID, which we'll use to display the post's content:
+
+```tsx {% title="lib/queries/posts.ts" %}
+export async function fetchPostByUid(
+  client: Client,
+  uid: string
+) {
+  return client
+    .from('posts')
+    .select(
+      `
+      id,
+      uuid,
+      title,
+      description,
+      content
+  `
+    )
+    .eq('uuid', uid)
+    .single();
+}
+```
+
+Now, we can add this query to the `posts` page and fetch the posts from the Server Component.
+
+First, let's define a function that, given the current user, fetches all the posts belonging to that user. Below is the code that we need to add and the additional imports:
+
+```tsx {% title="app/(app)/dashboard/page.tsx" %}
+import { redirect } from 'next/navigation';
+import { fetchPosts } from "@/lib/queries/posts";
+import getSupabaseServerComponentClient from "@/lib/supabase/server-component-client";
+
+async function fetchDashboardPageData() {
+  const client = getSupabaseServerComponentClient();
+  const { data: userResponse } = await client.auth.getUser();
+  const user = userResponse?.user;
+
+  if (!user) {
+    redirect('/auth/sign-in');
+  }
+
+  const { data, error } = await fetchPosts(client, user.id);
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+```
+
+Let's tweak the dashboard page to use this function and display the posts:
+
+```tsx {% title="app/(app)/dashboard/page.tsx" %}
+import Link from "next/link";
+import { redirect } from 'next/navigation';
+import { LucideLayoutDashboard } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { fetchPosts } from "@/lib/queries/posts";
+import getSupabaseServerComponentClient from "@/lib/supabase/server-component-client";
+
+async function DashboardPage() {
+  const posts = await fetchDashboardPageData();
+
+  return (
+    <div className='container'>
+      <div className='flex flex-col flex-1 space-y-8'>
+        <div className='flex justify-between items-start'>
+          <h1 className='text-2xl font-semibold flex space-x-4 items-center'>
+            <LucideLayoutDashboard className='w-5 h-5' />
+
+            <span>
+              Dashboard
+            </span>
+          </h1>
+
+          <Button>
+            <Link href="/new">Create New Post</Link>
+          </Button>
+        </div>
+
+        <div className='flex flex-col space-y-4'>
+          {posts.map((post) => {
+            return (
+              <Link href={'/dashboard/' + post.uuid} key={post.id}>
+                <h2 className='text-lg font-medium'>
+                  {post.title}
+                </h2>
+              </Link>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default DashboardPage;
+
+async function fetchDashboardPageData() {
+  const client = getSupabaseServerComponentClient();
+  const { data: userResponse } = await client.auth.getUser();
+  const user = userResponse?.user;
+
+  if (!user) {
+    redirect('/auth/sign-in');
+  }
+
+  const { data, error } = await fetchPosts(client, user.id);
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+```
+
+Now we can see the user's posts on the dashboard. Since we don't yet have a page to see each post, the link will redirect to a 404. But don't worry, we;ll get there soon.
+
+{% img src="/assets/courses/dashboard-with-posts.webp" width="2688" height="1996" /%}
+
+### A quick word on "use"
+
+Did you notice the hook `use`? Weird, isn't it? The `use` hook is a new React hook that allows us to use asynchronous functions as if they were hooks. It's a new feature that is currently in the works but that we can already use in Next.js. 
+
+At the moment, you can only use it within Server Components, so not in the browser.
+
+## Building the post page
+
+Now that we can see the user's posts on the dashboard, let's build the post page. This page will display the post's content and allow us to edit or delete the post.
+
+First, we need to create a new route at `app/(app)/dashboard/[id]/page.tsx`:
+
+```tsx {% title="app/(app)/dashboard/[id]/page.tsx" %}
+import { use } from 'react';
+
+import { fetchPostByUid } from '@/lib/queries/posts';
+import getSupabaseServerComponentClient from '@/lib/supabase/server-component-client';
+
+interface PostPageParams {
+  params: {
+    id: string;
+  };
+}
+
+function PostPage({ params }: PostPageParams) {
+  const post = use(loadPost(params.id));
+
+  return (
+    <div className='flex flex-col space-y-4 max-w-3xl mx-auto pb-16'>
+      <h1 className='text-2xl font-semibold'>
+        {post.title}
+      </h1>
+
+      <h2 className='text-lg font-medium'>
+        {post.description}
+      </h2>
+
+      <div className='whitespace-break-spaces'>
+        {post.content}
+      </div>
+    </div>
+  );
+}
+
+async function loadPost(id: string) {
+  const client = getSupabaseServerComponentClient();
+  const { data, error } = await fetchPostByUid(client, id);
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
+export default PostPage;
+```
+
+If you now click on one of the posts you have generated, you should see the page below:
+
+{% img src="/assets/courses/post-page.webp" width="1357" height="1000" /%}
+
+## Editing posts
+
+Now, we want to add the functionality of editing posts using a form.
+
+This will teach **how to update records in Supabase**, and how to **revalidate the current page** after updating a record.
+
+### Adding a Link to the Post Page
+
+First, we need to update the post page and add a link that allows users to navigate to the `edit` page.
+
+Let's update the `PostPage` component at `app/(app)/dashboard/[id]/page.tsx`:
+  
+```tsx {% title="app/(app)/dashboard/[id]/page.tsx" %} {0-2, 10-15}
+import Link from 'next/link';
+import { PencilIcon } from 'lucide-react';
+import { Button } from "@/components/ui/button";
+
+<div className='flex flex-col space-y-4 max-w-3xl mx-auto pb-16'>
+  <div className='flex justify-between'>
+    <h1 className='text-2xl font-semibold'>
+      {post.title}
+    </h1>
+
+    <div className='flex space-x-2.5'>
+      <Button variant={'link'} className='flex space-x-2'>
+        <PencilIcon className='w-3 h-3' />
+        <Link href={`/dashboard/${params.id}/edit`}>Edit</Link>
+      </Button>
+    </div>
+  </div>
+
+  <h2 className='text-lg font-medium'>
+    {post.description}
+  </h2>
+
+  <div className='whitespace-break-spaces'>
+    {post.content}
+  </div>
+</div>
+```
+
+### Adding the Mutation to edit a post
+
+Now, we need to add the mutation to edit a post. We'll add it to the `lib/mutations/posts.ts` file, below the `insertPost` mutation:
+
+```tsx {% title="lib/mutations/posts.ts" %} {14-15}
+interface UpdatePostParams {
+  title: string;
+  content: string;
+  description: string | undefined;
+  uid: string;
+}
+
+export async function updatePost(
+  client: Client,
+  { uid, ...params }: UpdatePostParams
+) {
+  const { data, error } = await client
+    .from('posts')
+    .update(params)
+    .match({ uuid: uid });
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+```
+
+### Adding the Action to edit a post
+
+Now, we need to add the action to edit a post. We'll add it to the `lib/actions/posts.ts` file, below the `createPostAction` action:
+
+```tsx {% title="lib/actions/posts.ts" %} {12-17}
+import { revalidatePath } from 'next/cache';
+import { insertPost, updatePost } from '@/lib/mutations/posts';
+
+export async function updatePostAction(formData: FormData) {
+  const title = formData.get('title') as string;
+  const description = formData.get('description') as string | undefined;
+  const content = formData.get('content') as string;
+  const uid = formData.get('uid') as string;
+
+  const client = getSupabaseServerActionClient();
+
+  await updatePost(client, {
+    title,
+    content,
+    description,
+    uid,
+  });
+
+  const postPath = `/dashboard/${uid}`;
+
+  revalidatePath(postPath, 'page');
+
+  return redirect(postPath);
+}
+```
+
+The `updatePostAction` function is very similar to the `createPostAction` function. The only difference is that we're using the `updatePost` mutation instead of the `insertPost` mutation.
+
+We identify the post to update by its UUID, which **we will add to the form as a hidden input** in the next step.
+
+#### Revalidating pages using "revalidatePath"
+
+We're using the `revalidatePath` function to **revalidate the post page** - i.e. to make sure that the page is up-to-date with the latest data from the database.
+
+You should use the `revalidatePath` whenever you update a record in your DB to **make sure that the data is up-to-date** after the mutation is executed.
+
+### Installing the Textarea Component
+
+Since we need to use a textarea to edit the post's content, we'll install the textarea component from Shadcn UI.
+
+Run the command below to install the Textarea component:
+
+```bash
+ npx shadcn-ui@latest add textarea 
+ ```
+
+### Adding the Edit Page
+
+We can now put everything together and create the UI responsible for editing the post.
+
+To do so, we'll create a new page at `app/(app)/dashboard/[id]/edit/page.tsx`: on this page, we can update the post's title, description, and content.
+
+```tsx {% title="app/(app)/dashboard/[id]/edit/page.tsx" %} {29}
+t { updatePostAction } from '@/lib/actions/posts';
+
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
+
+interface EditPostPageParams {
+  params: {
+    id: string;
+  };
+}
+
+function EditPage({ params }: EditPostPageParams) {
+  const post = use(loadPost(params.id));
+
+  return (
+    <div className='flex flex-col space-y-4 max-w-3xl mx-auto pb-16'>
+      <div className='flex justify-between'>
+        <h1 className='text-2xl font-semibold'>
+          Edit Post &quot;{post.title}&quot;
+        </h1>
+      </div>
+
+      <form action={updatePostAction}>
+        <div className='flex flex-col space-y-4'>
+          <input type='hidden' name='uid' value={post.uuid} />
+
+          <Label className='flex flex-col space-y-1.5'>
+            <span>Title</span>
+            <Input name='title' defaultValue={post.title} required />
+          </Label>
+
+          <Label className='flex flex-col space-y-1.5'>
+            <span>Description</span>
+            <Input name='description' defaultValue={post.description ?? ''} />
+          </Label>
+
+          <Label className='flex flex-col space-y-1.5'>
+            <span>Content</span>
+            <Textarea
+              className='min-h-[300px]'
+              name='content'
+              defaultValue={post.content}
+              required
+            />
+          </Label>
+
+          <Button>
+            Save
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+export default EditPage;
+
+async function loadPost(id: string) {
+  const client = getSupabaseServerComponentClient();
+  const { data, error } = await fetchPostByUid(client, id);
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+```
+
+It's important to notice that we're using the `updatePostAction` function as the form's action. This function will be called when the user submits the form. Since we don't use any client components, the above **works even if Javascript is disabled**. Isn't that great?
+
+Let's see this in action:
+
+{% video src="/assets/courses/update-post.mp4" /%}
+
+## Deleting Posts
+
+Similarly to editing posts, deleting post requires us to write a mutation that interacts with our Postgres DB, and a Server Action that we can call upon user interaction. 
+
+### Adding the Mutation to delete a post
+
+Now, we need to add the mutation to edit a post. We'll add it to the `lib/mutations/posts.ts` file, below the `editPost` mutation:
+
+```tsx {% title="lib/mutations/posts.ts" %} {7-8}
+export async function deletePost(
+  client: Client,
+  uuid: string
+) {
+  const { data, error } = await client
+    .from('posts')
+    .delete()
+    .match({ uuid });
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+```
+
+### Adding the Server Action to delete a post
+
+Now, we need to add the action to edit a post. We'll add it to the
+`lib/actions/posts.ts` file, below the previous action function:
+
+```tsx {% title="lib/actions/posts.ts" %} {12, 19-20}
+import { revalidatePath } from 'next/cache';
+import { insertPost, updatePost, deletePost } from '@/lib/mutations/posts';
+
+export async function deletePostAction(uid: string) {
+  const client = getSupabaseServerActionClient();
+  const path = `/dashboard`;
+
+  await deletePost(client, uid);
+
+  revalidatePath(path, 'page');
+
+  return redirect(path);
+}
+```
+
+After the post is deleted, we revalidate the posts list and redirect the user there.
+
+### Deleting a Post from the UI
+
+To delete a post, we require the user to click on a button and then confirm their choice.
+
+Let's define then Button component to delete a post. Since it's going to be a client component, we want to create it in a separate file at `app/(app)/dashboard/[id]/components/DeletePostButton.tsx`.
+
+We will now learn another way to call a Server Action, i.e using the `useTransition` hook. Using this hook, we can also retrieve the state of the action, and display a loading state when the status is pending.
+
+#### Installing the Dialog component
+
+First, we need the Dialog component from ShadcnUI so we can ask the user to confirm their choice:
+
+```
+npx shadcn-ui@latest add dialog
+```
+
+#### Creating the DeletePostButton component
+
+Now, we create the `DeletePostButton`. We use the `Dialog` component from ShadcnUI to ask for confirmation before deleting the post from the database.
+
+```tsx {% title="app/(app)/dashboard/[id]/components/DeletePostButton.tsx" %}
+'use client';
+
+import { useCallback, useTransition } from 'react';
+import { TrashIcon } from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { deletePostAction } from '@/lib/actions/posts';
+
+function DeletePostButton(
+  { uid }: React.PropsWithChildren<{
+    uid: string
+  }>
+) {
+  const [isPending, startTransition] = useTransition();
+
+  const onDeleteRequested = useCallback(() => {
+    startTransition(async () => {
+      await deletePostAction(uid);
+    });
+  }, [uid]);
+
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button variant={'destructive'} className='flex space-x-2'>
+          <TrashIcon className='w-3 h-3' />
+          <span>Delete</span>
+        </Button>
+      </DialogTrigger>
+
+      <DialogContent>
+        <div className='flex space-y-4 flex-col'>
+          <div>
+            <b>Deleting Post</b>
+          </div>
+
+          <div>
+            <p className='text-sm'>
+              Are you sure you want to continue?
+            </p>
+          </div>
+
+          <div className='flex justify-end'>
+            <Button
+              variant={'destructive'}
+              className='flex space-x-2'
+              disabled={isPending}
+              onClick={onDeleteRequested}
+            >
+              {
+                isPending ? `Deleting Post...` :
+                  <>
+                    <TrashIcon className='w-3 h-3' />
+                    <span>Yes, I want to delete this post</span>
+                  </>
+              }
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export default DeletePostButton;
+```
+
+We can go back to the page's post, and add the `DeletePostButton` component to the page:
+
+```tsx {% title="app/(app)/dashboard/[id]/page.tsx" %} {32}
+import { use } from 'react';
+import Link from 'next/link';
+import { PencilIcon } from 'lucide-react';
+
+import { Button } from '@/components/ui/button';
+import { fetchPostByUid } from '@/lib/queries/posts';
+import getSupabaseServerComponentClient from '@/lib/supabase/server-component-client';
+import DeletePostButton from './components/DeletePostButton';
+
+interface PostPageParams {
+  params: {
+    id: string;
+  };
+}
+
+function PostPage({ params }: PostPageParams) {
+  const post = use(loadPost(params.id))
+
+  return (
+    <div className='flex flex-col space-y-4 max-w-3xl mx-auto pb-16'>
+      <div className='flex justify-between'>
+        <h1 className='text-2xl font-semibold'>
+          {post.title}
+        </h1>
+
+        <div className='flex space-x-2.5'>
+          <Button variant={'link'} className='flex space-x-2'>
+            <PencilIcon className='w-3 h-3' />
+            <Link href={`/dashboard/${params.id}/edit`}>Edit</Link>
+          </Button>
+
+          <DeletePostButton uid={params.id} />
+        </div>
+      </div>
+
+      <h2 className='text-lg font-medium'>
+        {post.description}
+      </h2>
+
+      <div className='whitespace-break-spaces'>
+        {post.content}
+      </div>
+    </div>
+  );
+}
+
+async function loadPost(id: string) {
+  const client = getSupabaseServerComponentClient();
+  const { data, error } = await fetchPostByUid(client, id);
+
+  if (error) {
+    throw error;
+  }
+
+  return data;
+}
+
+export default PostPage;
+```
+
+Here is a full video showing what we have just completed:
+
+{% video src="/assets/courses/delete-post.mp4" /%}
+
+## Conclusion
+
+In this lesson, we have learnt:
+
+1. Updating a Post using a Server Action and revalidating a path following a mutation using `revalidatePath`
+2. Deleting a Post using a Server Action called from a user interaction using  the `useTransition` hook
+
+## What's next?
+
+In the next lesson, **we will finally tackle payments and implement Stripe Subscriptions into our app**, so that you can receive payments from your customers. Yay! 🎉

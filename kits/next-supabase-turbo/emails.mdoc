@@ -1,22 +1,36 @@
 ---
 status: "published"
-title: "Emails in Next.js Supabase Turbo"
+title: "Emails in the Next.js Supabase SaaS Starter Kit"
 label: "Emails"
 order: 11
-description: "Emails in Next.js Supabase Turbo"
+description: "Learn how to configure email providers, send transactional emails, and customize email templates in your MakerKit application using React Email and Nodemailer or Resend."
 collapsible: true
 collapsed: true
 ---
 
-Everything you need to know about handling emails in your Makerkit application:
+MakerKit provides a complete email system with two distinct types of emails: **application emails** (team invitations, account notifications) and **Supabase Auth emails** (verification, password reset). Each requires separate configuration.
 
-1. [**Getting Started with Email**](/docs/next-supabase-turbo/email-configuration)
-   Configure your email provider and understand the email system architecture.
-2. [**Authentication Emails**](/docs/next-supabase-turbo/authentication-emails)
-   Set up and customize authentication-related emails like verification, password reset, and login notifications.
-3. [**Email Templates**](/docs/next-supabase-turbo/email-templates)
-   Learn how to create and customize email templates using React.Email.
-4. [**Sending Emails**](/docs/next-supabase-turbo/sending-emails)
-   Implement email sending functionality in your application using the Makerkit mailer system.
+## Email System Overview
 
-Whether you're setting up transactional emails, authentication notifications, or marketing communications, this guide has you covered! 📧
+The email architecture in MakerKit consists of:
+
+1. **Mailer Package** (`@kit/mailers`): A provider-agnostic abstraction that supports Nodemailer (SMTP) and Resend (HTTP API)
+2. **Email Templates** (`@kit/email-templates`): React Email-based templates with i18n support
+3. **Supabase Auth Templates**: HTML templates for authentication flows, stored in `apps/web/supabase/templates`
+
+## Quick Start
+
+For most applications, you need to:
+
+1. **Configure your email provider** - Set environment variables for Nodemailer (SMTP) or Resend
+2. **Set up Supabase Auth emails** - Replace default templates with MakerKit's token-hash templates
+3. **Send transactional emails** - Use the `@kit/mailers` package in your server-side code
+
+## Documentation
+
+1. [**Email Configuration**](/docs/next-supabase-turbo/email-configuration) - Set up Nodemailer or Resend as your email provider with proper SMTP credentials
+2. [**Sending Emails**](/docs/next-supabase-turbo/sending-emails) - Use the mailer API to send plain text and HTML emails from server-side code
+3. [**Email Templates**](/docs/next-supabase-turbo/email-templates) - Create branded email templates with React Email and i18n support
+4. [**Authentication Emails**](/docs/next-supabase-turbo/authentication-emails) - Configure Supabase Auth email templates for PKCE-compatible verification flows
+5. [**Custom Mailer**](/docs/next-supabase-turbo/custom-mailer) - Integrate third-party email providers like SendGrid, Postmark, or AWS SES
+6. [**Local Development with Mailpit**](/docs/next-supabase-turbo/emails/inbucket) - Test emails locally using Mailpit without sending real messages

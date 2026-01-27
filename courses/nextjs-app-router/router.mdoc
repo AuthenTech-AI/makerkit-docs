@@ -1,0 +1,502 @@
+---
+title: "Next.js Course: Understanding the Next.js App Router file conventions"
+label: Understanding the Next.js App Router
+description: Understand the Next.js App Router and how it works.
+order: 1
+---
+
+The Next.js App Router is a new router that is built into Next.js starting
+from Next.js 14. It is a complete rewrite of the old router and is designed to be **more flexible and powerful than the old router**.
+
+In this chapter, we will be looking at the new router and how it works.
+
+## Application Directory Structure
+
+To better understand the overall structure of a Next.js App Router project, let's take a look at the directory structure of a sample project:
+
+```
+~ /app                // root
+  - layout.tsx        // root layout
+  - page.tsx          // root page
+  - error.tsx         // root error page
+  - loading.tsx       // root loading state
+
+  - tasks             // tasks directory
+    - page.tsx        // tasks page
+    - template.tsx    // tasks template
+
+    - [id]            // tasks dynamic page [id]
+      - route.ts      // tasks API Route handler
+```
+
+While the Next.js router convention can get a lot more complex than this, the above file conventions are what you will be using the vast majority of the time.
+
+As a result of using naming conventions for specific types of components, the router can now be more flexible and powerful than ever before. In fact, **we can colocate pages and the components/hooks used by that page**.
+
+What does co-location mean? Assuming we have a folder named `tasks` like above, **we can also add the components and hooks used by the "tasks" pages to the same folder**:
+
+```
+  - tasks
+    - database
+      - queries.ts
+      - mutations.ts
+
+    - components
+      - CreateTaskForm.tsx
+      - TaskList.tsx
+      - TaskListItem.tsx
+
+    - hooks
+      - use-create-task.ts
+      - use-delete-task.ts
+
+    - page.tsx
+    - template.tsx
+
+    - [id]
+      - route.ts
+```
+
+As you can see in the above, we have also added 3 new folders: `database`, `components` and `hooks`. These folders contain the components and hooks used by the `tasks` page.
+
+In the previous router, this was not possible - since every file in the `pages` directory was treated as a page. This meant that we had to create a separate folder for components and hooks, and then import them into the page.
+
+## Layouts
+
+One of the biggest complaints about the previous router was the inability to support layouts. 
+
+Layouts are a common pattern in web development, where you can wrap a page with a layout component to provide a consistent look and feel across all pages. While there were various hacks to work it around, it was never a first-class feature in Next.js.
+
+### Parallel Rendering = better performance
+
+Layouts in Next.js App Router are rendered in parallel with the page component and can be nested. This means that you can have multiple layouts, and each layout can have its own data-fetching logic.
+
+The way layouts are rendered prevents waterfall Loading, that is, **the page component and its children will not be blocked by the parent components**.
+
+By rendering layouts and pages in parallel, it allows for **faster page loads** since the tree does not need the top-level layout to be rendered before the page component can be rendered.
+
+Since layouts are rendered in parallel, it is likely that **we will need to fetch the same data across multiple layouts or pages**. Additionally, this data cannot be passed top-down, as that would create a waterfall loading.
+
+React helps us solve this problem **using caching on a per-request basis**: if the same data is requested multiple times, React will only fetch it once in the same request.
+
+#### Caching using Fetch
+
+If you use the native `fetch`, this is automatically de-duplicated by Next.js. In this course we will not use the native `fetch` API since we interact with our external services using client SDKs. But it is good to know.
+
+#### Caching using APIs and SDKs
+
+If you use other APIs such as `axios`, or client SDKs such us Supabase, Firebase, Redis, and so on, React exposes a new `cache` utility that we can use to deduplicate requests.
+
+We will be using the `cache` utility in this course, so you will see how it works.
+
+### Creating Layouts
+
+The router needs at least one layout, that is the root layout. This layout will be rendered for all pages - and is the starting point from which all other layouts are rendered.
+
+The root layout is a file named `layout.tsx` in the `app` directory, and can be as simple as the below example:
+
+```tsx title=app/layout.tsx
+function Layout(
+  { children }: React.PropsWithChildren
+) {
+  return (
+    <html lang='en'>
+      <body>
+        {children}
+      </body>
+    </html>
+  );
+}
+
+export default Layout;
+```
+
+{% alert type="info" %}
+
+  It is important to note that the root layout must be named "layout.tsx" in the "app" directory. This is a convention that is enforced by the router - if you name it something else, it will not be picked up by the router. Therefore, remember to name it "layout.tsx".
+{% /alert %}
+
+The Next.js layouts are game-changing, and allow you to create a consistent look and feel across all pages. You can also have multiple layouts, and nest them as deep as you want.
+
+Here are some of the things unlocked by the Next.js App Router layouts:
+
+- **Page Layout**: Create a consistent look and feel across all pages
+- **Data Fetching**: Loading data for layouts and their children
+- **Validation**: Protecting pages with authentication for all pages that use a specific layout
+
+This leads to less code, better performance and a better developer experience.
+
+Things to know about layouts:
+
+1. Layouts are rendered in parallel with the page component
+2. Layouts can be nested
+3. Layouts persist between page navigations
+4. Except for the root layout, layouts are optional
+
+## Templates
+
+Templates are very similar to layouts, with the difference they create a new instance when navigating between pages that use the same template.
+
+Templates are defined using the file convention `template.tsx`. Just like layouts, these can be nested and will render according to the hierarchy of the folder structure.
+
+```tsx title=app/template.tsx
+function Template(props: React.PropsWithChildren) {
+  return (
+    <div>
+      {props.children}
+    </div>
+  );
+}
+
+export default Template;
+```
+
+Things to remember when using templates:
+
+1. They create a new instance when navigating between pages that use the same template
+2. Layouts always precede templates and are rendered first
+3. Templates are rendered after layouts, and before the page component
+
+Templates can be useful for a variety of use cases, such as:
+
+1. Enter/Exit animations
+2. Re-executing effects when navigating between pages
+3. Resetting state when navigating between pages
+
+#### Should I use a Layout or a Template?
+
+The Next.js docs **recommend using "Layouts" for the majority of use-cases**, unless you need a template for one of the above use-cases.
+
+## Pages
+
+Pages are the main component of the router, and are defined using the file convention `page.tsx`. Pages are rendered as children of the layout and template components.
+
+To define a page, we use the filename convention `page.tsx`, and place it in the folder that matches the route. For example, if we want to define a page for the route `/tasks`, we would create a file named `page.tsx` in the `tasks` folder.
+
+```tsx title=app/tasks/page.tsx
+function TasksPage() {
+  return (
+    <div>
+      <h1>Tasks</h1>
+    </div>
+  );
+}
+```
+
+Pages are also rendered in parallel with the layout and template components, which means that the page component will not be blocked by the layout or template component. This has some side effects on how we will be loading data on our pages, which we will look at later in this course.
+
+{% img alt="Next.js App Router architecture" src="/assets/courses/01-layout.svg" width="929" height="874" /%}
+
+### Dynamic Pages
+
+Just like the old router, we can use dynamic routes to define dynamic pages. Dynamic pages are defined using the file convention `[param].tsx`, where `param` is the name of the dynamic parameter.
+
+For example, we can define the page `/tasks/[id]` using the file `app/tasks/[id].tsx`, where `id` is the dynamic parameter.
+
+To access the dynamic parameter, we use the `params` object passed as a `prop` to the page component.
+
+```tsx title=app/tasks/[id].tsx
+interface PageParams {
+  params: {
+    id: string;
+  };
+}
+
+function TaskPage({ params }: PageParams) {
+  return (
+    <div>
+      <h1>Task {params.id}</h1>
+    </div>
+  );
+}
+```
+
+### Page Metadata
+
+The router allows us to define metadata for each page, such as the page title, description, etc. This metadata is used by the router to render the page metadata in the `<head>` tag.
+
+Unlike the old router where we used the `Head` component, the new router uses a `metadata` object that is exported from the page component.
+
+```tsx {% title="app/tasks/page.tsx" %}
+import { Metadata } from 'next'
+
+export const metadata: Metadata = {
+  title: 'Tasks',
+  description: 'A list of tasks',
+};
+```
+
+To make your life easier, remember to import the `Metadata` type from `next` - this will give you autocomplete and type checking for the metadata object.
+
+#### Using dynamic values in metadata
+
+You may want to use a function when defining the metadata when you need to use some computed values, or values fetched dynamically:
+
+```tsx title=app/tasks/[id].tsx
+import { Metadata, ResolvingMetadata } from 'next'
+ 
+type Props = {
+  params: { id: string }
+};
+ 
+export async function generateMetadata(
+  { params }: Props,
+  parent: ResolvingMetadata
+): Promise<Metadata> {
+  const id = params.id;
+  // imagine we have a getProduct function that fetches the product from the database
+  const product = await getProduct(id);
+ 
+  return {
+    title: product.title,
+  }
+}
+```
+
+### What happens if I don't define metadata?
+
+If you do not specify a `metadata` object or a `generateMetadata` function, the router will use the metadata from the parent page.
+
+### Read more about metadata
+
+If you want to learn more about the Next.js Metadata API, you should check out the [full Metadata API documentation](https://nextjs.org/docs/app/api-reference/functions/generate-metadata#the-metadata-object).
+
+## Loading States
+
+Instant loading states appear when navigating between pages, and are used to provide a better user experience while the router navigates to a page, which in many cases requires a server request.
+
+A loading state is defined using the file convention `loading.tsx`. Just like layouts, these can be nested and will render according to the hierarchy of the folder structure.
+
+The simplest component that can be used as a loading state is the below example:
+
+```tsx title=app/loading.tsx
+function Loading() {
+  return (
+    <div>
+      <p>Loading...</p>
+    </div>
+  );
+}
+
+export default Loading;
+```
+
+Of course, you can use any component you want as a loading state - such as a top bar, a skeleton component or a spinner component.
+
+See the example below - where we navigate between pages and see the loading state in action:
+
+- I added the `loading.tsx` component to the `app/tasks` directory
+- I added a `tasks` page to the `app/tasks` directory
+- I added a fake loading delay to the `tasks` page to simulate a server request
+
+## Error States
+
+When an uncaught error occurs in a component, the router will render the error component defined as `error.tsx` - if it exists. If it does not exist, the router will render the default error page.
+
+The router will render the closest error component in the folder hierarchy. For example, if you have an error component in the `app` directory, it will be rendered for all pages.
+
+Error components must be defined as "client components".
+
+```tsx title=app/error.tsx
+'use client';
+
+function Error() {
+  return (
+    <div>Sorry, an error occurred. Please refresh the page to continue.</div>
+  );
+}
+
+export default Error;
+```
+
+As you can see from the above example, the error component is rendered when an error occurs in the page component.
+
+## API Routes
+
+API routes have undergone a huge upgrade in the new app router. We define API routes using the file convention `route.ts`, and by exporting the relative HTTP method handlers (such as `GET`, `POST`, etc.).
+
+For example, we can define a Route handler for creating a Task that accepts a POST request at the path `/tasks`:
+
+```ts title=app/tasks/route.ts {3}
+import { NextRequest } from 'next/server';
+
+export async function POST(request: NextRequest) {
+  const body = await request.json();
+  const task = await createNewTask(body);
+
+  return new Response(task);
+}
+```
+
+Unlike the old API handlers, **the new API handlers are not using an Express-like API** but instead embraced the new `Request`/`Response` standard API.
+
+Next goes a bit further and extended the `Request`/`Response` API with the `NextRequest`/`NextResponse` API from `next/server`, which provides some additional functionality that is useful for Next.js apps.
+
+We will look at the `NextRequest`/`NextResponse` API in more detail in the next chapters.
+
+As you can imagine, you can export multiple handlers for each HTTP method. For example, we can define a `GET` and `PUT` handlers too:
+
+```ts {% title="app/tasks/route.ts" %}
+import { NextResponse, NextRequest } from 'next/server';
+
+export async function GET(request: NextRequest) {
+  const tasks = await getTasks();
+
+  return NextResponse.json(tasks);
+}
+
+export async function PUT(request: NextRequest) {
+  const body = await request.json();
+
+  await updateTask(body);
+
+  return NextResponse.json({
+    success: true,
+  });
+}
+```
+
+### API Routes Gotchas
+
+Take into account the following when defining API routes:
+
+#### The handlers must be exported
+
+Remember to export your functions in the route file, otherwise, the router will not be able to find them.
+
+#### Route handlers cannot be on the same level as a page
+
+If you have a page and a route handler on the same level, it will not work.
+
+Consider the structure below:
+
+```
+- app
+  - route.ts
+  - page.tsx
+```
+
+The above does not work.
+
+{% alert type="error" %}
+
+  The page will be rendered, while the route function will be disregarded
+{% /alert %}
+
+To avoid this issue, you can use the Route handler in a separate folder:
+
+```
+- app
+  - <route-name>
+    - route.ts
+      - GET
+  - page.tsx
+```
+
+The `GET` endpoint will then be available at `/<route-name>`
+
+## Cookies and Headers
+
+The Next.js App Router provides a new API for working with cookies and headers. This API is available in Server Components, API Routes and Server Actions.
+
+Since Next.js no longer exposes a `req`/`res` object, we need to use the new API to access cookies and headers from the package `next/headers`.
+
+The API is very simple and straightforward.
+
+### Reading a Cookie
+
+```ts title=app/tasks/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+
+export async function POST(request: NextRequest) {
+  const sessionCookie = cookies(request).get('session');
+  const session = sessionCookie?.value;
+
+  // ...
+}
+```
+
+### Setting a Cookie
+
+```ts title=app/tasks/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+
+export async function POST(request: NextRequest) {
+  const session = await createSession();
+
+  cookies().set('session', session);
+
+  return NextResponse.json({
+    success: true,
+  });
+}
+```
+
+#### We can only set cookies in API Routes and Server Actions (not Server Components)
+
+We can only set cookies in API Routes and Server Actions. Next.js does not allow us to set cookies from Server Components.
+
+For example the below **does not work for setting cookies**:
+
+```tsx
+import { cookies } from 'next/headers';
+
+export async function Page() {
+  const user = await getUser();
+
+  // this does not work
+  cookies().set('userId', user.id);
+
+  return (
+    <div>
+      //...
+    </div>
+  );
+}
+```
+
+### Reading a Header
+
+Reading headers is very similar to reading cookies:
+
+```ts title=app/tasks/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { headers } from 'next/headers';
+
+export async function POST(request: NextRequest) {
+  const signature = headers().get('stripe-signature');
+
+  // ...
+}
+```
+
+### Setting a Header
+
+Setting headers is also very similar to setting cookies:
+
+```ts title=app/tasks/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { headers } from "next/headers";
+
+export async function POST(request: NextRequest) {
+  const signature = await createSignature();
+
+  headers().set('signature', signature);
+
+  return NextResponse.json({
+    success: true,
+  });
+}
+```
+
+## Conclusion
+
+In this chapter, we learned about the new app router and how to use it to define layouts, metadata, loading states, error states and API routes.
+
+## What's Next?
+
+In the next tutorial, we start the practical part of this course.
+
+We will be installing Next.js and Supabase, and start building our app. See you there!

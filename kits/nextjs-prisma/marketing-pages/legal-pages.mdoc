@@ -1,0 +1,172 @@
+---
+status: "published"
+title: "Legal Pages"
+label: "Legal Pages"
+order: 6
+description: "Create essential legal pages including terms of service, privacy policy, and cookie policy."
+---
+
+Every SaaS application requires legal pages before accepting users. Makerkit includes template pages for Terms of Service, Privacy Policy, and Cookie Policy that you must customize for your specific product and jurisdiction. These pages establish the legal relationship with users, disclose data practices, and help with compliance requirements like GDPR and CCPA.
+
+Legal pages are public documents that define the contractual relationship between your service and its users, covering usage terms, data handling practices, and cookie usage.
+
+While you should be in no rush to finish these pages, you should at least have a basic Terms of Service and Privacy Policy before accepting users.
+
+## Legal Page Locations
+
+| Page | File Location | URL |
+|------|---------------|-----|
+| Terms of Service | `apps/web/app/[locale]/(public)/(legal)/terms-of-service/page.tsx` | `/terms-of-service` |
+| Privacy Policy | `apps/web/app/[locale]/(public)/(legal)/privacy-policy/page.tsx` | `/privacy-policy` |
+| Cookie Policy | `apps/web/app/[locale]/(public)/(legal)/cookie-policy/page.tsx` | `/cookie-policy` |
+
+## Terms of Service
+
+The Terms of Service (ToS) defines the rules users must follow and your rights as the service provider.
+
+### Key Sections to Customize
+
+1. **Service Description**: What your product does
+2. **Acceptable Use**: What users can and cannot do
+3. **Account Terms**: Registration, security, termination
+4. **Payment Terms**: Billing, refunds, cancellation (if applicable)
+5. **Intellectual Property**: Who owns what
+6. **Limitation of Liability**: Your liability limits
+7. **Governing Law**: Which jurisdiction's laws apply
+8. **Contact Information**: How users can reach you
+
+### Template Customization
+
+```tsx
+// apps/web/app/[locale]/(public)/(legal)/terms-of-service/page.tsx
+
+export default function TermsOfService() {
+  return (
+    <div className="container py-12 prose">
+      <h1>Terms of Service</h1>
+      <p>Last updated: {new Date().toLocaleDateString()}</p>
+      
+      <h2>1. Acceptance of Terms</h2>
+      <p>
+        By accessing [Your Product Name], you agree to be bound 
+        by these Terms of Service.
+      </p>
+      
+      {/* Add your terms sections */}
+    </div>
+  );
+}
+```
+
+## Privacy Policy
+
+The Privacy Policy explains what data you collect, how you use it, and users' rights regarding their data.
+
+### Required Disclosures
+
+1. **Data Collected**: What personal information you gather
+2. **Collection Methods**: How you collect data (forms, cookies, analytics)
+3. **Data Usage**: What you do with the data
+4. **Data Sharing**: Third parties who receive data
+5. **Data Retention**: How long you keep data
+6. **User Rights**: How users can access, correct, or delete data
+7. **Security Measures**: How you protect data
+8. **Contact Information**: Data protection contact
+
+### GDPR Considerations
+
+If you have users in the European Union:
+
+- Identify your legal basis for processing (consent, contract, legitimate interest)
+- Explain data subject rights (access, rectification, erasure, portability)
+- Disclose international data transfers
+- Provide DPO contact if required
+
+### CCPA Considerations
+
+If you have users in California:
+
+- Disclose categories of personal information collected
+- Explain the right to know, delete, and opt-out
+- Provide a "Do Not Sell My Personal Information" link if applicable
+
+## Cookie Policy
+
+The Cookie Policy explains what cookies you use and why.
+
+### Cookie Categories
+
+| Category | Purpose | Consent Required |
+|----------|---------|------------------|
+| Essential | Site functionality, authentication | No |
+| Analytics | Usage tracking (Google Analytics, etc.) | Yes (GDPR) |
+| Marketing | Advertising, retargeting | Yes |
+| Preferences | User settings, language | Varies |
+
+### Cookie Banner Integration
+
+Makerkit includes a cookie banner component. Configure it in your app:
+
+```tsx
+import { CookieBanner } from '@kit/ui/cookie-banner';
+
+// In your layout
+<CookieBanner 
+  privacyPolicyUrl="/privacy-policy"
+  cookiePolicyUrl="/cookie-policy"
+/>
+```
+
+For cookie banner configuration, see [Branding](../branding/overview).
+
+## Customization Checklist
+
+Before launching, update these placeholders in all legal pages:
+
+- [ ] Company/product name
+- [ ] Company address and contact email
+- [ ] Effective date
+- [ ] Specific data you collect
+- [ ] Third-party services you use (Stripe, analytics, etc.)
+- [ ] Refund and cancellation policies
+- [ ] Jurisdiction and governing law
+- [ ] Age restrictions (if any)
+
+## Best Practices
+
+1. **Keep language clear**: Avoid excessive legalese. Users should understand their rights.
+2. **Date your policies**: Include "Last updated" dates and maintain a change history.
+3. **Link from signup**: Users should see legal links before creating an account.
+4. **Include in footer**: Legal pages should be accessible from every page via the footer.
+5. **Version control**: Keep old versions of policies for legal reference.
+6. **Get legal review**: Templates are starting points. Have a lawyer review before launch.
+
+## Common Pitfalls
+
+- **Using templates verbatim**: Templates contain placeholder text that must be customized. Search for brackets `[like this]` and replace all placeholders.
+- **Outdated policies**: Update legal pages when you add features, change data practices, or integrate new services. Stale policies create liability.
+- **Missing cookie consent**: GDPR requires consent before setting non-essential cookies. Implement a cookie banner that blocks analytics until consent is given.
+- **No version history**: When you update policies, keep the previous version accessible. Users who agreed to old terms may have different rights.
+- **Inaccessible pages**: Legal pages must be reachable without logging in. Don't hide them behind authentication.
+- **Wrong jurisdiction**: Use governing law appropriate to your business location. Don't copy US terms if you're based in the EU.
+- **Ignoring mobile**: Legal pages should be readable on mobile. Test the layout on small screens.
+
+## Related Documentation
+
+- [Authentication](../authentication/overview) - User account management
+- [Billing](../billing/overview) - Payment terms context
+- [Internationalization](../internationalization/overview) - Multi-language legal pages
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Does Makerkit provide legal templates?", "answer": "No, Makerkit does not provide legal templates. You must provide your own legal templates. The pages are empty and must be filled in with your own content."},
+     {"question": "Do I need all three legal pages?", "answer": "Possibly, but that depends on your jurisdiction and the data you collect."},
+     {"question": "How often should I update legal pages?", "answer": "Review quarterly and update when you change data practices, add features, or integrate new third-party services."},
+     {"question": "Do I need to notify users when policies change?", "answer": "Best practice is to email users about material changes. For minor updates, a notice on the website may suffice. Check your jurisdiction's requirements."}
+   ]
+/%}
+
+---
+
+**Next:** [Development Guide →](../development-guide/overview)

@@ -1,0 +1,270 @@
+---
+status: "published"
+title: "Authentication with Better Auth in Makerkit Next.js Drizzle"
+label: "Authentication"
+order: 6
+description: "Understand Makerkit's authentication system and add OAuth sign-in. By the end, users can sign in with Google."
+---
+
+This is the [Drizzle SaaS Starter Kit course](./course). Start with the [Architecture & Technologies](./architecture-and-technologies) module to get the fundamentals in place.
+
+---
+
+Now that've done some of the hard (and interesting) work in setting up the application, I want to take some of your time to dive more into the authentication system - and configure Google OAuth (the most popular OAuth provider) sign-in to TeamPulse.
+
+Furthermore, you'll learn everything you need to know about authentication in Makerkit using Better Auth - including how to dive into the internals of the authentication system by linking to the documentation.
+
+**Technologies used:**
+- [Better Auth](https://www.better-auth.com/) - Authentication framework
+- [Drizzle ORM](https://orm.drizzle.team/) - Database tables for auth
+
+**What you'll accomplish:**
+- Understand the existing auth system
+- Add Google OAuth sign-in
+- Test the complete auth flow
+
+---
+
+## Understanding the Auth System
+
+Makerkit uses [Better Auth](https://better-auth.com/), a TypeScript-first authentication framework.
+
+### Auth Pages
+
+The authentication system uses the following pages to allow non-authenticated users to sign up, sign in, reset their password, and verify their 2FA code (if enabled):
+
+| URL | Purpose |
+|-----|---------|
+| `/auth/sign-up` | Create new account |
+| `/auth/sign-in` | Sign in to existing account |
+| `/auth/password-reset` | Request password reset |
+| `/auth/verify` | Two-factor authentication (when enabled) |
+
+**Try it:** Visit each page in your browser to see the UI.
+
+### Key Configuration Files
+
+The following files are responsible for the authentication system:
+
+| File | Purpose |
+|------|---------|
+| `packages/better-auth/src/auth.ts` | Server-side auth configuration |
+| `packages/better-auth/src/auth-client.ts` | Client-side auth hooks |
+| `apps/web/config/auth.config.ts` | Feature flags (OAuth, MFA, etc.) |
+| `apps/web/app/api/auth/[...all]/route.ts` | API route handler |
+
+
+### The main Better Auth configuration file
+
+The main Better Auth configuration file is `packages/better-auth/src/auth.ts`. This file exports the super-important `auth` instance that is used to configure the authentication system, the plugins, emails, and interact with the Better Auth API. You will be using the `auth` instance a fair lot in your application.
+
+#### Client Side API
+
+This is a server-side file, so it's only available on the server. If you want to interact with the authentication system from the client, you will need to use the `auth-client.ts` file - which is a client-side file and exports an instance meant to be used on the client. The API differs slightly from the server-side API, so please refer to the Better Auth documentation for the client-side API.
+
+## Authentication Flow
+
+### How It Works
+
+1. **Sign-up flow:**
+    - User submits email/password
+    - Account created in `users` table
+    - Verification email sent (check Mailpit at http://localhost:8025)
+    - User clicks link → signed in
+2. **Sign-in flow:**
+    - User submits credentials
+    - Session created in `sessions` table
+    - Cookie set for authentication
+    - Redirected to `/dashboard`
+3. **Session access:**
+    - You can access the session in server-side code using the `getSession` function
+
+```typescript
+// Server-side (in server actions, loaders, pages)
+import { getSession } from '@kit/better-auth/context';
+
+const session = await getSession();
+const userId = session?.user?.id;
+   ```
+
+---
+
+## Checkpoint: Test the Existing Flow
+
+Before adding OAuth, verify email/password auth works:
+
+1. Go to `/auth/sign-up`
+2. Create a new account
+3. Check Mailpit for new emails at http://localhost:8025
+4. Click the verification link
+5. Confirm you land on the dashboard
+
+If you seeded test data using `pnpm seed`, you can also sign in with `user1@makerkit.dev` / `testingpassword`.
+
+---
+
+## Adding Google OAuth
+
+Let's add "Sign in with Google" to TeamPulse. To do so, you will need to create a new OAuth client in Google Cloud Console - which requires a Google Cloud account/project.
+
+**Too boring?** If this is too boring (yes, it is), skip it, and use the email/password authentication instead - you can do so when you go to production.
+
+### Step 1: Create Google Cloud Credentials
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project (or select existing)
+3. Navigate to **APIs & Services → Credentials**
+4. Click **Create Credentials → OAuth client ID**
+5. Select **Web application**
+6. Add authorized redirect URI:
+```
+http://localhost:3000/api/auth/callback/google
+   ```
+7. Copy the **Client ID** and **Client Secret**
+
+### Step 2: Configure Environment Variables
+
+Add to `apps/web/.env.local`:
+
+```bash {% title="apps/web/.env.local" %}
+# Google OAuth
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-client-secret
+
+# Enable Google in the OAuth providers list
+NEXT_PUBLIC_AUTH_OAUTH_PROVIDERS=google
+```
+
+NB: when you go to production, please **do not use the env file for storing secret environment variables**.
+
+### Step 3: Test
+
+Now visit `/auth/sign-in`. You should see a "Sign in with Google" button.
+
+**Test the flow:**
+1. Click "Sign in with Google"
+2. Complete Google's sign-in
+3. You're redirected back and signed in
+
+---
+
+## How OAuth Works in Makerkit
+
+### The Plugin System
+
+Better Auth uses plugins for OAuth providers.
+
+The configuration lives in `packages/better-auth/src/plugins/social-providers.ts` - and should be modified if you require other Social providers.
+
+When you set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, the plugin automatically:
+- Handles the OAuth redirect flow
+- Creates or links user accounts
+- Manages OAuth tokens securely
+
+### Adding Other Providers
+
+Please refer to the [documentation to add social providers](/docs/nextjs-drizzle/better-auth/social-providers).
+
+---
+
+## What Else Is Possible
+
+The auth system has many more features you can enable. Here's what's available:
+
+### Magic Links (Passwordless)
+Let users sign in via email link - no password needed.
+- **Enable:** `NEXT_PUBLIC_AUTH_MAGIC_LINK=true`
+
+### Password Requirements
+Enforce stronger passwords with special characters, numbers, uppercase.
+- **Configure:** (all default to `false`)
+```bash
+NEXT_PUBLIC_PASSWORD_REQUIRE_SPECIAL_CHARS=true
+NEXT_PUBLIC_PASSWORD_REQUIRE_NUMBERS=true
+NEXT_PUBLIC_PASSWORD_REQUIRE_UPPERCASE=true
+  ```
+
+### Custom Email Templates
+Customize verification, password reset, and invitation emails.
+- **Templates:** `packages/email-templates/src/emails/` (React Email components)
+
+### Captcha Protection
+
+Add Cloudflare Turnstile to prevent bot sign-ups.
+
+To add captcha protection, you will need to create a new account on Cloudflare and create a new Turnstile widget. Once you have created the widget, you will need to copy the site key and secret key and add them to the environment variables.
+
+I recommend skipping until going to production. But it's important to know about it.
+
+```bash
+NEXT_PUBLIC_CAPTCHA_SITE_KEY=your-site-key
+TURNSTILE_SECRET_KEY=your-secret
+```
+
+Make sure to add the Site URL to the allowed domains in the Cloudflare Turnstile widget.
+
+- **Docs:** [Better Auth Captcha](https://www.better-auth.com/docs/plugins/captcha)
+
+---
+
+## Module 6 Complete!
+
+You now have:
+- [x] Understanding of Makerkit's auth architecture
+- [x] Google OAuth sign-in working
+- [x] Awareness of advanced auth features (MFA, magic links, captcha, etc.)
+
+**Next:** In [Module 7: Organizations & Teams](./organizations-and-teams), you'll apply role-based access control to TeamPulse features.
+
+---
+
+## Troubleshooting
+
+### OAuth Redirect Errors
+
+If Google sign-in fails with "redirect_uri_mismatch":
+
+1. Verify the redirect URI in Google Console exactly matches: `http://localhost:3000/api/auth/callback/google`
+2. Wait 5 minutes after changes (Google caches)
+3. Clear browser cookies and try again
+
+### Verification Emails Not Arriving
+
+If emails don't appear in Mailpit:
+
+1. Confirm Mailpit is running: `docker ps | grep mailpit`
+2. Check SMTP settings in `.env.development`
+3. Look for errors in terminal running `pnpm dev`
+
+### Session Not Persisting
+
+If you're logged out after refresh:
+
+1. Check `BETTER_AUTH_SECRET` is set and consistent
+2. Verify cookies aren't blocked by browser settings
+3. Ensure `NEXT_PUBLIC_SITE_URL` matches your actual URL
+
+---
+
+## Frequently Asked Questions
+
+{% faq
+   title="Authentication FAQ"
+   items=[
+     {"question": "Can I add GitHub, Discord, or other OAuth providers?", "answer": "Yes. Better Auth supports many OAuth providers. Add the provider credentials to .env.local and enable it in NEXT_PUBLIC_AUTH_OAUTH_PROVIDERS. See the Better Auth docs for provider-specific setup."},
+     {"question": "What's the difference between magic links and OTP?", "answer": "Magic links send a clickable URL that signs you in. OTP sends a numeric code you type. Magic links are more convenient but can be caught by email scanners. OTP is more reliable for enterprise environments."},
+     {"question": "How long do sessions last?", "answer": "By default, sessions last 7 days with sliding expiration. You can configure this in the Better Auth options. For security-sensitive apps, consider shorter sessions with more frequent re-authentication."},
+     {"question": "Can users sign up with OAuth only (no password)?", "answer": "Yes. If a user signs up with Google, they don't need a password. They can later add a password in settings if they want email/password as a backup. Better Auth handles both flows seamlessly."}
+   ]
+/%}
+
+---
+
+## Learn More
+
+- [Authentication Documentation](/docs/nextjs-drizzle/authentication/overview)
+- [Better Auth Documentation](https://www.better-auth.com/docs)
+- [Better Auth Plugins](https://www.better-auth.com/docs/plugins)
+- [Google OAuth Setup Guide](https://www.better-auth.com/docs/authentication/google)
+
+This course is built on the [Next.js Drizzle SaaS Kit](/drizzle) foundation.

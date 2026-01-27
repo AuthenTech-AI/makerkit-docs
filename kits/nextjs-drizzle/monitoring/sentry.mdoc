@@ -1,0 +1,279 @@
+---
+status: "published"
+description: 'Configure Sentry for error tracking, performance monitoring, and source map uploads in your SaaS application.'
+title: 'Sentry Configuration'
+label: 'Sentry'
+order: 1
+---
+
+{% sequence title="Steps to configure Sentry" description="Set up Sentry for production error tracking." %}
+
+[Install the Sentry SDK](#install-the-sentry-sdk)
+
+[Configure environment variables](#configure-environment-variables)
+
+[Update Next.js configuration](#update-nextjs-configuration)
+
+[Upload source maps](#upload-source-maps)
+
+{% /sequence %}
+
+[Sentry](https://sentry.io) provides error tracking, performance monitoring, and session replay for your application. The kit includes built-in Sentry support through the `@kit/sentry` package.
+
+## Install the Sentry SDK
+
+Install the Sentry Next.js SDK in your web application:
+
+```bash
+pnpm add @sentry/nextjs --filter web
+```
+
+## Configure Environment Variables
+
+Add the required environment variables:
+
+```bash {% title="apps/web/.env.local" %}
+# Enable Sentry as the monitoring provider
+NEXT_PUBLIC_MONITORING_PROVIDER=sentry
+
+# Your Sentry DSN (found in Sentry project settings)
+NEXT_PUBLIC_SENTRY_DSN=https://xxxxx@xxxxx.ingest.sentry.io/xxxxx
+
+# Optional: Set the environment (defaults to VERCEL_ENV if available)
+NEXT_PUBLIC_SENTRY_ENVIRONMENT=production
+```
+
+### Finding Your Sentry DSN
+
+1. Go to your [Sentry dashboard](https://sentry.io)
+2. Select your project (or create one)
+3. Navigate to **Settings > Projects > [Your Project] > Client Keys (DSN)**
+4. Copy the DSN value
+
+## Update Next.js Configuration
+
+Wrap your Next.js configuration with the Sentry config:
+
+```typescript {% title="apps/web/next.config.ts" %}
+import { withSentryConfig } from '@sentry/nextjs';
+
+const nextConfig = {
+  // Your existing Next.js config
+};
+
+export default withSentryConfig(nextConfig);
+```
+
+## Upload Source Maps
+
+Source maps allow Sentry to display readable stack traces instead of minified code. This requires additional configuration.
+
+### Generate an Auth Token
+
+1. Go to [Sentry Auth Tokens](https://sentry.io/settings/auth-tokens/)
+2. Click **Create New Token**
+3. Select scopes: `project:releases`, `org:read`
+4. Copy the token
+
+### Configure Source Map Upload
+
+Update your Next.js configuration:
+
+```typescript {% title="apps/web/next.config.ts" %}
+import { withSentryConfig } from '@sentry/nextjs';
+
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
+const nextConfig = {
+  // Your existing Next.js config
+};
+
+export default withSentryConfig(nextConfig, {
+  // Sentry organization slug
+  org: 'your-sentry-org',
+
+  // Sentry project slug
+  project: 'your-sentry-project',
+
+  // Auth token for source map uploads
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+
+  // Suppress logs in development
+  silent: !IS_PRODUCTION,
+
+  // Recommended settings
+  widenClientFileUpload: true,
+  autoInstrumentServerFunctions: false,
+
+  // Hide source maps from production builds
+  hideSourceMaps: true,
+
+  // Automatically create releases
+  release: {
+    create: true,
+    finalize: true,
+  },
+});
+```
+
+### Add Auth Token to CI/CD
+
+Add `SENTRY_AUTH_TOKEN` to your deployment environment:
+
+```bash {% title="CI/CD Environment Variables" %}
+SENTRY_AUTH_TOKEN=sntrys_xxxxx...
+```
+
+{% alert type="warn" title="Keep tokens secure" %}
+Never commit the `SENTRY_AUTH_TOKEN` to your repository. Add it to your CI/CD environment variables or secrets manager.
+{% /alert %}
+
+## Advanced Configuration
+
+### Sample Rates
+
+Configure how much data Sentry collects:
+
+```typescript {% title="packages/monitoring/sentry/src/sentry.client.config.ts" %}
+import { init } from '@sentry/nextjs';
+
+export function initializeSentryBrowserClient(props = {}) {
+  return init({
+    dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+
+    // Capture 100% of errors (reduce in high-traffic apps)
+    tracesSampleRate: 1.0,
+
+    // Session Replay settings
+    replaysSessionSampleRate: 0.1,  // 10% of sessions
+    replaysOnErrorSampleRate: 1.0,  // 100% of sessions with errors
+
+    ...props,
+  });
+}
+```
+
+For high-traffic applications, reduce `tracesSampleRate` to 0.1 or lower to manage costs.
+
+### Filtering Errors
+
+Exclude noisy or irrelevant errors:
+
+```typescript {% title="packages/monitoring/sentry/src/sentry.client.config.ts" %}
+import { init } from '@sentry/nextjs';
+
+export function initializeSentryBrowserClient(props = {}) {
+  return init({
+    dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+
+    beforeSend(event) {
+      // Filter out specific errors
+      if (event.exception?.values?.[0]?.type === 'ChunkLoadError') {
+        return null;
+      }
+
+      // Filter errors from browser extensions
+      if (event.exception?.values?.[0]?.stacktrace?.frames?.some(
+        (frame) => frame.filename?.includes('extension://')
+      )) {
+        return null;
+      }
+
+      return event;
+    },
+
+    ignoreErrors: [
+      // Common browser errors to ignore
+      'ResizeObserver loop limit exceeded',
+      'ResizeObserver loop completed with undelivered notifications',
+      /Loading chunk \d+ failed/,
+    ],
+
+    ...props,
+  });
+}
+```
+
+### User Context
+
+The kit automatically identifies users through the monitoring service. You can add additional context:
+
+```typescript
+import { useMonitoring } from '@kit/monitoring/hooks';
+
+function UserProvider({ user, subscription }) {
+  const monitoring = useMonitoring();
+
+  useEffect(() => {
+    if (user) {
+      monitoring.identifyUser({
+        id: user.id,
+        email: user.email,
+        // Custom data
+        plan: subscription?.plan,
+        accountId: user.accountId,
+      });
+    }
+  }, [user, subscription, monitoring]);
+
+  return <>{children}</>;
+}
+```
+
+## Verifying the Setup
+
+### Test Error Capture
+
+Add a test button to verify errors are captured:
+
+```tsx
+function TestSentry() {
+  return (
+    <button
+      onClick={() => {
+        throw new Error('Test Sentry error');
+      }}
+    >
+      Test Sentry
+    </button>
+  );
+}
+```
+
+### Check the Sentry Dashboard
+
+1. Click the test button
+2. Go to your Sentry project
+3. Navigate to **Issues**
+4. You should see "Test Sentry error"
+
+If source maps are configured correctly, you'll see readable stack traces pointing to your TypeScript files.
+
+## Troubleshooting
+
+### Errors Not Appearing
+
+1. **Check DSN** - Verify `NEXT_PUBLIC_SENTRY_DSN` is set correctly
+2. **Check provider** - Ensure `NEXT_PUBLIC_MONITORING_PROVIDER=sentry`
+3. **Check browser console** - Look for Sentry initialization errors
+4. **Check ad blockers** - Some ad blockers block Sentry
+
+### Minified Stack Traces
+
+If stack traces show minified code:
+
+1. Verify `SENTRY_AUTH_TOKEN` is set in your CI environment
+2. Check that source maps are uploading during build (look for Sentry logs)
+3. Ensure `hideSourceMaps: true` is set to prevent exposing source maps publicly
+
+### High Volume Warnings
+
+If Sentry warns about high event volume:
+
+1. Reduce `tracesSampleRate` (e.g., to 0.1)
+2. Add error filtering with `beforeSend`
+3. Use `ignoreErrors` for noisy browser errors
+
+---
+
+**Previous:** [Monitoring Overview ←](./overview) | **Next:** [Custom Monitoring Provider →](./custom-monitoring-provider)

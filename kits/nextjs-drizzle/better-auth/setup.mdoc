@@ -1,0 +1,239 @@
+---
+status: "published"
+title: "Better Auth Setup and Configuration"
+label: "Better Auth Setup"
+order: 2
+description: "Configure Better Auth for your SaaS application including core settings, database adapter, and security options."
+---
+
+Configure [Better Auth](https://www.better-auth.com/) in one place - the `@kit/better-auth` package - and the entire kit inherits your auth settings.
+
+This page is part of the [Authentication documentation](./overview).
+
+Better Auth configuration lives in `packages/better-auth/src/auth.ts`. This single file defines the Drizzle database adapter, enabled plugins (MFA, organizations, OAuth), email handlers, and security settings. The client-side auth instance in `auth-client.ts` mirrors this configuration. Edit these files to customize authentication behavior - everything else in the kit consumes auth through the `@kit/better-auth` package exports.
+
+The Better Auth setup file (`auth.ts`) is the central configuration that initializes the auth instance with your database adapter, plugins, and security settings.
+
+- **Modify setup when:** you need to add plugins, change session duration, customize email handlers, or switch database adapters.
+- **Avoid modifying when:** you only need to enable/disable auth methods - use environment variables for that.
+
+## File Structure
+
+```
+packages/better-auth/
+└── src/
+    ├── auth.ts                # Server-side Better Auth instance
+    ├── auth-client.ts         # Client-side auth instance
+    ├── utils/                 # Auth utilities
+    ├── emails/                # Email sending functions
+    └── plugins/
+        ├── index.ts           # Plugin registry
+        ├── admin.ts           # Admin features
+        ├── admin-config.ts    # Admin role configuration
+        ├── billing.ts         # Payment integration
+        ├── captcha.ts         # Cloudflare Turnstile
+        ├── magic-link.ts      # Magic link authentication
+        ├── one-time-token.ts  # Verification tokens
+        ├── organizations.ts   # Multi-tenancy
+        ├── otp-auth.ts        # Email OTP codes
+        ├── rate-limit.ts      # Rate limiting
+        ├── roles.ts           # RBAC roles
+        ├── social-providers.ts # OAuth providers
+        └── two-factor.ts      # MFA/TOTP configuration
+```
+
+## Core Configuration
+
+The `packages/better-auth/src/auth.ts` file defines:
+
+- **Database Adapter**: [Drizzle ORM](https://orm.drizzle.team/) connecting to PostgreSQL
+- **Plugins**: MFA, organizations, OAuth providers, rate limiting, captcha
+- **Email Handlers**: Password reset, email verification, invitations
+- **Session Settings**: Token duration, cookie configuration
+- **Security**: Secret key, allowed origins, secure cookies
+
+### Configuration Schema
+
+The auth configuration uses Zod validation to ensure required settings are properly configured:
+
+```typescript
+const AuthConfigSchema = z.object({
+  secret: z.string(),
+  baseURL: z.string().optional(),
+  emailAndPassword: z.object({
+    enabled: z.boolean(),
+    requireEmailVerification: z.boolean(),
+  }),
+  emailVerification: z.object({
+    sendOnSignUp: z.boolean(),
+    autoSignInAfterVerification: z.boolean(),
+    sendVerificationEmail: z.boolean(),
+  }),
+});
+```
+
+## Required Environment Variables
+
+```bash {% title="apps/web/.env.local" %}
+# Required - generate with: openssl rand -base64 32
+BETTER_AUTH_SECRET=your-32-character-or-longer-secret
+
+# Database connection
+DATABASE_URL=postgresql://user:password@localhost:5432/myapp
+
+# Site URL for OAuth callbacks
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+```
+
+### Secret Key Requirements
+
+The `BETTER_AUTH_SECRET` must be:
+- At least 32 characters long
+- Unique per environment (development, staging, production)
+- Never committed to version control
+- Different from the test secret in production
+
+In development, a default test secret is used automatically. In production, the application will fail to start without a proper secret.
+
+## Database Adapter
+
+The kit uses [Drizzle ORM](https://orm.drizzle.team/) with the PostgreSQL adapter:
+
+```typescript
+import { drizzleAdapter } from 'better-auth/adapters/drizzle';
+import { db } from '@kit/database';
+
+const database = drizzleAdapter(db, {
+  provider: 'pg',
+});
+
+export const auth = betterAuth({
+  database,
+  // ... other config
+});
+```
+
+Auth tables (users, sessions, accounts, verifications) are defined in the Drizzle schema at `packages/database/src/schema/`. Better Auth manages these tables automatically.
+
+### Supported Databases
+
+Drizzle supports multiple databases. To switch providers:
+
+1. Update the Drizzle adapter provider (`pg`, `mysql`, or `sqlite`)
+2. Update `DATABASE_URL` connection string
+3. Regenerate migrations with `pnpm --filter @kit/database drizzle:generate`
+
+## Server-Side Configuration
+
+The main auth instance exports session types and auth methods:
+
+```typescript
+export const auth = betterAuth({
+  database,
+  rateLimit: rateLimitConfig,
+  advanced: {
+    useSecureCookies: IS_PRODUCTION,
+  },
+  experimental: {
+    joins: true,
+  },
+  telemetry: {
+    enabled: false,
+  },
+  trustedOrigins: authConfig.baseURL ? [authConfig.baseURL] : [],
+  generateId,
+  encryptOAuthTokens: true,
+  secret: authConfig.secret,
+  baseURL: authConfig.baseURL,
+  plugins: betterAuthPlugins,
+  emailAndPassword: {
+    enabled: authConfig.emailAndPassword.enabled,
+    requireEmailVerification: authConfig.emailAndPassword.requireEmailVerification,
+    sendResetPassword: sendResetPasswordEmail,
+  },
+  socialProviders: createSocialProviderPlugin(),
+  emailVerification: {
+    sendOnSignUp: true,
+    autoSignInAfterVerification: true,
+    sendVerificationEmail,
+  },
+  user: {
+    changeEmail: { enabled: true, /* handlers */ },
+    deleteUser: { enabled: true, /* handlers */ },
+  },
+});
+
+export type Session = typeof auth.$Infer.Session;
+```
+
+## Client-Side Configuration
+
+The client auth instance in `auth-client.ts` must include matching plugins:
+
+```typescript
+import { createAuthClient } from 'better-auth/react';
+
+export const authClient = createAuthClient({
+  baseURL: BASE_URL,
+  plugins: [
+    twoFactorClient({
+      onTwoFactorRedirect() {
+        window.location.href = '/auth/verify';
+      },
+    }),
+    emailOTPClient(),
+    oneTimeTokenClient(),
+    magicLinkClient(),
+    adminClient(),
+    organizationClient({
+      dynamicAccessControl: { enabled: true },
+      roles,
+    }),
+    lastLoginMethodClient(),
+    await getBillingClientPlugin(),
+  ],
+});
+```
+
+## Email Handlers
+
+Better Auth sends emails for verification, password reset, and invitations. Email handlers use dynamic imports to load templates:
+
+```typescript
+async function sendVerificationEmail({ user, url }) {
+  const { sendVerificationEmail } =
+    await import('./emails/send-verification-email');
+
+  return sendVerificationEmail({
+    email: user.email,
+    url,
+    productName: getProductName(),
+    language: await getLanguageFromRequest(),
+  });
+}
+```
+
+Email templates live in `packages/email-templates/src/emails/` and support internationalization via the language cookie.
+
+## Common Pitfalls
+
+- **Missing `BETTER_AUTH_SECRET`**: Auth won't work without this. Generate a secure secret with `openssl rand -base64 32`.
+- **Secret too short**: Must be at least 32 characters for security.
+- **Editing `auth.ts` when environment variables suffice**: Most toggles (enable MFA, enable magic link) are controlled by env vars.
+- **Forgetting to restart after env changes**: Next.js caches environment variables. Restart the dev server after changes.
+- **Mismatched client/server plugins**: If you add a server plugin with client functionality, add the client plugin to `auth-client.ts` too.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Where do I add a new Better Auth plugin?", "answer": "Create a file in packages/better-auth/src/plugins/, export the plugin configuration, then import and add it to the plugins array in plugins/index.ts."},
+     {"question": "How do I change session duration?", "answer": "Modify the session configuration in auth.ts. Better Auth defaults to 7 days. See the Better Auth session documentation for options."},
+     {"question": "Can I use MySQL instead of PostgreSQL?", "answer": "Yes. Change the Drizzle adapter provider to 'mysql', update DATABASE_URL, and regenerate migrations."},
+     {"question": "Where are auth-related emails sent from?", "answer": "Email handlers in auth.ts use dynamic imports to load templates from @kit/email-templates. The actual sending uses your configured mailer (Resend, Nodemailer, etc.)."},
+     {"question": "How do I disable telemetry?", "answer": "Telemetry is already disabled by default in the kit configuration with telemetry: { enabled: false }."}
+   ]
+/%}
+
+---
+
+**Next:** [Auth Methods →](./auth-methods)

@@ -1,0 +1,70 @@
+---
+status: "published"
+title: "UI Components Overview"
+label: "Overview"
+order: 0
+description: "Explore the @kit/ui component library for building your SaaS application."
+---
+
+This guide is part of the [Drizzle](/drizzle) stack docs.
+
+The `@kit/ui` package provides 80+ pre-built components based on shadcn/ui, Base UI, and custom components. All components are styled with Tailwind CSS and support dark mode.
+
+## Adding New Components
+
+Need to add a Shadcn component that isn't included? See the [Shadcn CLI guide](./shadcn-cli) to install additional components.
+
+## Import Pattern
+
+All components follow a consistent import pattern:
+
+```typescript
+import { ComponentName } from '@kit/ui/component-name';
+```
+
+## Component Categories
+
+### [Forms & Inputs](./forms-and-inputs)
+Form controls for user input: form validation, text inputs, selects, checkboxes, switches, and file uploads.
+
+### [Buttons & Actions](./buttons-and-actions)
+Interactive elements: buttons, button groups, and action triggers.
+
+### [Layout & Structure](./layout-and-structure)
+Page structure components: cards, page layouts, sidebars, tabs, and collapsible sections.
+
+### [Navigation](./navigation)
+Navigation elements: menus, breadcrumbs, pagination, and mobile navigation.
+
+### [Dialogs & Overlays](./dialogs-and-overlays)
+Modal interfaces: dialogs, drawers, popovers, dropdowns, and sheets.
+
+### [Data Display](./data-display)
+Data presentation: tables, data tables, badges, avatars, and empty states.
+
+### [Feedback & Loading](./feedback-and-loading)
+User feedback: alerts, toasts, spinners, progress bars, and loading states.
+
+### [Utilities](./utilities)
+Helper components: conditional rendering, translations, lazy loading, and theme toggles.
+
+### [Marketing](./marketing)
+Landing page components: heroes, CTAs, feature grids, and newsletter signup.
+
+## Quick Reference
+
+| Category | Components | Import Example |
+|----------|------------|----------------|
+| Forms | Form, Input, Select, Checkbox | `@kit/ui/form` |
+| Buttons | Button, ButtonGroup | `@kit/ui/button` |
+| Layout | Card, Page, Tabs, Sidebar | `@kit/ui/card` |
+| Navigation | Breadcrumb, Pagination | `@kit/ui/breadcrumb` |
+| Dialogs | Dialog, Drawer, Popover | `@kit/ui/dialog` |
+| Data | DataTable, Badge, Avatar | `@kit/ui/data-table` |
+| Feedback | Alert, Spinner, Progress | `@kit/ui/alert` |
+| Utilities | If, Trans, Stepper | `@kit/ui/if` |
+| Marketing | Hero, CtaButton, Pill | `@kit/ui/marketing` |
+
+---
+
+**Next:** [Forms & Inputs →](./forms-and-inputs)

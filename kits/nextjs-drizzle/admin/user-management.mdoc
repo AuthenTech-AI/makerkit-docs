@@ -1,0 +1,313 @@
+---
+status: "published"
+title: "User Management"
+label: "User Management"
+order: 2
+description: "Manage users, sessions, and account status from the admin panel."
+---
+
+The User Management section at `/admin/users` provides full control over user accounts, sessions, and access permissions.
+
+## User List
+
+### Search and Filtering
+
+The user table supports multiple search and filter options:
+
+| Filter | Options | Description |
+|--------|---------|-------------|
+| **Search** | Text input | Search by name or email |
+| **Role** | All / User / Admin | Filter by user role |
+| **Status** | All / Active / Banned | Filter by account status |
+| **Sort** | Multiple fields | Order by name, email, date, role, or status |
+
+Results are paginated at 25 users per page.
+
+{% img src="/images/docs/admin-users-table.webp" width="2844" height="1938" alt="Admin Users Table with filters" /%}
+
+### User Table Columns
+
+Each row displays:
+
+- **Avatar and Name**: Profile picture with display name
+- **Email**: User's email address
+- **Role**: User or admin badge
+- **Status**: Active or banned indicator
+- **Created**: Account creation date
+- **Actions**: Dropdown menu with available actions
+
+## User Actions
+
+Click the action menu (three dots) on any user row to access these options:
+
+### View Details
+
+Opens a side panel with comprehensive user information:
+
+- **Profile**: Avatar, name, email, user ID
+- **Status**: Account status, role, email verification, 2FA status
+- **Dates**: Account creation and last update timestamps
+- **Subscriptions**: Active subscription details (if billing is enabled)
+- **Ban Info**: Reason and expiration for banned users
+- **Sessions**: All active sessions with device info
+
+{% img src="/images/docs/admin-users-detail.webp" width="2844" height="1938" alt="User Details Sheet" /%}
+
+### Change Role
+
+Promote a user to admin or demote an admin to user:
+
+```typescript
+// Server action with RBAC permission check
+export const changeRoleAction = adminActionClient
+  .use(withAdminPermission({ user: ['set-role'] }))
+  .inputSchema(changeRoleSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    const result = await service.changeRole({
+      adminId: ctx.user.id,
+      ...parsedInput,
+    });
+    revalidatePath('/admin', 'layout');
+    return result;
+  });
+```
+
+**Requirements:**
+- Admin must have `user:set-role` permission
+- Changes take effect on the user's next session
+
+### Impersonate User
+
+Sign in as another user for debugging and support purposes. After confirming, you'll be redirected to the app dashboard as that user.
+
+**How it works:**
+
+1. Admin clicks "Impersonate User" in the action menu
+2. Confirmation dialog appears
+3. System generates a session for the target user
+4. Admin is signed in as that user with their permissions
+
+**Restrictions:**
+- Cannot impersonate admin users
+- Cannot impersonate banned users
+- A banner should appear during impersonation indicating the original admin
+
+To end impersonation, sign out normally.
+
+```typescript
+// Impersonation using Better Auth
+const { mutateAsync } = useMutation({
+  mutationFn: async (userId: string) => {
+    const { data, error } = await authClient.admin.impersonateUser({
+      userId,
+    });
+    if (error) throw new Error(error.message);
+    return data;
+  },
+});
+```
+
+### Ban User
+
+Restrict a user's access to the platform:
+
+- **Reason**: Optional explanation for the ban (stored for reference)
+- **Duration**: Temporary (with expiration date) or permanent
+- Banned users cannot sign in
+- Existing sessions are not automatically revoked (use "Revoke All Sessions" if needed)
+
+**Implementation note:** Both ban and unban operations use the same `user:ban` permission. This matches Better Auth's internal permission model.
+
+```typescript
+export const banUserAction = adminActionClient
+  .use(withAdminPermission({ user: ['ban'] }))
+  .inputSchema(banUserSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    const result = await service.banUser({
+      adminId: ctx.user.id,
+      ...parsedInput,
+    });
+    revalidatePath('/admin', 'layout');
+    return result;
+  });
+```
+
+### Unban User
+
+Restore access for a banned user. The ban reason and expiration are cleared.
+
+```typescript
+export const unbanUserAction = adminActionClient
+  .use(withAdminPermission({ user: ['ban'] })) // Same permission as ban
+  .inputSchema(unbanUserSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    const result = await service.unbanUser({
+      adminId: ctx.user.id,
+      ...parsedInput,
+    });
+    revalidatePath('/admin', 'layout');
+    return result;
+  });
+```
+
+### Remove User
+
+Permanently delete a user account.
+
+**Important:**
+- Cannot delete admin users (demote first if needed)
+- This action is irreversible
+- Associated data (sessions, memberships) is also deleted
+
+```typescript
+export const removeUserAction = adminActionClient
+  .use(withAdminPermission({ user: ['delete'] }))
+  .inputSchema(removeUserSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    const result = await service.removeUser({
+      adminId: ctx.user.id,
+      ...parsedInput,
+    });
+    revalidatePath('/admin', 'layout');
+    return result;
+  });
+```
+
+## Session Management
+
+### Viewing Sessions
+
+The user details panel lists all active sessions with:
+
+- **Device**: Browser and OS information (parsed from user agent)
+- **IP Address**: Last known IP
+- **Created**: Session start time
+- **Expires**: Session expiration time
+
+### Listing Sessions
+
+```typescript
+export const listUserSessionsAction = adminActionClient
+  .use(withAdminPermission({ session: ['list'] }))
+  .inputSchema(revokeUserSessionsSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    return service.listUserSessions({
+      adminId: ctx.user.id,
+      ...parsedInput,
+    });
+  });
+```
+
+### Revoking Sessions
+
+Two options for ending sessions:
+
+**Revoke Single Session**: End a specific session while keeping others active.
+
+```typescript
+export const revokeSessionAction = adminActionClient
+  .use(withAdminPermission({ session: ['revoke'] }))
+  .inputSchema(revokeSessionSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    const result = await service.revokeSession({
+      adminId: ctx.user.id,
+      ...parsedInput,
+    });
+    revalidatePath('/admin/users', 'page');
+    return result;
+  });
+```
+
+**Revoke All Sessions**: Force logout from all devices. Useful when:
+- User reports account compromise
+- After changing sensitive account settings
+- Before or after banning a user
+
+```typescript
+export const revokeAllUserSessionsAction = adminActionClient
+  .use(withAdminPermission({ session: ['revoke'] }))
+  .inputSchema(revokeUserSessionsSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    const result = await service.revokeAllUserSessions({
+      adminId: ctx.user.id,
+      ...parsedInput,
+    });
+    revalidatePath('/admin/users');
+    return result;
+  });
+```
+
+## Subscription Information
+
+When billing is enabled, the user details panel shows subscription data:
+
+- **Plan Name**: Current subscription tier
+- **Status**: Active, canceled, past due, etc.
+- **Billing Period**: Monthly or yearly
+- **Next Billing Date**: When the subscription renews
+
+This requires the `subscriptions:list` permission in your RBAC config:
+
+```typescript
+export default defineAdminRBACConfig({
+  resources: {
+    SUBSCRIPTIONS: 'subscriptions',
+  },
+  accessController: {
+    subscriptions: ['list'],
+  },
+});
+```
+
+## Permission Requirements
+
+User management actions require specific RBAC permissions:
+
+| Action | Required Permission |
+|--------|-------------------|
+| View user list | `user:list` |
+| View user details | `user:get` |
+| Change role | `user:set-role` |
+| Ban/Unban user | `user:ban` |
+| Delete user | `user:delete` |
+| List sessions | `session:list` |
+| Revoke sessions | `session:revoke` |
+| View subscriptions | `subscriptions:list` |
+
+**Note:** Resource names must be singular (`user`, `session`) to match Better Auth's internal permission model. The action names also follow Better Auth conventions (e.g., `set-role` not `change-role`).
+
+The default `admin` role has all permissions. Custom roles need explicit grants.
+
+See [RBAC Permissions](./rbac-permissions) for configuring custom admin roles.
+
+## Data Loading Pattern
+
+User data is loaded server-side with admin protection:
+
+```typescript
+// packages/admin/src/users/lib/loaders/users-page.loader.ts
+import 'server-only';
+import { cache } from 'react';
+import { requireAdmin } from '@kit/auth/require-admin';
+
+export const loadUsersPageData = cache(async (params) => {
+  await requireAdmin(); // Ensures admin access
+
+  const service = createUserAdminService();
+  return service.listUsers({
+    searchValue: params.search,
+    limit: 25,
+    offset: (params.page - 1) * 25,
+    role: params.role,
+    status: params.status,
+    sortBy: params.sortBy,
+    sortDirection: params.sortDirection,
+  });
+});
+```
+
+---
+
+**Previous:** [Overview](./overview)
+
+**Next:** [Organization Management](./organization-management)

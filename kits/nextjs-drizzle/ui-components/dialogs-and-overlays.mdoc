@@ -1,0 +1,218 @@
+---
+status: "published"
+title: "Dialogs & Overlays"
+label: "Dialogs & Overlays"
+order: 5
+description: "Modal dialogs, drawers, popovers, and overlay components."
+---
+
+Overlay components for modals, drawers, and floating UI elements.
+
+## Dialog
+
+Modal dialog for focused interactions.
+
+```typescript
+import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@kit/ui/dialog';
+```
+
+```tsx
+<Dialog>
+  <DialogTrigger asChild>
+    <Button>Open Dialog</Button>
+  </DialogTrigger>
+  <DialogContent>
+    <DialogHeader>
+      <DialogTitle>Dialog Title</DialogTitle>
+      <DialogDescription>
+        This is a description of the dialog content.
+      </DialogDescription>
+    </DialogHeader>
+    <div className="py-4">
+      Dialog body content
+    </div>
+    <DialogFooter>
+      <DialogClose asChild>
+        <Button variant="outline">Cancel</Button>
+      </DialogClose>
+      <Button>Confirm</Button>
+    </DialogFooter>
+  </DialogContent>
+</Dialog>
+```
+
+### Controlled Dialog
+
+```tsx
+const [open, setOpen] = useState(false);
+
+<Dialog open={open} onOpenChange={setOpen}>
+  <DialogContent>
+    {/* content */}
+  </DialogContent>
+</Dialog>
+```
+
+## Alert Dialog
+
+Confirmation dialog for destructive actions.
+
+```typescript
+import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@kit/ui/alert-dialog';
+```
+
+```tsx
+<AlertDialog>
+  <AlertDialogTrigger asChild>
+    <Button variant="destructive">Delete</Button>
+  </AlertDialogTrigger>
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+      <AlertDialogDescription>
+        This action cannot be undone.
+      </AlertDialogDescription>
+    </AlertDialogHeader>
+    <AlertDialogFooter>
+      <AlertDialogCancel>Cancel</AlertDialogCancel>
+      <AlertDialogAction>Delete</AlertDialogAction>
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>
+```
+
+## Drawer
+
+Slide-out panel from screen edge.
+
+```typescript
+import { Drawer, DrawerTrigger, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerFooter, DrawerClose } from '@kit/ui/drawer';
+```
+
+```tsx
+<Drawer>
+  <DrawerTrigger asChild>
+    <Button>Open Drawer</Button>
+  </DrawerTrigger>
+  <DrawerContent>
+    <DrawerHeader>
+      <DrawerTitle>Drawer Title</DrawerTitle>
+      <DrawerDescription>Drawer description</DrawerDescription>
+    </DrawerHeader>
+    <div className="p-4">
+      Drawer content
+    </div>
+    <DrawerFooter>
+      <Button>Submit</Button>
+      <DrawerClose asChild>
+        <Button variant="outline">Cancel</Button>
+      </DrawerClose>
+    </DrawerFooter>
+  </DrawerContent>
+</Drawer>
+```
+
+## Sheet
+
+Side panel overlay (similar to drawer).
+
+```typescript
+import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@kit/ui/sheet';
+```
+
+```tsx
+<Sheet>
+  <SheetTrigger asChild>
+    <Button>Open Sheet</Button>
+  </SheetTrigger>
+  <SheetContent side="right">
+    <SheetHeader>
+      <SheetTitle>Sheet Title</SheetTitle>
+      <SheetDescription>Sheet description</SheetDescription>
+    </SheetHeader>
+    <div className="py-4">
+      Sheet content
+    </div>
+  </SheetContent>
+</Sheet>
+```
+
+Supports `side` prop: `"top"`, `"right"`, `"bottom"`, `"left"`.
+
+## Popover
+
+Floating content anchored to trigger.
+
+```typescript
+import { Popover, PopoverTrigger, PopoverContent } from '@kit/ui/popover';
+```
+
+```tsx
+<Popover>
+  <PopoverTrigger asChild>
+    <Button variant="outline">Open Popover</Button>
+  </PopoverTrigger>
+  <PopoverContent>
+    <div className="space-y-2">
+      <h4 className="font-medium">Popover Title</h4>
+      <p className="text-sm text-muted-foreground">
+        Popover content goes here.
+      </p>
+    </div>
+  </PopoverContent>
+</Popover>
+```
+
+## Dropdown Menu
+
+Menu triggered by button click.
+
+```typescript
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel } from '@kit/ui/dropdown-menu';
+```
+
+```tsx
+<DropdownMenu>
+  <DropdownMenuTrigger asChild>
+    <Button variant="outline">
+      Options
+      <ChevronDown className="ml-2 h-4 w-4" />
+    </Button>
+  </DropdownMenuTrigger>
+  <DropdownMenuContent>
+    <DropdownMenuLabel>Actions</DropdownMenuLabel>
+    <DropdownMenuSeparator />
+    <DropdownMenuItem>Edit</DropdownMenuItem>
+    <DropdownMenuItem>Duplicate</DropdownMenuItem>
+    <DropdownMenuSeparator />
+    <DropdownMenuItem className="text-destructive">
+      Delete
+    </DropdownMenuItem>
+  </DropdownMenuContent>
+</DropdownMenu>
+```
+
+## Context Menu
+
+Right-click menu.
+
+```typescript
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from '@kit/ui/context-menu';
+```
+
+```tsx
+<ContextMenu>
+  <ContextMenuTrigger className="flex h-32 w-full items-center justify-center rounded border border-dashed">
+    Right click here
+  </ContextMenuTrigger>
+  <ContextMenuContent>
+    <ContextMenuItem>Copy</ContextMenuItem>
+    <ContextMenuItem>Paste</ContextMenuItem>
+    <ContextMenuItem>Delete</ContextMenuItem>
+  </ContextMenuContent>
+</ContextMenu>
+```
+
+---
+
+**Next:** [Data Display →](./data-display)

@@ -1,0 +1,165 @@
+---
+status: "published"
+title: "Build a B2B SaaS with Makerkit Next.js Prisma"
+label: "Course Overview"
+order: -1
+description: "A hands-on course to build a complete B2B SaaS application. You'll build TeamPulse, a team feedback tool, while learning the Makerkit patterns."
+---
+
+A hands-on, project-based course where you build a real B2B SaaS application from scratch using the Makerkit Next.js Prisma starter kit.
+
+**What you'll build:** TeamPulse, a complete team feedback and feature request tool with authentication, multi-tenancy, billing, and production deployment.
+
+**By the end:** You'll have a feature-complete B2B SaaS application and deep understanding of Makerkit patterns to build your own products.
+
+**Total time:** 10-12 hours across 13 modules (including the architecture overview)
+
+---
+
+## What You'll Learn
+
+### SaaS Development Skills
+- Build database schemas with **Prisma ORM**
+- Create Server Actions with **next-safe-action**
+- Implement forms with **react-hook-form + Zod**
+- Structure **Next.js App Router** applications
+
+### Authentication & Security
+- Configure **Better Auth** (OAuth, MFA, magic links)
+- Handle email verification & password reset
+- Protect routes and API endpoints
+
+### Multi-Tenancy
+- Implement organization-based data isolation
+- Configure **role-based access control** (Owner/Admin/Member)
+
+### Payments
+- Integrate **Stripe** subscriptions & checkout
+- Gate features by subscription plan
+
+### Email & Admin
+- Customize **React Email** templates
+- Build admin dashboards with metrics
+
+### Production Deployment
+- Configure environment variables
+- Deploy with security best practices
+- Set up monitoring and error tracking
+
+### Monorepo Skills
+- Navigate **Turborepo** package structure
+- Understand package dependencies
+- Use development commands efficiently
+
+---
+
+## Course Structure
+
+| Module | Title | Time | What You'll Learn/Build |
+|--------|-------|------|-------------------------|
+| 0 | [Architecture & Technologies](./architecture-and-technologies) | 45-60 min | Stack deep-dive (Next.js, Better Auth, Prisma), monorepo navigation |
+| 1 | [Setup & Configuration](./setup-and-configuration) | 30 min | Running app configured for B2B mode |
+| 2 | [Branding](./branding) | 1 hr | Customize your app's branding |
+| 3 | [Data Model & First Feature](./data-model-and-first-feature) | 2-3 hrs | Database schemas, server actions, feedback boards with CRUD |
+| 4 | [Feedback Items](./feedback-items) | 2-3 hrs | Feedback submission, voting, status workflow, filtering |
+| 5 | [Public Boards](./public-boards) | 1 hr | Public routes, anonymous submission, rate limiting, SEO |
+| 6 | [Authentication](./authentication) | 1 hr | Google OAuth setup, auth hooks, post-auth flow |
+| 7 | [Organizations & Teams](./organizations-and-teams) | 1 hr | Multi-tenancy, invitations, TeamPulse-specific permissions |
+| 8 | [Billing & Subscriptions](./billing-and-subscriptions) | 1-2 hrs | Plan limits, gating boards/feedback, usage dashboard |
+| 9 | [Email & Notifications](./email-and-notifications) | 45 min | React Email templates, feedback notifications |
+| 10 | [Settings & Profile](./settings-and-profile) | 30 min | Account settings, profile management |
+| 11 | [Admin Dashboard](./admin-dashboard) | 45 min | User management, metrics, impersonation, banning |
+| 12 | [Production Readiness](./production-readiness) | 1 hr | Environment config, security checklist, deployment |
+
+---
+
+## The Project: TeamPulse
+
+Throughout this course, you'll build TeamPulse - a team feedback tool where:
+
+- **Teams** create feedback boards for their products
+- **Members** submit feedback (bugs, features, ideas)
+- **Voting** surfaces the most important items
+- **Status workflow** tracks progress (New → Planned → In Progress → Done → Closed)
+- **Public boards** allow anonymous submission from external users
+- **Roles** control who can create boards, change status, and delete feedback
+- **Billing** gates boards per plan (Free: 1 board, Starter: 3, Pro: 10, Enterprise: unlimited) and feedback limits per board
+
+This project exercises every major Makerkit feature in a realistic context - so that you will be able to apply the knowledge you gain from this course to your own projects.
+
+---
+
+## How This Course Works
+
+### Hands-On First
+
+Every module produces working functionality. You won't just read about features - you'll build them.
+
+### Progressive Building
+
+Each module builds on the previous. By the end, you have a complete, cohesive application.
+
+---
+
+## Prerequisites
+
+Before starting Module 1, ensure you have:
+
+- **Node.js 20.20.0+**
+- **pnpm** package manager
+- **Docker** for local services
+- **Git** for version control
+- Basic familiarity with React, TypeScript, and Next.js
+
+For a more detailed list of prerequisites, please refer to the [Prerequisites Documentation](/docs/nextjs-prisma/installation/prerequisites).
+
+---
+
+### Course vs Documentation
+
+This course teaches you *how* to build features. For API references and deep dives, you will want to refer to the [Documentation](/docs/nextjs-prisma/installation/overview).
+- Database operations and schemas
+- Server actions patterns
+- Billing customization
+- Authentication configuration
+
+### External Resources
+- **Next.js:** [https://nextjs.org](https://nextjs.org)
+- **React:** [https://react.dev](https://react.dev)
+- **TypeScript:** [https://www.typescriptlang.org](https://www.typescriptlang.org)
+- **Tailwind CSS:** [https://tailwindcss.com](https://tailwindcss.com)
+- **Shadcn UI:** [https://ui.shadcn.com](https://ui.shadcn.com)
+- **Stripe:** [https://stripe.com](https://stripe.com)
+- **Better Auth:** [https://better-auth.com](https://better-auth.com)
+- **Prisma ORM:** [https://www.prisma.io](https://www.prisma.io)
+
+---
+
+## After the Course
+
+After completing all modules, you'll have:
+
+- A working TeamPulse application with all major SaaS features
+- Deep understanding of Makerkit patterns and conventions
+- Production deployment checklist ready to execute
+- Foundation to build your own SaaS product
+
+---
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "What will I build in this course?", "answer": "You'll build TeamPulse, a complete B2B SaaS application for team feedback management. It includes authentication with OAuth and email, multi-tenant organizations with role-based access control, Stripe billing integration, public feedback boards, and a full admin dashboard."},
+     {"question": "How long does the course take to complete?", "answer": "The full course takes 10-12 hours across 13 modules. Each module is designed to be completed in a single session, ranging from 30 minutes to 3 hours depending on the complexity of the feature being built."},
+     {"question": "What are the prerequisites for this course?", "answer": "You need Node.js 20.20.0 or higher, pnpm package manager, Docker for local services, and Git. You should have basic familiarity with React, TypeScript, and Next.js. No prior experience with Prisma or the other specific libraries is required."},
+     {"question": "Can I use this course to build my own SaaS?", "answer": "Yes, that's the goal. By building TeamPulse, you'll learn all the patterns and conventions used in Makerkit. After completing the course, you can apply the same patterns to build your own SaaS product with authentication, billing, multi-tenancy, and more."},
+     {"question": "What's the difference between this course and the documentation?", "answer": "This course teaches you how to build features through a hands-on project. The documentation provides API references and deep dives into specific topics. Use the course to learn the patterns, then reference the documentation for customization and advanced use cases."},
+     {"question": "Do I need to purchase a Makerkit license to take this course?", "answer": "Yes, you need access to the Makerkit Next.js Prisma starter kit to follow along. The course assumes you have cloned the repository and have it running locally."}
+   ]
+/%}
+
+---
+
+## Ready?
+
+Start with [Module 0: Architecture & Technologies](./architecture-and-technologies) to understand the stack, then proceed to [Module 1: Setup & Configuration](./setup-and-configuration).

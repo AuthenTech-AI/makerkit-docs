@@ -1,0 +1,167 @@
+---
+status: "published"
+title: "Development Workflow"
+label: "Workflow"
+order: 1
+description: "Establish an efficient development workflow for building features in your Next.js Drizzle SaaS application."
+---
+
+A consistent development workflow reduces friction and helps you ship faster. This guide covers the commands, conventions, and practices that make day-to-day development efficient in the Next.js [Drizzle](/drizzle) kit.
+
+## Start Development Server
+
+If you have not yet setup your development environment, please refer to the [Installation](../installation/prerequisites) guide for more information.
+
+To run the development server, run the following command:
+
+```bash
+# Start all apps and packages
+pnpm dev
+
+# Development server runs at:
+# - Web app: http://localhost:3000
+```
+
+In addition to the Next.js development server, make sure to also start the Database service. [We've discussed this in the Installation](../installation/prerequisites) - so please refer to that section for more information.
+
+## File Organization
+
+Consistent file organization makes your codebase navigable. Each feature lives in its own directory with a predictable structure:
+
+```
+apps/web/app/[locale]/(internal)/dashboard/
+├── feature/
+│   ├── page.tsx                              # Route page
+│   ├── _lib/
+│   │   ├── actions/
+│   │   │   └── feature-server-actions.ts     # Server actions
+│   │   ├── schemas/
+│   │   │   └── feature.schema.ts             # Validation schemas
+│   │   └── loaders/
+│   │       └── feature-page.loader.ts        # RSC Data loading
+│   └── _components/
+│       ├── feature-form.tsx
+│       └── feature-list.tsx
+```
+
+**Naming Conventions:**
+- **Pages:** `page.tsx` (Next.js convention)
+- **Loaders:** `{feature}-page.loader.ts` for server-side data fetching
+- **Actions:** `{feature}-server-actions.ts` for server actions (or `{feature}.action.ts` if you prefer)
+- **Schemas:** `{feature}.schema.ts` for Zod validation schemas
+- **Components:** `kebab-case.tsx` for all component files
+
+While you can use any other convention that you prefer, we recommend following the ones mentioned above.
+
+### Using Packages for Features
+
+When building features, you can use packages to share code between features. For example, if you are building a feature that is related to projects, you can create a package called `projects` and put the code for the projects feature in it.
+
+```
+packages/features/projects/
+├── index.ts
+├── schema.ts
+```
+
+You can use the command `pnpm turbo gen package` to generate a new package.
+
+**Note**: this is not a requirement, only create packages if you're comfortable with the concept and want to use it. Placing all your features in the `apps/web/app/[locale]/(internal)` folder is perfectly fine and will still be organized.
+
+## Development Flow
+
+A typical feature follows a predictable path from branch to deployment. This section outlines each step.
+
+### 1. Create Feature Branch
+
+Creating a git branch before working on a new feature or code change is a good practice. This helps you to isolate your changes from the main branch and allows you to easily revert your changes if needed, all while being able to review your changes before merging them into the main branch.
+
+```bash
+git checkout -b feature/new-feature
+```
+
+### 2. Plan Your Feature
+
+Before writing code, break the feature into concrete steps. This prevents scope creep and ensures you don't miss critical pieces:
+
+1. Define the data model and validation schema
+2. Create database tables and relationships
+3. Build server actions for mutations
+4. Create UI components
+5. Connect everything in page components
+
+If you're using AI to help you with the feature, consider using the PRD tool in our MCP server to help you plan your feature. [You can find the instructions here](../installation/mcp-server).
+
+I do recommending going through the following steps to better understand the feature and the codebase, even if you use AI to help you.
+
+### 3. Implement Feature
+
+Work through the layers in order. Each layer builds on the previous one, so starting with the schema ensures type safety flows through the entire stack:
+
+1. **Schema** — Define types and validation with Zod
+2. **Database** — Create tables and push changes
+3. **Server Actions** — Implement business logic
+4. **Components** — Build the UI
+5. **Page** — Wire everything together
+
+### 4. Verify Quality
+
+Before committing, run these checks to catch issues early. Type errors and lint issues are easier to fix while the code is fresh in your mind:
+
+```bash
+# Check types
+pnpm typecheck
+
+# Fix linting issues
+pnpm lint:fix
+
+# Format code
+pnpm format:fix
+```
+
+### 5. Commit Changes
+
+When you have completed working on your new feature, you can commit and push the branch to your Git repository.
+
+```bash
+git add .
+git commit -m "feat: add new feature"
+git push origin feature/new-feature
+```
+
+From Github (or other Git hosting provider), you can create a pull request to review your changes. Some AI services can help you debug and review your PR before merging it into the main branch. It's a decent additional "pair of eyes" to help you catch issues before they reach production.
+
+## Development Checklist
+
+Before marking a feature complete, verify:
+
+- [ ] Types pass (`pnpm typecheck`)
+- [ ] Linting passes (`pnpm lint:fix`)
+- [ ] Code is formatted (`pnpm format:fix`)
+- [ ] Feature works in development
+- [ ] Database migrations are committed
+- [ ] Environment variables documented (if new ones added)
+
+## Helpful Commands
+
+```bash
+# Database commands
+pnpm --filter "@kit/database" drizzle:generate  # Generate migration
+pnpm --filter "@kit/database" drizzle:migrate   # Apply migrations
+pnpm --filter "@kit/database" drizzle:studio    # Open Drizzle Studio
+
+# Quality checks
+pnpm typecheck    # Check TypeScript types
+pnpm lint:fix     # Fix linting issues
+pnpm format:fix   # Format code
+
+# Testing
+pnpm test         # Run unit tests
+pnpm test:e2e     # Run end-to-end tests
+
+# Package management
+pnpm turbo gen package  # Generate a new package
+```
+
+---
+
+**Next:** [Adding Features →](./adding-features)

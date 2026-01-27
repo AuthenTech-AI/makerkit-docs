@@ -1,66 +1,171 @@
 ---
 status: "published"
-title: 'Using the Google Analytics Provider in Next.js Supabase Turbo'
+title: 'Google Analytics Setup in MakerKit'
 label: 'Google Analytics'
-description: 'Learn how to use the Google Analytics provider in Next.js Supabase Turbo'
+description: 'Add Google Analytics 4 (GA4) to your MakerKit application for page views, user tracking, and conversion measurement.'
 order: 2
 ---
 
-The [Google Analytics](https://marketingplatform.google.com/about/analytics/) provider in Next.js Supabase Turbo is a simple way to integrate Google Analytics into your Next.js application using the Makerkit's Analytics package.
+Google Analytics 4 (GA4) provides web analytics focused on marketing attribution, conversion tracking, and audience insights. Use it when your marketing team needs Google's ecosystem for ad optimization and reporting.
 
-{% sequence title="How to use the Google Analytics provider in Next.js Supabase Turbo" description="Learn how to use the Google Analytics provider in Next.js Supabase Turbo" %}
+## Prerequisites
 
-[Installation](#installation)
+Before starting, you need:
 
-[Configuration](#configuration)
+- A Google Analytics 4 property ([create one here](https://analytics.google.com/))
+- Your GA4 Measurement ID (format: `G-XXXXXXXXXX`)
 
-{% /sequence %}
-
+Find your Measurement ID in GA4: **Admin > Data Streams > Select your stream > Measurement ID**.
 
 ## Installation
 
-First, you need to pull the `@kit/analytics` package into your project using the CLI
+Install the Google Analytics plugin using the MakerKit CLI:
 
 ```bash
 npx @makerkit/cli@latest plugins install
 ```
 
-When prompted, select the `Google Analytics` package from the list of available packages. Once the command completes, you should see the `packages/plugins/google-analytics` directory in your project.
+Select **Google Analytics** from the list. This creates the plugin at `packages/plugins/google-analytics`.
 
-You can now import this package into your project:
+Add the plugin as a dependency to the analytics package:
 
 ```bash
 pnpm add "@kit/google-analytics@workspace:*" --filter "@kit/analytics" -D
 ```
 
-You can now use the Google Analytics plugin in the Analytics package. Update the `packages/analytics/src/index.ts` file as follows:
+## Configuration
 
- ```tsx {% title="packages/analytics/src/index.ts" %}
+Register the provider in your analytics configuration:
+
+```typescript {% title="packages/analytics/src/index.ts" %}
 import { createGoogleAnalyticsService } from '@kit/google-analytics';
 
 import { createAnalyticsManager } from './analytics-manager';
 import type { AnalyticsManager } from './types';
 
 export const analytics: AnalyticsManager = createAnalyticsManager({
-    providers: {
-        'google-analytics': createGoogleAnalyticsService,
-    },
+  providers: {
+    'google-analytics': createGoogleAnalyticsService,
+  },
 });
 ```
 
-## Configuration
+Add your Measurement ID to environment variables:
 
-Please add the following environment variables to your `.env` file:
-
-```bash
-NEXT_PUBLIC_GA_MEASUREMENT_ID=your-measurement-id
+```bash {% title=".env.local" %}
+NEXT_PUBLIC_GA_MEASUREMENT_ID=G-XXXXXXXXXX
 ```
 
-This is the Measurement ID of your Google Analytics property. You can find it in the Google Analytics dashboard.
+## Environment Variables
 
-Additionally, you can add the following environment variable to your `.env` file:
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `NEXT_PUBLIC_GA_MEASUREMENT_ID` | Yes | Your GA4 Measurement ID |
+| `NEXT_PUBLIC_GA_DISABLE_PAGE_VIEWS_TRACKING` | No | Set to `true` to disable automatic page view tracking |
+| `NEXT_PUBLIC_GA_DISABLE_LOCALHOST_TRACKING` | No | Set to `true` to disable tracking on localhost |
 
-```bash
-NEXT_PUBLIC_GA_DISABLE_PAGE_VIEWS_TRACKING=true
+### Development Configuration
+
+Disable localhost tracking to avoid polluting your analytics during development:
+
+```bash {% title=".env.local" %}
+NEXT_PUBLIC_GA_MEASUREMENT_ID=G-XXXXXXXXXX
 NEXT_PUBLIC_GA_DISABLE_LOCALHOST_TRACKING=true
 ```
+
+## Verification
+
+After configuration, verify the integration:
+
+1. Open your application in the browser
+2. Open Chrome DevTools > Network tab
+3. Filter by `google-analytics` or `gtag`
+4. Navigate between pages and confirm requests are sent
+5. Check GA4 Realtime reports to see your session
+
+## Using with Other Providers
+
+Google Analytics can run alongside other providers. Events dispatch to all registered providers:
+
+```typescript {% title="packages/analytics/src/index.ts" %}
+import { createGoogleAnalyticsService } from '@kit/google-analytics';
+import { createPostHogAnalyticsService } from '@kit/posthog/client';
+
+import { createAnalyticsManager } from './analytics-manager';
+
+export const analytics = createAnalyticsManager({
+  providers: {
+    'google-analytics': createGoogleAnalyticsService,
+    posthog: createPostHogAnalyticsService,
+  },
+});
+```
+
+This setup is common when marketing uses GA4 for attribution while product uses PostHog for behavior analysis.
+
+## Tracked Events
+
+With the default configuration, Google Analytics receives:
+
+- **Page views**: Automatically tracked on route changes
+- **User identification**: When `analytics.identify()` is called
+- **Custom events**: All events passed to `analytics.trackEvent()`
+
+Events from the App Events system (user.signedUp, checkout.started, etc.) are forwarded to GA4 through the analytics mapping.
+
+## GDPR Considerations
+
+Google Analytics sets cookies and requires user consent in the EU. Integrate with the [Cookie Banner component](/docs/next-supabase-turbo/components/cookie-banner) to manage consent:
+
+```typescript
+import { useCookieConsent, ConsentStatus } from '@kit/ui/cookie-banner';
+import { analytics } from '@kit/analytics';
+import { useEffect } from 'react';
+
+function AnalyticsGate({ children }) {
+  const { status } = useCookieConsent();
+
+  useEffect(() => {
+    if (status === ConsentStatus.Accepted) {
+      // GA is initialized automatically when consent is given
+      // You may want to delay initialization until consent
+    }
+  }, [status]);
+
+  return children;
+}
+```
+
+Consider using [Umami](umami-analytics-provider) for cookie-free, GDPR-compliant analytics.
+
+## Troubleshooting
+
+### Events not appearing in GA4
+
+- Verify your Measurement ID is correct
+- Check that `NEXT_PUBLIC_GA_DISABLE_LOCALHOST_TRACKING` is not `true` in production
+- GA4 has a delay of up to 24-48 hours for some reports. Use Realtime for immediate verification
+
+### Duplicate page views
+
+- Ensure you have not called `trackPageView` manually. MakerKit tracks page views automatically
+
+### Ad blockers
+
+- Ad blockers often block Google Analytics. Consider using a proxy or server-side tracking for critical metrics
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Does MakerKit support Universal Analytics?", "answer": "No. Universal Analytics was sunset by Google in July 2023. MakerKit only supports Google Analytics 4 (GA4)."},
+     {"question": "Can I use Google Tag Manager instead?", "answer": "Yes, but you would need to create a custom analytics provider. The built-in plugin uses gtag.js directly."},
+     {"question": "How do I track conversions?", "answer": "Use analytics.trackEvent() with your conversion event name. Configure the event as a conversion in GA4 Admin > Events > Mark as conversion."},
+     {"question": "Is server-side tracking supported?", "answer": "No. The Google Analytics plugin is client-side only. Use the Measurement Protocol API directly if you need server-side GA4 tracking."}
+   ]
+/%}
+
+## Next Steps
+
+- [Learn about Analytics and Events](analytics-and-events) for custom event tracking
+- [Add PostHog](posthog-analytics-provider) for product analytics
+- [Create a custom provider](custom-analytics-provider) for other services

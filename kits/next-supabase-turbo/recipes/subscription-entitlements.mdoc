@@ -1,6 +1,6 @@
 ---
 status: "published"
-title: 'Managing entitlements based on subscriptions in your Next.js Supabase app'
+title: 'Subscription Entitlements in Next.js Supabase'
 label: 'Subscription Entitlements'
 order: 3
 description: 'Learn how to effectively manage access and entitlements based on subscriptions in your Next.js Supabase app.'
@@ -10,7 +10,7 @@ As your SaaS grows, the complexity of managing user entitlements increases. In t
 
 This solution leverages the power of PostgreSQL functions and Supabase RPCs, enforcing business logic at the database level while integrating seamlessly with your Next.js app.
 
-NB: this is a generic solution, but you can use it as a starting point to build your own custom entitlements system. In fact - I recommend you to do so, as your needs will evolve and this solution might not cover all your requirements.
+**Note:** This is a generic solution, but you can use it as a starting point to build your own custom entitlements system. In fact, I recommend you to do so, as your needs will evolve and this solution might not cover all your requirements.
 
 ### Why a Custom Entitlements System?
 
@@ -446,6 +446,8 @@ import { createEntitlementsService } from '~/lib/server/entitlements.service';
 
 export async function handleApiRequest(accountId: string, endpoint: string) {
   const client = getSupabaseServerClient();
+  const adminClient = getSupabaseServerAdminClient();
+  
   const entitlementsService = createEntitlementsService(client, accountId);
 
   const canUseAPI = await entitlementsService.canUseFeature('api_access');
@@ -465,8 +467,14 @@ export async function handleApiRequest(accountId: string, endpoint: string) {
     const limit = entitlement.entitlement.limit;
 
     if (currentUsage < limit) {
+      // create an admin service to update the feature usage
+      // because normal users cannot update the feature usage
+      const adminEntitlementsService 
+        = createEntitlementsService(adminClient, accountId);
+
       // Atomically update usage count
-      await entitlementsService.updateFeatureUsage('api_calls', { count: currentUsage + 1 });
+      await adminEntitlementsService.updateFeatureUsage
+        ('api_calls', { count: currentUsage + 1 });
 
       // NB: processApiRequest is a placeholder for your actual API request processing logic
       return processApiRequest(endpoint);

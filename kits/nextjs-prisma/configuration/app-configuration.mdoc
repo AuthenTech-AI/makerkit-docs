@@ -1,0 +1,175 @@
+---
+status: "published"
+title: "App Configuration Settings"
+label: "App Configuration"
+order: 1
+description: "Configure application metadata, branding, theme settings, and other app-level configuration options."
+---
+
+Set your product name, site URL, theme, and locale through environment variables in `apps/web/.env`. These values flow throughout the application - page titles, email templates, OAuth redirects, and more.
+
+App configuration refers to the core branding and behavior settings that define your application's identity and default user experience. Unlike feature flags, these settings are typically set once and rarely change.
+
+This page is part of the [Configuration documentation](./overview).
+
+## Essential Settings
+
+```bash
+# apps/web/.env
+NEXT_PUBLIC_PRODUCT_NAME="Your SaaS"
+NEXT_PUBLIC_SITE_URL="http://localhost:3000"
+NEXT_PUBLIC_DEFAULT_LOCALE="en"
+NEXT_PUBLIC_DEFAULT_THEME_MODE="light"
+NEXT_PUBLIC_APP_HOME_PATH=/dashboard
+```
+
+**Use app configuration for:** branding that appears across the entire application, URLs that other systems depend on (OAuth, emails), and defaults that affect all users.
+
+**Avoid changing frequently:** these values often require cache invalidation or affect external integrations.
+
+**If unsure about a value:** use the defaults until you have a reason to change them.
+
+## Product Name
+
+Your application name appears in:
+- Browser tab titles
+- Navigation headers
+- Transactional emails
+- Meta tags and social previews
+
+```bash
+NEXT_PUBLIC_PRODUCT_NAME="Your SaaS Name"
+```
+
+Access it programmatically:
+
+```typescript
+import { appConfig } from '@config/app.config';
+
+console.log(appConfig.name); // "Your SaaS Name"
+```
+
+## Site URL
+
+The canonical base URL for your application:
+
+```bash
+# Development
+NEXT_PUBLIC_SITE_URL="http://localhost:3000"
+
+# Production
+NEXT_PUBLIC_SITE_URL="https://yourdomain.com"
+```
+
+Used for:
+- OAuth callback URLs (must match provider configuration)
+- Email links (password reset, invitations)
+- Open Graph and social previews
+- Canonical URL tags for SEO
+- Absolute URL generation in APIs
+
+## Theme Settings
+
+### Default Theme Mode
+
+```bash
+NEXT_PUBLIC_DEFAULT_THEME_MODE="light"
+```
+
+| Value | Behavior |
+|-------|----------|
+| `light` | Always use light theme |
+| `dark` | Always use dark theme |
+| `system` | Match user's OS preference |
+
+Users can override this in their account settings. The setting persists in local storage.
+
+### Locking Users to a Single Theme
+
+If you want to prevent theme switching entirely, combine the theme mode with the [feature flag](./feature-flags):
+
+```bash
+NEXT_PUBLIC_DEFAULT_THEME_MODE="dark"
+NEXT_PUBLIC_ENABLE_THEME_TOGGLE=false
+```
+
+## Locale Settings
+
+```bash
+NEXT_PUBLIC_DEFAULT_LOCALE="en"
+```
+
+This sets the default language for new users. Supported values must be defined in your i18n configuration at `lib/i18n/i18n.settings.ts`. See the [internationalization documentation](../internationalization/overview) for adding new languages.
+
+## App Home Path
+
+The authenticated user's landing page after login:
+
+```bash
+NEXT_PUBLIC_APP_HOME_PATH=/dashboard
+```
+
+Change this if your main app entry point is different - for example, `/home`, `/app`, or `/projects`. This path is referenced in redirects, navigation, and middleware.
+
+## Email Sender
+
+```bash
+EMAIL_SENDER="Your App <noreply@yourdomain.com>"
+```
+
+Format: `Display Name <email@domain.com>`
+
+Best practices:
+- Verify your sending domain with your email provider (prevents spam filtering)
+- Use `noreply@` for automated transactional emails
+- Use a monitored address for emails that might get replies
+
+See the [email configuration documentation](../emails/configuration) for SMTP and provider setup.
+
+## Per-Page Metadata
+
+Override global metadata for specific pages using the [Next.js Metadata API](https://nextjs.org/docs/app/building-your-application/optimizing/metadata):
+
+```typescript
+// apps/web/app/[locale]/about/page.tsx
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: 'About Us',
+  description: 'Learn more about our company and mission.',
+  openGraph: {
+    title: 'About Us - Your SaaS',
+    description: 'Learn more about our company.',
+    url: '/about',
+  },
+};
+
+export default function AboutPage() {
+  return <AboutContent />;
+}
+```
+
+The `title` automatically appends your product name via the template defined in the root layout.
+
+## Common Pitfalls
+
+- **Trailing slash in `SITE_URL`**: Causes double-slash URLs and broken OAuth redirects. Always omit it: `https://example.com` not `https://example.com/`
+- **Mismatched OAuth URLs**: Your `SITE_URL` must exactly match what you configured in Google/GitHub OAuth settings. Localhost vs 127.0.0.1 matters.
+- **Changing `APP_HOME_PATH` after launch**: Existing bookmarks and links will break. Set up redirects if you change this.
+- **Unverified email domain**: Emails land in spam. Verify your domain with your email provider before going to production.
+- **Forgetting to update production `.env`**: Development defaults don't transfer automatically. Set all production values in your hosting platform.
+
+## Configuration Reference
+
+| Variable | Required | Default | Purpose |
+|----------|----------|---------|---------|
+| `NEXT_PUBLIC_PRODUCT_NAME` | Yes | - | Application display name |
+| `NEXT_PUBLIC_SITE_URL` | Yes | - | Canonical base URL |
+| `NEXT_PUBLIC_DEFAULT_LOCALE` | No | `en` | Default language |
+| `NEXT_PUBLIC_DEFAULT_THEME_MODE` | No | `light` | Default color scheme |
+| `NEXT_PUBLIC_APP_HOME_PATH` | No | `/dashboard` | Post-login redirect |
+| `EMAIL_SENDER` | Yes | - | From address for emails |
+
+---
+
+**Next:** [Environment Variables →](./environment-variables)

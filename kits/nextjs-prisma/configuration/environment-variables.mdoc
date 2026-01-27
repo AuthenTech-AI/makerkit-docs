@@ -1,0 +1,593 @@
+---
+status: "published"
+title: "Environment Variables Reference"
+label: "Environment Variables"
+order: 2
+description: "Complete reference guide for all environment variables used in the Next.js Prisma SaaS Kit."
+---
+
+Configure your MakerKit application using environment variables for database connections, authentication secrets, billing providers, email, and more. This reference covers every variable with defaults and usage examples.
+
+Environment variables are key-value pairs that configure application behavior without hardcoding values. MakerKit uses `.env` files for development and platform-specific settings (Vercel, Docker) for production.
+
+This page is part of the [Configuration documentation](./overview).
+
+## Quick Start
+
+The minimum required variables to run locally:
+
+```bash
+# apps/web/.env.local
+DATABASE_URL="postgresql://user:pass@localhost:5432/mydb"
+BETTER_AUTH_SECRET="generate-with-openssl-rand-base64-32"
+NEXT_PUBLIC_SITE_URL="http://localhost:3000"
+NEXT_PUBLIC_PRODUCT_NAME="My SaaS"
+EMAIL_SENDER="My SaaS <noreply@example.com>"
+```
+
+**Use environment variables when:** the value changes per environment, contains secrets, or needs to be changed without redeploying.
+
+**Use config files when:** you need TypeScript validation, complex objects, or the value is truly static.
+
+**If unsure:** environment variables are the safe default for anything that might differ between dev and production.
+
+## Runtime Environment Variables
+
+This kit supports **runtime environment variables** using [`next-runtime-env`](https://github.com/expatfile/next-runtime-env), enabling "build once, deploy many" workflows for Docker deployments. This differs from standard Next.js behavior where `NEXT_PUBLIC_*` variables are inlined at build time.
+
+### How It Works
+
+- **Server Components**: Use `process.env` directly (evaluated at runtime on server)
+- **Client Components**: Use `env()` from `@kit/shared/env` (reads from injected script)
+- **Config files**: Use `env()` with lazy evaluation via Proxy pattern
+
+### Using env() in Client Components
+
+```typescript
+'use client';
+
+import { env } from '@kit/shared/env';
+
+export function MyComponent() {
+  // Runtime value - changes based on deployment environment
+  const siteUrl = env('NEXT_PUBLIC_SITE_URL');
+  const appHome = env('NEXT_PUBLIC_APP_HOME_PATH') || '/dashboard';
+
+  return <a href={siteUrl}>{appHome}</a>;
+}
+```
+
+### Docker "Build Once, Deploy Many"
+
+With runtime env vars, you can build a single Docker image and deploy to different environments:
+
+```bash
+# Build once
+docker build -t myapp .
+
+# Deploy to staging
+docker run -e NEXT_PUBLIC_SITE_URL=https://staging.example.com myapp
+
+# Deploy to production
+docker run -e NEXT_PUBLIC_SITE_URL=https://example.com myapp
+```
+
+### When to Use Each Approach
+
+| Context | Method | When Evaluated |
+|---------|--------|----------------|
+| Server Components | `process.env.NEXT_PUBLIC_*` | Runtime (on server) |
+| Client Components | `env('NEXT_PUBLIC_*')` | Runtime (in browser) |
+| Build-time config (`next.config.ts`) | `process.env.*` | Build time only |
+
+---
+
+### Database
+
+To connect to your database, set the `DATABASE_URL` environment variable. This is passed directly to [Prisma ORM](https://www.prisma.io/docs/orm/overview/databases/postgresql) for connection pooling and query execution.
+
+```bash
+# PostgreSQL connection string
+DATABASE_URL="postgresql://user:password@host:port/database"
+```
+
+The connection string format depends on your database provider. Prisma supports PostgreSQL, MySQL, SQLite, SQL Server, MongoDB, and CockroachDB.
+
+### Authentication
+
+The authentication secret is used by [Better Auth](https://www.better-auth.com/) to sign sessions. It must be a random string of at least 32 characters.
+
+```bash
+# Secret for signing sessions (min 32 characters)
+# Generate with: openssl rand -base64 32
+BETTER_AUTH_SECRET="your-random-secret-here"
+
+# Base URL of your application
+NEXT_PUBLIC_SITE_URL="http://localhost:3000"  # Development
+# NEXT_PUBLIC_SITE_URL="https://yourdomain.com"  # Production
+```
+
+- `BETTER_AUTH_SECRET`: The authentication secret used by Better Auth to sign sessions. Must be a random string of at least 32 characters.
+- `NEXT_PUBLIC_SITE_URL`: The base URL of your application. When in production, it must use a valid HTTPS URL.
+
+## Application Settings
+
+```bash
+# Application name (displayed in UI)
+NEXT_PUBLIC_PRODUCT_NAME="Makerkit"
+
+# Site URL (for absolute links)
+NEXT_PUBLIC_SITE_URL="http://localhost:3000"
+
+# Default language
+NEXT_PUBLIC_DEFAULT_LOCALE="en"
+
+# Theme settings
+NEXT_PUBLIC_DEFAULT_THEME_MODE="light"  # or "dark" or "system"
+```
+
+- `NEXT_PUBLIC_PRODUCT_NAME`: The name of your application, displayed in the UI
+- `NEXT_PUBLIC_SITE_URL`: The base URL of your application
+- `NEXT_PUBLIC_DEFAULT_LOCALE`: The default language of your application
+- `NEXT_PUBLIC_DEFAULT_THEME_MODE`: The default theme mode of your application
+
+### Account Mode
+
+Account mode is used to determine the default context for the application.
+
+```bash
+# Account mode (see Account Modes documentation)
+NEXT_PUBLIC_ACCOUNT_MODE="hybrid"  # personal-only | organizations-only | hybrid
+```
+
+- `NEXT_PUBLIC_ACCOUNT_MODE`: The account mode of your application. See [Account Modes](../configuration/account-modes) for more information.
+
+
+### Authentication Features
+
+The variables below are used to specify settings related to authentication:
+
+```bash
+# Enable email/password authentication
+NEXT_PUBLIC_AUTH_PASSWORD=true
+
+# Enable magic link authentication
+NEXT_PUBLIC_AUTH_MAGIC_LINK=false
+
+# OAuth providers (comma-separated)
+NEXT_PUBLIC_AUTH_OAUTH_PROVIDERS="google"  # google,github,apple
+
+# Password requirements
+NEXT_PUBLIC_PASSWORD_REQUIRE_SPECIAL_CHARS=false
+NEXT_PUBLIC_PASSWORD_REQUIRE_NUMBERS=false
+NEXT_PUBLIC_PASSWORD_REQUIRE_UPPERCASE=false
+
+# Display terms and conditions checkbox
+NEXT_PUBLIC_DISPLAY_TERMS_AND_CONDITIONS_CHECKBOX=false
+```
+
+- `NEXT_PUBLIC_AUTH_PASSWORD`: Whether to enable email/password authentication. Default is `true`.
+- `NEXT_PUBLIC_AUTH_MAGIC_LINK`: Whether to enable magic link authentication. Default is `false`.
+- `NEXT_PUBLIC_AUTH_OAUTH_PROVIDERS`: The OAuth providers to enable as a comma-separated list (ex. `google,github,apple`). Default is `google`.
+- `NEXT_PUBLIC_PASSWORD_REQUIRE_SPECIAL_CHARS`: Whether to require special characters in passwords. Default is `false`.
+- `NEXT_PUBLIC_PASSWORD_REQUIRE_NUMBERS`: Whether to require numbers in passwords. Default is `false`.
+- `NEXT_PUBLIC_PASSWORD_REQUIRE_UPPERCASE`: Whether to require uppercase letters in passwords. Default is `false`.
+- `NEXT_PUBLIC_DISPLAY_TERMS_AND_CONDITIONS_CHECKBOX`: Whether to display the terms and conditions checkbox during sign-up. Default is `false`.
+
+### Feature Flags
+
+The variables below are used to specify settings related to feature flags:
+
+```bash
+# Organizations
+NEXT_PUBLIC_ALLOW_USER_TO_CREATE_ORGANIZATION=true
+
+# Custom roles/permissions
+NEXT_PUBLIC_ENABLE_CUSTOM_ROLES=false
+```
+
+- `NEXT_PUBLIC_ALLOW_USER_TO_CREATE_ORGANIZATION`: Whether to allow users to create organizations. Default is `true`.
+- `NEXT_PUBLIC_ENABLE_CUSTOM_ROLES`: Whether to enable custom roles. Default is `false`. Please bear in mind this is currently an experimental feature and is not yet available for usage.
+
+**Note:** Organization/team account settings are controlled by `NEXT_PUBLIC_ACCOUNT_MODE`. See [Account Modes](./account-modes) for details.
+
+### Captcha
+
+The captcha plugin adds bot protection to authentication flows using Cloudflare Turnstile:
+
+```bash
+# Captcha (Cloudflare Turnstile)
+TURNSTILE_SECRET_KEY=""
+NEXT_PUBLIC_CAPTCHA_SITE_KEY=""
+```
+
+- `TURNSTILE_SECRET_KEY`: The secret key for Cloudflare Turnstile.
+- `NEXT_PUBLIC_CAPTCHA_SITE_KEY`: The site key for Cloudflare Turnstile.
+
+Both are not provided/enabled by default.
+
+### Invitation Settings
+
+The variables below are used to specify settings related to invitations:
+
+```bash
+NEXT_PUBLIC_INVITATION_EXPIRES_IN=604800
+```
+
+- `NEXT_PUBLIC_INVITATION_EXPIRES_IN`: The expiration time for invitations in seconds. Default is `604800` (7 days).
+
+### Email Configuration
+
+The variables below are used to specify settings related to email configuration. If you use `nodemailer` (which is used by default), refer to the `SMTP` settings. If you use `resend`, refer to the Resend settings.
+
+```bash
+# Email provider (nodemailer or resend)
+MAILER_PROVIDER="nodemailer"
+
+# Sender address
+EMAIL_SENDER="Your App <noreply@yourdomain.com>"
+```
+
+- `MAILER_PROVIDER`: The email provider to use. Default is `nodemailer`.
+- `EMAIL_SENDER`: The sender address for emails. Default is `Your App <noreply@yourdomain.com>`.
+
+#### For Nodemailer (SMTP)
+
+If you use `nodemailer` (which is used by default), you need to set the SMTP configuration:
+
+```bash
+EMAIL_HOST="smtp.example.com"
+EMAIL_PORT=587
+EMAIL_TLS=true
+EMAIL_USER="your_username"
+EMAIL_PASSWORD="your_password"
+```
+
+- `EMAIL_HOST`: The SMTP host for Nodemailer.
+- `EMAIL_PORT`: The SMTP port for Nodemailer.
+- `EMAIL_TLS`: Whether to use TLS for Nodemailer.
+- `EMAIL_USER`: The username for Nodemailer.
+- `EMAIL_PASSWORD`: The password for Nodemailer.
+
+#### For Resend
+
+If you use `resend`, you need to set the Resend API key:
+
+```bash
+MAILER_PROVIDER="resend"
+RESEND_API_KEY="re_your_api_key"
+```
+
+- `MAILER_PROVIDER`: Use `resend` to use Resend as the email provider.
+- `RESEND_API_KEY`: The API key for Resend when `MAILER_PROVIDER` is set to `resend`.
+
+### Storage Configuration
+
+The Storage configuration uses [unstorage](https://unstorage.dev) as a unified interface for storage providers. This means that you can use the same API to interact with different storage providers.
+
+During local development, we store files in the `./public/storage.dev` folder:
+
+**Local Storage (Development):**
+```bash
+STORAGE_PROVIDER="fs"
+STORAGE_BASE_URL="/storage.dev"
+```
+
+If you use AWS S3 or any S3-compatible provider (such as Cloudflare R2) you can use the following configuration:
+
+```
+STORAGE_S3_ACCESS_KEY_ID="your-access-key"
+STORAGE_S3_SECRET_ACCESS_KEY="your-secret-key"
+STORAGE_S3_ENDPOINT="your-endpoint"
+STORAGE_S3_BUCKET="your-bucket"
+STORAGE_S3_REGION="your-region"
+```
+
+- `STORAGE_S3_ACCESS_KEY_ID`: The access key ID for the S3 bucket.
+- `STORAGE_S3_SECRET_ACCESS_KEY`: The secret access key for the S3 bucket.
+- `STORAGE_S3_ENDPOINT`: The endpoint for the S3 bucket.
+- `STORAGE_S3_BUCKET`: The name of the S3 bucket.
+- `STORAGE_S3_REGION`: The region of the S3 bucket.
+
+### Billing
+
+The variables below are used to specify settings related to billing:
+
+```bash
+# Billing provider
+NEXT_PUBLIC_BILLING_PROVIDER="stripe" # or polar
+
+# Stripe
+STRIPE_SECRET_KEY="sk_test_..."
+STRIPE_WEBHOOK_SECRET="whsec_..."
+```
+
+- `NEXT_PUBLIC_BILLING_PROVIDER`: The billing provider to use. Default is `stripe`. Supported values are `stripe` and `polar`.
+- `STRIPE_SECRET_KEY`: The secret key for Stripe.
+- `STRIPE_WEBHOOK_SECRET`: The webhook secret for Stripe.
+
+If using Polar, please provide the following environment variables:
+
+```bash
+NEXT_PUBLIC_BILLING_PROVIDER="polar"
+POLAR_ACCESS_TOKEN=********
+```
+
+### Monitoring & Analytics
+
+The variables below are used to specify settings related to monitoring and analytics:
+
+```bash
+# Sentry (error tracking)
+NEXT_PUBLIC_SENTRY_DSN="https://...@sentry.io/..."
+
+# Sentry environment
+NEXT_PUBLIC_SENTRY_ENVIRONMENT=development
+
+# Analytics provider
+NEXT_PUBLIC_MONITORING_PROVIDER="sentry"
+```
+
+- `NEXT_PUBLIC_SENTRY_DSN`: The Sentry DSN for error tracking.
+- `NEXT_PUBLIC_SENTRY_ENVIRONMENT`: The environment for Sentry. Default is `development`.
+- `NEXT_PUBLIC_MONITORING_PROVIDER`: The monitoring provider to use. Default is `sentry`. At this time, `sentry` is the only supported value.
+
+## CMS
+
+The variables below are used to specify settings related to the CMS:
+
+```bash
+CMS_CLIENT=keystatic
+
+# Keystatic configuration
+NEXT_PUBLIC_KEYSTATIC_CONTENT_PATH=./content
+NEXT_PUBLIC_KEYSTATIC_STORAGE_KIND=local
+
+# Keystatic storage options (for GitHub/Cloud storage)
+# NEXT_PUBLIC_KEYSTATIC_STORAGE_REPO=
+# KEYSTATIC_STORAGE_PROJECT=
+# KEYSTATIC_STORAGE_BRANCH_PREFIX=
+# KEYSTATIC_PATH_PREFIX=
+
+# Keystatic GitHub token (SENSITIVE: Set in .env.local or deployment environment)
+# KEYSTATIC_GITHUB_TOKEN=
+```
+
+- `CMS_CLIENT`: The CMS client to use. Default is `keystatic`. At this time, `keystatic` is the only supported value.
+- `NEXT_PUBLIC_KEYSTATIC_CONTENT_PATH`: The path to the content for the CMS. Default is `./content`.
+- `NEXT_PUBLIC_KEYSTATIC_STORAGE_KIND`: The storage kind for the CMS. Default is `local`. At this time, `local` is the only supported value.
+- `NEXT_PUBLIC_KEYSTATIC_STORAGE_REPO`: The repository for the CMS. Default is `undefined`.
+- `NEXT_PUBLIC_KEYSTATIC_STORAGE_BRANCH_PREFIX`: The branch prefix for the CMS. Default is `undefined`.
+- `NEXT_PUBLIC_KEYSTATIC_PATH_PREFIX`: The path prefix for the CMS. Default is `undefined`.
+- `KEYSTATIC_GITHUB_TOKEN`: The GitHub token for the CMS when using GitHub as the storage provider. This is a sensitive value and should not use the `NEXT_PUBLIC_` prefix. Default is `undefined`.
+
+## Logger
+
+The variables below are used to specify settings related to the logger:
+
+```bash
+LOGGER=pino
+```
+
+- `LOGGER`: The logger to use. Possible values are `pino` or `console`. Default is `pino`. The `console` value falls back to the built-in `console` module in Node.js.
+
+## Environment Files
+
+### .env
+
+**Purpose:** Public, non-sensitive configuration shared across all environments
+
+**Committed to git:** ✅ Yes
+
+**Contains:**
+- Public configuration
+- Feature flags
+- Default settings
+- Paths and URLs (without secrets)
+
+### .env.development
+
+**Purpose:** Development-specific configuration
+
+**Committed to git:** ✅ Yes
+
+**Contains:**
+- Development database URLs
+- Local email settings
+- Development API keys (test mode)
+
+### .env.local
+
+**Purpose:** Local secrets and overrides
+
+**Committed to git:** ⛔ NO (git-ignored)
+
+**Contains:**
+- Database credentials
+- API keys and secrets
+- Authentication secrets
+- Personal configuration overrides
+
+**Security:** Never commit this file!
+
+### Production Environment Variables
+
+For production deployments, you should set environment variables directly in your hosting platform (Vercel, Railway, Docker, etc.) rather than using a `.env.production` file. This is the recommended approach for:
+- Database credentials
+- API keys and secrets
+- Authentication secrets
+- Production URLs
+
+## Public vs Private Variables
+
+### Public Variables (NEXT_PUBLIC_*)
+
+**Accessible:** Client and server
+
+**Security:** ⚠️ Exposed in browser: please be careful not to expose sensitive information to the client.
+
+**Use for:**
+- Site URLs
+- Application names
+- Public API keys (ex. Stripe publishable key)
+- Feature flags (non-sensitive)
+
+**Example:**
+```bash
+NEXT_PUBLIC_SITE_URL="https://example.com"
+```
+
+**Usage:**
+```typescript
+// Works in both client and server components
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
+```
+
+### Private Variables
+
+**Accessible:** Server only
+
+**Security:** ✅ Never exposed to browser
+
+**Use for:**
+- Database credentials
+- API secrets
+- Authentication secrets
+- Private API keys
+
+**Example:**
+```bash
+DATABASE_URL="postgresql://..."
+BETTER_AUTH_SECRET="secret"
+STRIPE_SECRET_KEY="sk_test_..."
+```
+
+**Usage:**
+```typescript
+// Only works in server components, API routes, and server actions
+const dbUrl = process.env.DATABASE_URL;
+```
+
+## Build & Performance Settings
+
+The variables below control build-time and runtime performance features:
+
+```bash
+# Enable React Compiler (experimental)
+ENABLE_REACT_COMPILER=false
+
+# Enable strict Content Security Policy
+ENABLE_STRICT_CSP=false
+
+# Disable Next.js telemetry
+NEXT_TELEMETRY_DISABLED=1
+```
+
+- `ENABLE_REACT_COMPILER`: Enables the experimental React Compiler for automatic component memoization. Default is `false`. Enable with caution and test thoroughly.
+- `ENABLE_STRICT_CSP`: Enables strict Content Security Policy headers via `@nosecone/next` for enhanced security against XSS and clickjacking. Default is `false`.
+- `NEXT_TELEMETRY_DISABLED`: Disables Next.js anonymous telemetry data collection. Set to `1` to opt out. Default is `1` (disabled).
+
+### Version Updater
+
+The version updater checks for new deployments and prompts users to reload:
+
+```bash
+# Enable version update notifications
+NEXT_PUBLIC_ENABLE_VERSION_UPDATER=false
+
+# How often to check for updates (in seconds)
+NEXT_PUBLIC_VERSION_UPDATER_REFETCH_INTERVAL_SECONDS=3600
+```
+
+- `NEXT_PUBLIC_ENABLE_VERSION_UPDATER`: Whether to show a dialog when a new version is deployed. Default is `false`.
+- `NEXT_PUBLIC_VERSION_UPDATER_REFETCH_INTERVAL_SECONDS`: How frequently to check for new versions, in seconds. Must be between 1 and 86400 (1 second to 24 hours). Default is `3600` (1 hour).
+
+### Keystatic Path Prefix
+
+When using Keystatic with GitHub or Cloud storage, you may need to specify a path prefix:
+
+```bash
+# Path prefix for Keystatic content in your repository
+KEYSTATIC_PATH_PREFIX=apps/web
+```
+
+- `KEYSTATIC_PATH_PREFIX`: The directory path within your repository where Keystatic content is stored. Required when using GitHub storage kind. Default is `apps/web`.
+
+## Security Best Practices
+
+### 1. Never Commit Secrets
+
+```bash
+# ✅ In .gitignore (already configured)
+.env.local
+.env.*.local
+```
+
+### 2. Use Different Secrets Per Environment
+
+```bash
+# Development
+BETTER_AUTH_SECRET="dev_secret_123abc..."
+
+# Production (different secret!)
+BETTER_AUTH_SECRET="prod_secret_xyz789..."
+```
+
+## Minimum Environment Variables
+
+The minimum required environment variables to run the application in a local environment are:
+
+```bash
+# Site Configuration
+NEXT_PUBLIC_SITE_URL=
+NEXT_PUBLIC_PRODUCT_NAME=
+
+# Email
+MAILER_PROVIDER=nodemailer
+EMAIL_SENDER=
+EMAIL_HOST=
+EMAIL_PORT=
+EMAIL_USER=
+EMAIL_PASSWORD=
+EMAIL_TLS=
+
+# Billing
+NEXT_PUBLIC_BILLING_PROVIDER=stripe
+STRIPE_WEBHOOK_SECRET=
+STRIPE_SECRET_KEY=
+
+# Database
+BETTER_AUTH_SECRET=
+DATABASE_URL=
+```
+
+This is the set of variables that you **must have** to run the application - and excludes all the default values for the variables which the kit provides by default.
+
+If you add certain values, such as `google` to `NEXT_PUBLIC_AUTH_OAUTH_PROVIDERS`, you must also set the `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` environment variables - and so on.
+
+The best way to set these variables is to use the Dev Tools at port 3010 - [Read the documentation](../dev-tools/environment-variables).
+
+## Common Pitfalls
+
+- **Forgetting to restart the dev server**: Next.js reads environment variables at startup. After changing `.env` files, restart with `pnpm dev`.
+- **Using `NEXT_PUBLIC_` for secrets**: Variables with this prefix are bundled into client JavaScript and visible in the browser. Never prefix API keys, database URLs, or auth secrets.
+- **Trailing slash in `NEXT_PUBLIC_SITE_URL`**: Causes broken OAuth redirects and double-slash URLs. Use `https://example.com` not `https://example.com/`.
+- **Same secrets across environments**: Using identical `BETTER_AUTH_SECRET` in dev and production is a security risk. Generate unique secrets per environment.
+- **Missing OAuth provider credentials**: If you add `google` to `NEXT_PUBLIC_AUTH_OAUTH_PROVIDERS`, you must also set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+- **Unquoted values with special characters**: Wrap values containing `#`, `$`, or spaces in quotes: `EMAIL_PASSWORD="my#complex$pass"`.
+- **Committing `.env.local`**: This file should be git-ignored. If you accidentally commit secrets, rotate them immediately.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Where should I put production environment variables?", "answer": "Set them directly in your hosting platform (Vercel, Railway, etc.) rather than in files. This keeps secrets out of your repository and allows per-environment configuration."},
+     {"question": "Can I use different .env files for staging vs production?", "answer": "Next.js supports .env.production and .env.development, but for multiple staging environments, use your hosting platform environment variable UI. Each deployment can have its own values."},
+     {"question": "Why is my environment variable not updating?", "answer": "Three common causes: (1) You did not restart the dev server. (2) You are accessing a non-NEXT_PUBLIC_ variable in client code. (3) The variable is cached in a build artifact - rebuild for production changes."},
+     {"question": "How do I debug which variables are loaded?", "answer": "Add console.log(process.env.YOUR_VAR) in a server component or API route. For client-side, check env(YOUR_VAR) in a client component. Never log secrets in production."},
+     {"question": "What is the difference between .env and .env.local?", "answer": ".env is committed to git and contains non-sensitive defaults. .env.local is git-ignored and contains secrets and local overrides. .env.local takes precedence."}
+   ]
+/%}
+
+---
+
+**Next:** [Feature Flags →](./feature-flags)

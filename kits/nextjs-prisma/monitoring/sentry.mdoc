@@ -1,0 +1,212 @@
+---
+status: "published"
+title: 'Setting up Sentry'
+label: 'Sentry'
+description: 'Learn how to configure Sentry for error monitoring and performance tracking in your Makerkit application.'
+order: 1
+---
+
+Sentry is a full-featured error tracking and performance monitoring platform. Makerkit includes built-in support for Sentry with automatic configuration for both client and server environments.
+
+{% sequence title="Sentry Setup" description="Configure Sentry in your application" %}
+
+[Install the Sentry SDK](#install-the-sentry-sdk)
+
+[Configure Environment Variables](#configure-environment-variables)
+
+[Update Next.js Configuration](#update-nextjs-configuration)
+
+[Upload Source Maps](#upload-source-maps)
+
+{% /sequence %}
+
+## Install the Sentry SDK
+
+Install the Sentry Next.js SDK in your web application:
+
+```bash
+pnpm add @sentry/nextjs --filter web
+```
+
+## Configure Environment Variables
+
+Add these environment variables:
+
+```bash {% title=".env.local" %}
+NEXT_PUBLIC_MONITORING_PROVIDER=sentry
+NEXT_PUBLIC_SENTRY_DSN=https://your-dsn@sentry.io/project-id
+```
+
+You can find your DSN in the Sentry dashboard:
+
+1. Go to **Settings** → **Projects** → Select your project
+2. Click **Client Keys (DSN)**
+3. Copy the DSN value
+
+### Optional Environment Variables
+
+```bash {% title=".env.local" %}
+# Environment name (defaults to VERCEL_ENV if on Vercel)
+NEXT_PUBLIC_SENTRY_ENVIRONMENT=production
+
+# Release version for source maps (set in CI)
+SENTRY_RELEASE=1.0.0
+
+# Auth token for uploading source maps (set in CI)
+SENTRY_AUTH_TOKEN=your-auth-token
+```
+
+## Update Next.js Configuration
+
+Wrap your Next.js configuration with the Sentry configuration:
+
+```typescript {% title="next.config.ts" %}
+import { withSentryConfig } from '@sentry/nextjs';
+
+const nextConfig = {
+  // Your existing Next.js config
+};
+
+export default withSentryConfig(nextConfig);
+```
+
+This enables Sentry's build-time instrumentation and source map uploading.
+
+## Upload Source Maps
+
+Source maps help Sentry display readable stack traces instead of minified code. Configure source map uploading for production builds:
+
+```typescript {% title="next.config.ts" %}
+import { withSentryConfig } from '@sentry/nextjs';
+
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
+const nextConfig = {
+  // Your existing config
+};
+
+export default withSentryConfig(nextConfig, {
+  org: 'your-sentry-org',
+  project: 'your-sentry-project',
+
+  // Auth token for uploading source maps
+  authToken: process.env.SENTRY_AUTH_TOKEN,
+
+  // Suppress logs in development
+  silent: !IS_PRODUCTION,
+
+  // Recommended settings
+  widenClientFileUpload: true,
+  autoInstrumentServerFunctions: false,
+});
+```
+
+Add `SENTRY_AUTH_TOKEN` to your CI environment variables. Generate a token in Sentry:
+
+1. Go to **Settings** → **Auth Tokens**
+2. Click **Create New Token**
+3. Select scopes: `project:releases`, `org:read`
+4. Copy the token to your CI secrets
+
+## Performance Monitoring
+
+Sentry captures performance data automatically. The default configuration includes:
+
+```typescript {% title="Default performance settings" %}
+{
+  // Capture 100% of transactions (adjust in production)
+  tracesSampleRate: 1.0,
+
+  // Capture session replay for 10% of sessions
+  replaysSessionSampleRate: 0.1,
+
+  // Capture session replay for 100% of error sessions
+  replaysOnErrorSampleRate: 1.0,
+}
+```
+
+For high-traffic applications, reduce `tracesSampleRate`:
+
+```typescript {% title="Production-ready sampling" %}
+{
+  // Capture 10% of transactions in production
+  tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
+}
+```
+
+## How It Works
+
+When Sentry is configured, Makerkit's monitoring system:
+
+1. **Initializes Sentry** automatically on the client and server
+2. **Captures exceptions** through the `onRequestError` instrumentation hook
+3. **Associates errors with users** when `identifyUser` is called
+4. **Uploads source maps** during production builds
+
+The `SentryMonitoringService` handles environment detection and initializes the appropriate Sentry client:
+
+```typescript {% title="How Sentry initializes" %}
+// Browser environment
+if (typeof document !== 'undefined') {
+  initializeSentryBrowserClient({ environment });
+}
+// Server environment
+else {
+  initializeSentryServerClient({ environment });
+}
+```
+
+## Verifying Your Setup
+
+After configuring Sentry:
+
+1. **Trigger a test error** - Add a button that throws an error
+2. **Check the Sentry dashboard** - The error should appear within seconds
+3. **Verify source maps** - Stack traces should show readable code
+
+```typescript {% title="Test error component" %}
+'use client';
+
+export function TestErrorButton() {
+  return (
+    <button
+      onClick={() => {
+        throw new Error('Test Sentry error');
+      }}
+    >
+      Throw Test Error
+    </button>
+  );
+}
+```
+
+## Troubleshooting
+
+### Errors Not Appearing
+
+1. Verify `NEXT_PUBLIC_SENTRY_DSN` is set and correct
+2. Check the browser console for Sentry initialization errors
+3. Ensure your Sentry project has available quota
+
+### Source Maps Not Working
+
+1. Verify `SENTRY_AUTH_TOKEN` is set in your CI environment
+2. Check the build logs for source map upload errors
+3. Ensure `org` and `project` match your Sentry dashboard
+
+### Performance Data Missing
+
+1. Check `tracesSampleRate` is greater than 0
+2. Verify Sentry's performance monitoring is enabled for your project
+3. Wait a few minutes for data to appear in the dashboard
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "What's the difference between SENTRY_DSN and NEXT_PUBLIC_SENTRY_DSN?", "answer": "NEXT_PUBLIC_SENTRY_DSN is exposed to the browser for client-side error reporting. Both client and server use this variable. The NEXT_PUBLIC_ prefix makes it available in browser bundles."},
+     {"question": "Should I use Sentry in development?", "answer": "It's optional. Sentry works in development but may clutter your dashboard with test errors. You can disable it locally by not setting NEXT_PUBLIC_SENTRY_DSN."},
+     {"question": "How do I associate errors with users?", "answer": "Makerkit can call identifyUser() with the user's ID after authentication. This associates all subsequent errors with that user in the Sentry dashboard."}
+   ]
+/%}
+
+**Next:** [Manual Error Capturing →](capturing-errors)

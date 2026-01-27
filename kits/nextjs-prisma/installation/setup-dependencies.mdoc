@@ -1,0 +1,273 @@
+---
+status: "published"
+title: "Setup Dependencies and PNPM Catalogs"
+label: "Setup Dependencies"
+order: 3
+description: "Install all project dependencies using pnpm for the Next.js Prisma SaaS Kit and an introduction to PNPM Catalogs."
+---
+
+Run `pnpm install` from the project root to install all dependencies across the monorepo. Then generate the Prisma client with `pnpm --filter @kit/database prisma:generate`. The monorepo uses PNPM Catalogs for consistent dependency versions across packages.
+
+This guide is part of the [Next.js Prisma SaaS Kit installation](./overview).
+
+{% sequence title="Setup Dependencies" description="Install all project dependencies using pnpm for the Next.js Prisma SaaS Kit and an introduction to PNPM Catalogs." %}
+[Install All Dependencies](#install-all-dependencies)
+
+[Understanding What Gets Installed](#understanding-what-gets-installed)
+
+[Workspace Packages](#workspace-packages)
+
+[Post-Install Scripts](#post-install-scripts)
+
+[Generate Prisma Client](#generate-prisma-client)
+
+[Updating Dependencies](#updating-dependencies)
+
+[Adding New Dependencies](#adding-new-dependencies)
+
+[Dependency Management Best Practices](#dependency-management-best-practices)
+{% /sequence %}
+
+The Next.js Prisma SaaS Kit uses **pnpm** as its package manager. PNPM is faster and more efficient than npm or yarn, especially for monorepos.
+
+We use [PNPM Catalogs](https://pnpm.io/catalogs) to manage dependencies. This means that we can use the same version of a dependency across all packages in the monorepo.
+
+Versions are defined in the `pnpm-workspace.yaml` file - and are referenced by their name in the `package.json` files of each package, followed by `catalog:` as version specifier.
+
+```json
+{
+  "dependencies": {
+    "react": "catalog:",
+    "next": "catalog:"
+  }
+}
+```
+
+We highly recommend reading the [PNPM Catalogs documentation](https://pnpm.io/catalogs) to understand how they work and how to use them.
+
+{% callout title="Why we use PNPM Catalogs" %}
+We migrated from standard pnpm workspaces to PNPM Catalogs in early 2025. The result: install times dropped from ~45s to ~18s on CI, and we eliminated version drift issues that caused "works on my machine" bugs across 15+ packages. If you see `catalog:` in package.json files, that's why.
+{% /callout %}
+
+### Install All Dependencies
+
+From the project root directory:
+
+```bash
+pnpm install
+```
+
+This command will:
+1. Read `pnpm-workspace.yaml` to identify all packages
+2. Install dependencies for all apps and packages
+3. Create symlinks between workspace packages
+4. Run the `postinstall` script to fix monorepo configurations
+5. Create a `node_modules` folder in root and each package
+
+### Understanding What Gets Installed
+
+The installation process installs dependencies for:
+
+**Root workspace:**
+- [Turborepo 2.x](https://turbo.build/repo/docs) for monorepo management
+- Development tools (TypeScript, Prettier, ESLint configs)
+
+**apps/web (Main application):**
+- Next.js 16
+- React 19
+- [Better Auth 1.x](https://www.better-auth.com/docs) for authentication
+- Prisma ORM 6.x
+- Tailwind CSS 4
+- React Hook Form
+- Zod validation
+- All internal workspace packages
+
+**apps/e2e (Tests):**
+- Playwright for E2E testing
+- Test utilities
+
+**packages/ (Shared code):**
+- Each package has its own dependencies
+- UI components (Shadcn)
+- Database schema and migrations
+- Authentication logic
+- Utilities and configurations
+
+### Workspace Packages
+
+The monorepo uses workspace protocol to link packages:
+
+```json
+{
+  "dependencies": {
+    "@kit/auth": "workspace:*",
+    "@kit/ui": "workspace:*",
+    "@kit/database": "workspace:*"
+  }
+}
+```
+
+This means packages reference each other locally, not from npm.
+
+## Post-Install Scripts
+
+After dependency installation, several scripts run automatically:
+
+### Requirements Check
+
+Verifies you have the minimum Node.js version:
+
+```bash
+# Runs automatically via preinstall script
+pnpm run --filter scripts requirements
+```
+
+**What it checks:**
+- Node.js version >= 20.20.0
+- Exits with error if version is too old
+
+### Manypkg Fix
+
+Automatically fixes common monorepo issues:
+
+```bash
+# Runs automatically via postinstall script
+manypkg fix
+```
+
+**What it fixes:**
+- Ensures consistent dependency versions across packages
+- Fixes workspace protocol issues
+- Validates package.json files
+
+### Generate Prisma Client
+
+After installing dependencies, generate the Prisma client:
+
+```bash
+pnpm --filter @kit/database prisma:generate
+pnpm i
+```
+
+This generates the type-safe database client to `packages/database/src/prisma/generated`. You must run `pnpm i` after generating to link the client package, then you can start the development server.
+
+**Note:** The generated client is not committed to git - it must be regenerated after cloning the repository or pulling updates that modify the schema.
+
+## Updating Dependencies
+
+### Update specific package
+
+If you want to update a specific dependency across all packages, you can use the following command:
+
+```bash
+# Update Next.js across all packages
+pnpm up next -r --latest
+
+# Update in specific workspace
+pnpm --filter web up next
+```
+
+### Check for outdated packages
+
+Sometimes, you may want to check for outdated dependencies across all packages. You can use the following command to do so:
+
+```bash
+pnpm outdated -r
+```
+
+## Adding New Dependencies
+
+### Add to root workspace
+
+This should be done rarely, but if you need to add a dependency to the root workspace, you can use the following command:
+
+```bash
+# Dev dependency in global scope (rarely needed in root workspace)
+pnpm add -D -w <package-name>
+
+# Production dependency in global scope (rarely needed in root workspace)
+pnpm add -w <package-name>
+```
+
+### Add to specific app/package
+
+If you want to add a dependency to a specific app or package, you can use the following command:
+
+```bash
+# Add to web app
+pnpm --filter web add <package-name>
+
+# Add to @kit/ui package
+pnpm --filter @kit/ui add <package-name>
+
+# Add dev dependency
+pnpm --filter web add -D <package-name>
+```
+
+### Examples
+
+```bash
+# Add a UI library to web app
+pnpm --filter web add framer-motion
+
+# Add a dev tool to all packages
+pnpm add -D -r eslint-plugin-custom
+
+# Add to specific package
+pnpm --filter @kit/auth add jose
+```
+
+## Dependency Management Best Practices
+
+### Keep dependencies up to date
+
+```bash
+# Check for updates weekly
+pnpm outdated -r
+```
+
+### Use workspace protocol for internal packages
+
+```json
+{
+  "dependencies": {
+    "@kit/ui": "workspace:*"
+  }
+}
+```
+
+### Pin versions for critical dependencies
+
+```json
+{
+  "dependencies": {
+    "next": "16.0.0"  // Exact version
+  }
+}
+```
+
+### Use catalog for shared dependencies
+
+This project uses catalog versioning for consistent versions:
+
+```json
+{
+  "dependencies": {
+    "react": "catalog:",
+    "next": "catalog:"
+  }
+}
+```
+
+Versions are defined in `pnpm-workspace.yaml` file in the root of the project.
+
+## Common Pitfalls
+
+- **Using npm or yarn** - The workspace configuration requires pnpm; other package managers will fail to resolve workspace dependencies
+- **Outdated pnpm version** - Run `pnpm --version` to verify you have a recent version (10.x recommended)
+- **Conflicting global packages** - If you have globally installed packages that conflict, try `pnpm install --shamefully-hoist` as a last resort
+- **Lock file conflicts** - If you see lock file conflicts after pulling updates, delete `pnpm-lock.yaml` and run `pnpm install` to regenerate it
+
+---
+
+**Next:** [Project Setup →](./project-setup)

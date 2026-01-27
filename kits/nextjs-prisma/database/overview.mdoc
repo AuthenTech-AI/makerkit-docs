@@ -1,0 +1,78 @@
+---
+status: "published"
+title: "Database Configuration"
+label: "Overview"
+order: 1
+description: "Configure PostgreSQL and Prisma ORM for type-safe database operations in the Next.js Prisma SaaS Kit."
+---
+
+The MakerKit Next.js Prisma SaaS Kit uses PostgreSQL with Prisma ORM for type-safe database operations. This stack provides ACID compliance, full TypeScript inference, and built-in migration management. PostgreSQL handles relational data at scale while Prisma generates type-safe queries from your schema.
+
+{% callout title="Definition" %}
+**Prisma ORM** is a TypeScript-first database toolkit that generates type-safe client code from your schema definition. It replaces raw SQL with auto-completed, type-checked queries.
+{% /callout %}
+
+{% sequence title="Database Configuration" description="Configure and use the database layer in MakerKit." %}
+[Prisma Configuration](./prisma)
+
+[Database Schema](./schema)
+
+[Migrations](./migrations)
+
+[Client Usage](./client)
+
+[Rate Limit Service](./rate-limit-service)
+{% /sequence %}
+
+## Technology Stack
+
+| Component | Description |
+|-----------|-------------|
+| **PostgreSQL 17** | Robust relational database with JSON support, full-text search, and extensions |
+| **Prisma ORM 6.x** | TypeScript-first ORM with full type inference and auto-generated client |
+| **Prisma Migrate** | Version-controlled schema migrations stored as SQL files |
+
+## Why This Stack?
+
+We chose PostgreSQL over MySQL for its native JSON operators and full-text search capabilities. Prisma won over Drizzle because Better Auth ships with Prisma adapters, which reduces integration friction significantly.
+
+### PostgreSQL
+
+- **Reliable:** Battle-tested, ACID-compliant for financial and user data
+- **Scalable:** Handles millions of rows with proper indexing
+- **Feature-rich:** Native JSON, full-text search, and extensions like `pgvector`
+- **Well-supported:** Hosted options include Neon, Supabase, and Railway
+
+### Prisma ORM
+
+- **Type-safe:** Full TypeScript inference from your schema
+- **Intuitive:** Declarative data modeling with relations
+- **Great DX:** Autocomplete, readable errors, and Prisma Studio GUI
+- **Powerful:** Relations, filtering, aggregations, and transactions
+
+## Decision Rules
+
+**Use PostgreSQL when:**
+- You need relational data with foreign keys and referential integrity
+- ACID compliance matters (user accounts, billing, audit logs)
+- You want JSON support alongside structured relational data
+- You need a battle-tested database with extensive hosting options
+
+**Consider alternatives when:**
+- You need global edge distribution (consider CockroachDB or PlanetScale)
+- You're building a read-heavy analytics system (consider ClickHouse)
+- Your data is primarily document-based (consider MongoDB with Prisma)
+
+**If unsure:** Start with PostgreSQL. It covers 95% of SaaS use cases, and MakerKit is optimized for it.
+
+## Common Pitfalls
+
+- **Using SQLite for development** - Behavior differs from PostgreSQL; use Docker or a hosted PostgreSQL instance for development parity
+- **Skipping connection pooling** - Prisma's default connection limit can exhaust database connections; configure `connection_limit` in `DATABASE_URL` for production
+- **Ignoring query performance** - Use `prisma.$queryRaw` for complex queries and add indexes for frequently filtered columns
+- **Not running migrations in CI** - Test migrations in CI before deploying to catch schema conflicts early
+- **Forgetting to regenerate client** - After schema changes, always run `prisma:generate` then `pnpm i` to update types
+
+---
+
+**Next:** [Prisma Configuration →](./prisma)

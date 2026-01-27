@@ -1,0 +1,109 @@
+---
+status: published
+title: OTP Plugin
+label: OTP Plugin
+order: 6
+description: Email-based one-time password authentication
+---
+
+Send 6-digit verification codes via email for passwordless sign-in, email verification, and password reset - no additional configuration required beyond your mailer.
+
+This page is part of the [Authentication documentation](./overview).
+
+The OTP (One-Time Password) plugin **enables authentication via 6-digit codes sent to the user's email instead of clicking links**.
+
+Use it for passwordless sign-in, email verification, or password reset flows. The plugin is enabled by default and uses your configured mailer. Codes expire after a short window (typically 10 minutes) and can only be used once.
+
+OTP (One-Time Password) is a 6-digit numeric code sent via email that expires after a single use, providing secure verification without requiring users to click links.
+
+**Use OTP when:** you want email verification without link-clicking (better mobile UX), passwordless sign-in as an alternative to magic links, or numeric codes for password reset.
+
+## How It Works
+
+1. User requests an OTP (sign-in, verification, or password reset)
+2. A 6-digit code is generated and sent via email
+3. User enters the code in the application
+4. Code is validated and action is completed
+5. Code is invalidated (single use)
+
+## OTP Types
+
+| Type | Purpose | Email Template |
+|------|---------|----------------|
+| `sign-in` | Passwordless authentication | `otp-sign-in.email.tsx` |
+| `email-verification` | Verify email address | `otp-email-verification.email.tsx` |
+| `forget-password` | Password reset | `otp-password-reset.email.tsx` |
+
+## Configuration
+
+The plugin is enabled by default. It uses your existing email configuration:
+
+```bash {% title="apps/web/.env.local" %}
+MAILER_PROVIDER=nodemailer
+EMAIL_SENDER=noreply@yourapp.com
+EMAIL_HOST=smtp.example.com
+EMAIL_PORT=587
+EMAIL_USER=your_user
+EMAIL_PASSWORD=your_password
+```
+
+See [Email Configuration](../emails/configuration) for complete mailer setup.
+
+## Usage Example
+
+```typescript
+import { authClient } from '@kit/better-auth/client';
+
+// Request OTP
+await authClient.emailOtp.sendVerificationOtp({
+  email: 'user@example.com',
+  type: 'sign-in',
+});
+
+// Verify OTP (user enters code from email)
+const result = await authClient.emailOtp.verifyOtp({
+  email: 'user@example.com',
+  otp: '123456',
+});
+```
+
+## Development Mode
+
+In development (`NODE_ENV=development`), OTP codes are logged to the console:
+
+```
+[DEV] OTP for user@example.com (sign-in): 847293
+```
+
+This allows testing without checking email.
+
+## Email Templates
+
+Templates are in `packages/email-templates/src/emails/`:
+
+- `otp-sign-in.email.tsx` - Sign-in OTP
+- `otp-email-verification.email.tsx` - Email verification OTP
+- `otp-password-reset.email.tsx` - Password reset OTP
+
+## Common Pitfalls
+
+- **Email not configured**: OTP requires a working mailer. Test email delivery before relying on OTP.
+- **Codes expiring too quickly**: Default expiration is short for security. If users complain, check your email delivery speed.
+- **Not handling invalid codes gracefully**: Show clear error messages when codes are wrong or expired.
+- **Allowing unlimited OTP requests**: The plugin has built-in rate limiting, but verify it's not disabled.
+- **Forgetting development console output**: In dev mode, check the terminal for OTP codes instead of email.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "How long do OTP codes last?", "answer": "Codes typically expire after 10 minutes. This is configurable in the plugin options."},
+     {"question": "Can I customize the OTP email templates?", "answer": "Yes. Edit the React Email templates in packages/email-templates/src/emails/. They support i18n and custom styling."},
+     {"question": "Is OTP more secure than magic links?", "answer": "Roughly equivalent. Both rely on email access. OTP codes cannot be intercepted via URL preview in chat apps, which is a slight security advantage."},
+     {"question": "Can I use OTP for MFA?", "answer": "This plugin is for email-based verification, not TOTP-based MFA. For authenticator app codes, see the MFA Configuration documentation."},
+     {"question": "Why are OTP emails not being sent?", "answer": "Check your mailer configuration, verify SMTP credentials, and check the server logs for email sending errors."}
+   ]
+/%}
+
+---
+
+**Next:** [Rate Limiting →](./rate-limiting)

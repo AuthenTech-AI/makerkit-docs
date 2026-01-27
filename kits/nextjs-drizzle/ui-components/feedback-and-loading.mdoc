@@ -1,0 +1,217 @@
+---
+status: "published"
+title: "Feedback & Loading"
+label: "Feedback & Loading"
+order: 7
+description: "Alerts, toasts, spinners, and loading state components."
+---
+
+Components for user feedback, notifications, and loading states.
+
+## Alert
+
+Alert message for important information.
+
+```typescript
+import { Alert, AlertTitle, AlertDescription } from '@kit/ui/alert';
+```
+
+```tsx
+<Alert>
+  <AlertTitle>Information</AlertTitle>
+  <AlertDescription>
+    This is an informational alert message.
+  </AlertDescription>
+</Alert>
+
+<Alert variant="destructive">
+  <AlertTitle>Error</AlertTitle>
+  <AlertDescription>
+    Something went wrong. Please try again.
+  </AlertDescription>
+</Alert>
+```
+
+### With Icon
+
+```tsx
+import { TriangleAlert, CheckCircle } from 'lucide-react';
+
+<Alert variant="destructive">
+  <TriangleAlert className="h-4 w-4" />
+  <AlertTitle>Error</AlertTitle>
+  <AlertDescription>Operation failed.</AlertDescription>
+</Alert>
+
+<Alert>
+  <CheckCircle className="h-4 w-4" />
+  <AlertTitle>Success</AlertTitle>
+  <AlertDescription>Operation completed.</AlertDescription>
+</Alert>
+```
+
+## Toast (Sonner)
+
+Toast notifications using Sonner.
+
+```typescript
+import { toast } from '@kit/ui/sonner';
+```
+
+```tsx
+// Simple toasts
+toast.success('Operation successful');
+toast.error('Something went wrong');
+toast.info('New message received');
+toast.warning('Please review your input');
+
+// With description
+toast.success('Saved', {
+  description: 'Your changes have been saved.',
+});
+
+// Promise-based toast
+await toast.promise(saveData(), {
+  loading: 'Saving...',
+  success: 'Data saved!',
+  error: 'Failed to save',
+});
+```
+
+### Toaster Setup
+
+Add to your root layout:
+
+```tsx
+import { Toaster } from '@kit/ui/sonner';
+
+export default function RootLayout({ children }) {
+  return (
+    <html>
+      <body>
+        {children}
+        <Toaster />
+      </body>
+    </html>
+  );
+}
+```
+
+## Spinner
+
+Loading spinner animation.
+
+```typescript
+import { Spinner } from '@kit/ui/spinner';
+```
+
+```tsx
+<Spinner />
+<Spinner className="h-8 w-8" />
+<Spinner className="h-4 w-4 text-primary" />
+```
+
+### In Button
+
+```tsx
+<Button disabled={isPending}>
+  {isPending ? (
+    <>
+      <Spinner className="mr-2 h-4 w-4" />
+      Loading...
+    </>
+  ) : (
+    'Submit'
+  )}
+</Button>
+```
+
+## Progress
+
+Progress bar indicator.
+
+```typescript
+import { Progress } from '@kit/ui/progress';
+```
+
+```tsx
+<Progress value={33} />
+<Progress value={66} />
+<Progress value={100} />
+```
+
+## Loading Overlay
+
+Semi-transparent overlay with spinner.
+
+```typescript
+import { LoadingOverlay } from '@kit/ui/loading-overlay';
+```
+
+```tsx
+<div className="relative">
+  <Content />
+  {isLoading && <LoadingOverlay />}
+</div>
+```
+
+## Global Loader
+
+Full-page loading state.
+
+```typescript
+import { GlobalLoader } from '@kit/ui/global-loader';
+```
+
+```tsx
+<GlobalLoader />
+
+{/* With options */}
+<GlobalLoader
+  displayLogo
+  fullPage
+  displaySpinner
+  displayTopLoadingBar
+/>
+```
+
+## Top Loading Bar Indicator
+
+Page load progress bar at top of screen.
+
+```typescript
+import { TopLoadingBarIndicator } from '@kit/ui/top-loading-bar-indicator';
+```
+
+```tsx
+{isLoading && <TopLoadingBarIndicator />}
+```
+
+## Tooltip
+
+Hover tooltip for additional information.
+
+```typescript
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@kit/ui/tooltip';
+```
+
+```tsx
+<TooltipProvider>
+  <Tooltip>
+    <TooltipTrigger>
+      <Button variant="outline" size="icon">
+        <HelpCircle className="h-4 w-4" />
+      </Button>
+    </TooltipTrigger>
+    <TooltipContent>
+      <p>Helpful information here</p>
+    </TooltipContent>
+  </Tooltip>
+</TooltipProvider>
+```
+
+These feedback components are part of the [Next.js Drizzle SaaS Kit](/drizzle).
+
+---
+
+**Next:** [Utilities →](./utilities)

@@ -1,0 +1,93 @@
+---
+status: "published"
+title: "UI Components Overview"
+label: "Overview"
+order: 0
+description: "Explore the @kit/ui component library for building your SaaS application."
+---
+
+Import UI components from `@kit/ui/<component-name>` to build your SaaS interface. The library includes 80+ components: forms with React Hook Form integration, buttons with loading states, dialogs, data tables, navigation menus, and marketing components. All components are styled with Tailwind CSS 4, support dark mode, and work with React Server Components.
+
+The `@kit/ui` package is MakerKit's component library built on shadcn/ui and Base UI, providing accessible, customizable React components that follow consistent patterns across the application.
+
+- **Use @kit/ui components when:** you need consistent styling across your app, want accessible components out of the box, or need pre-built patterns like form validation or data tables.
+- **Build custom components when:** you need highly specialized UI that doesn't fit existing patterns, or when wrapping third-party libraries that have their own styling.
+
+## Adding New Components
+
+Need to add a Shadcn component that isn't included? See the [Shadcn CLI guide](./shadcn-cli) to install additional components.
+
+## Import Pattern
+
+All components follow a consistent import pattern:
+
+```typescript
+import { ComponentName } from '@kit/ui/component-name';
+```
+
+## Component Categories
+
+### [Forms & Inputs](./forms-and-inputs)
+Form controls for user input: form validation, text inputs, selects, checkboxes, switches, and file uploads.
+
+### [Buttons & Actions](./buttons-and-actions)
+Interactive elements: buttons, button groups, and action triggers.
+
+### [Layout & Structure](./layout-and-structure)
+Page structure components: cards, page layouts, sidebars, tabs, and collapsible sections.
+
+### [Navigation](./navigation)
+Navigation elements: menus, breadcrumbs, pagination, and mobile navigation.
+
+### [Dialogs & Overlays](./dialogs-and-overlays)
+Modal interfaces: dialogs, drawers, popovers, dropdowns, and sheets.
+
+### [Data Display](./data-display)
+Data presentation: tables, data tables, badges, avatars, and empty states.
+
+### [Feedback & Loading](./feedback-and-loading)
+User feedback: alerts, toasts, spinners, progress bars, and loading states.
+
+### [Utilities](./utilities)
+Helper components: conditional rendering, translations, lazy loading, and theme toggles.
+
+### [Marketing](./marketing)
+Landing page components: heroes, CTAs, feature grids, and newsletter signup.
+
+## Quick Reference
+
+| Category | Components | Import Example |
+|----------|------------|----------------|
+| Forms | Form, Input, Select, Checkbox | `@kit/ui/form` |
+| Buttons | Button, ButtonGroup | `@kit/ui/button` |
+| Layout | Card, Page, Tabs, Sidebar | `@kit/ui/card` |
+| Navigation | Breadcrumb, Pagination | `@kit/ui/breadcrumb` |
+| Dialogs | Dialog, Drawer, Popover | `@kit/ui/dialog` |
+| Data | DataTable, Badge, Avatar | `@kit/ui/data-table` |
+| Feedback | Alert, Spinner, Progress | `@kit/ui/alert` |
+| Utilities | If, Trans, Stepper | `@kit/ui/if` |
+| Marketing | Hero, CtaButton, Pill | `@kit/ui/marketing` |
+
+## Common Pitfalls
+
+- **Wrong import path**: Use `@kit/ui/button` not `@kit/ui/components/button`. The package re-exports components at the top level.
+- **Missing `'use client'` directive**: Many components require client-side interactivity. Add `'use client'` at the top of files using hooks or event handlers.
+- **Forgetting FormControl's render prop**: Form fields use `render` prop pattern, not children: `<FormControl render={<Input />} />`.
+- **Dialog state management**: Use controlled `open` prop when you need to close dialogs programmatically after actions complete.
+- **Styling conflicts with className**: Use the `cn()` utility from `@kit/ui/utils` to merge classes properly with component defaults.
+- **Server Component restrictions**: Some components (forms, dialogs, interactive elements) only work in Client Components. Check if you need `'use client'`.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "How do I add a shadcn component that's not included?", "answer": "Run pnpm dlx shadcn@latest add <component> from the packages/ui directory. Then fix import paths from @ aliases to # internal imports."},
+     {"question": "Can I customize component styles?", "answer": "Yes. Pass className to override styles, or modify the component source in packages/ui/src/shadcn/. Use cn() to merge classes properly."},
+     {"question": "Why do some components need 'use client'?", "answer": "Components using React hooks, event handlers, or browser APIs must be Client Components. Server Components can't use useState, useEffect, or onClick."},
+     {"question": "How do I use components with React Hook Form?", "answer": "Wrap your form with the Form component, use FormField for each input, and pass field props via the render pattern. See the Forms & Inputs documentation."},
+     {"question": "Do components support dark mode?", "answer": "Yes. All components use CSS variables that automatically adapt to the current theme. Use the ModeToggle component to switch themes."}
+   ]
+/%}
+
+---
+
+**Next:** [Forms & Inputs →](./forms-and-inputs)

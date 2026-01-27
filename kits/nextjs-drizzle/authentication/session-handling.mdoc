@@ -1,0 +1,291 @@
+---
+status: "published"
+title: "Session Handling"
+label: "Session Handling"
+order: 4
+description: "Protect routes and access session data in server and client components. Use getSession, requireAdmin, and authenticatedActionClient."
+---
+
+{% sequence title="Session Management" description="How to access and protect user sessions." %}
+
+[Server-side session access](#server-side-session-access)
+
+[Client-side session access](#client-side-session)
+
+[Protect server actions](#protected-server-actions)
+
+[Admin protection](#admin-protection)
+
+{% /sequence %}
+
+Sessions are stored in the database and referenced via HTTP-only cookies. The kit provides multiple utilities for accessing session data and protecting routes based on your use case.
+
+Internal routes (`/admin/*`) are protected at the proxy/middleware level. For other routes, always check authentication using the `getSession()` function.
+
+## Proxy-Level Protection
+
+The proxy (`apps/web/proxy.ts`) automatically guards internal routes:
+
+- `/admin/*` - Require admin role
+- `/auth/*` - Redirects authenticated users to dashboard
+
+For all other routes, always check for authentication using the `getSession()` function.
+
+```typescript {% title="Server Component" %}
+import { getSession } from '@kit/better-auth/context';
+
+export default async function MyPage() {
+  const session = await getSession();
+
+  if (!session) {
+    // Handle unauthenticated state
+    return null;
+  }
+}
+```
+
+## Server-Side Session Access
+
+Use `getSession()` to access the current session in server components or server actions:
+
+```typescript {% title="Server Component" %}
+import { getSession } from '@kit/better-auth/context';
+
+export default async function MyPage() {
+  const session = await getSession();
+
+  if (!session) {
+    // Handle unauthenticated state
+    return null;
+  }
+
+  return <div>Hello, {session.user.name}</div>;
+}
+```
+
+The function is cached per request via React's `cache()`, so multiple calls within the same request are efficient.
+
+```typescript {% title="Session Data Structure" %}
+interface Session {
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    image: string | null;
+    emailVerified: boolean;
+    createdAt: Date;
+    updatedAt: Date;
+    role: string | null;
+  };
+  session: {
+    id: string;
+    userId: string;
+    expiresAt: Date;
+    activeOrganizationId: string | null;
+  };
+}
+```
+
+## Account Context
+
+For protected pages that need user context with automatic redirects, use `getAccountContext()`:
+
+```typescript {% title="apps/web/app/[locale]/(internal)/dashboard/page.tsx" %}
+import { getAccountContext } from '@kit/better-auth/context';
+
+export default async function DashboardPage() {
+  // Redirects to sign-in if unauthenticated
+  const context = await getAccountContext();
+
+  if (context.isOrganization) {
+    return <OrgDashboard orgId={context.activeOrganizationId} />;
+  }
+
+  return <PersonalDashboard user={context.user} />;
+}
+```
+
+The `getAccountContext` function returns the following structure:
+
+```typescript {% title="Account Context Structure" %}
+interface ServerAccountContext {
+  isPersonal: boolean;
+  isOrganization: boolean;
+  activeOrganizationId: string | null;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    image: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+    emailVerified: boolean;
+  };
+}
+```
+
+### Require Organization Context
+
+For pages that require an active organization:
+
+```typescript {% title="Organization-only page" %}
+import { requireActiveOrganizationId } from '@kit/better-auth/context';
+
+export default async function MembersPage() {
+  // Redirects to /dashboard if not in org context
+  const orgId = await requireActiveOrganizationId();
+
+  const members = await loadMembers(orgId);
+  return <MembersList members={members} />;
+}
+```
+
+## Admin Protection
+
+### Require Admin in Pages
+
+Use `requireAdmin()` in admin-only pages or layouts:
+
+```typescript {% title="apps/web/app/[locale]/(internal)/admin/layout.tsx" %}
+import { requireAdmin } from '@kit/auth/require-admin';
+
+export default async function AdminLayout({ children }) {
+  const admin = await requireAdmin();
+
+  return <AdminLayoutWrapper user={admin}>{children}</AdminLayoutWrapper>;
+}
+```
+
+While this is already checked at the proxy level, we re-run the check in the server component to ensure the admin status is still valid and abundance of caution. We recommend doing this in all admin pages, layouts and server actions to ensure the admin status is always valid.
+
+### Check Admin Status
+
+Use `isUserAdmin()` when you need to check admin status without redirecting:
+
+```typescript {% title="Conditional rendering" %}
+import { isUserAdmin } from '@kit/auth/require-admin';
+
+export default async function Header() {
+  const isAdmin = await isUserAdmin();
+
+  return (
+    <nav>
+      <Link href="/dashboard">Dashboard</Link>
+      {isAdmin && <Link href="/admin">Admin</Link>}
+    </nav>
+  );
+}
+```
+
+## Protected Server Actions
+
+Use `authenticatedActionClient` to protect server actions:
+
+```typescript {% title="apps/web/app/[locale]/(internal)/settings/_lib/actions.ts" %}
+'use server';
+
+import { authenticatedActionClient } from '@kit/action-middleware';
+import { z } from 'zod';
+
+const updateProfileSchema = z.object({
+  name: z.string().min(1),
+});
+
+export const updateProfileAction = authenticatedActionClient
+  .inputSchema(updateProfileSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    // ctx.user is guaranteed to exist
+    const { user } = ctx;
+
+    await updateUser(user.id, parsedInput);
+
+    return { success: true };
+  });
+```
+
+The middleware throws an "Unauthorized" error if the session is invalid.
+
+## Client-Side Session
+
+Use `authClient.useSession()` in client components:
+
+```tsx {% title="Client component" %}
+'use client';
+
+import { authClient } from '@kit/better-auth/client';
+
+export function UserMenu() {
+  const session = authClient.useSession();
+
+  if (session.isPending) {
+    return <Skeleton />;
+  }
+
+  if (!session.data) {
+    return <SignInButton />;
+  }
+
+  return <Avatar name={session.data.user.name} />;
+}
+```
+
+### Session Hook Return Type
+
+```typescript
+{
+  data: Session | null;
+  isPending: boolean;
+  error: Error | null;
+}
+```
+
+## Summary
+
+| Function | Use Case | Redirects? |
+|----------|----------|------------|
+| `getSession()` | Get session data in server contexts | No |
+| `requireSession()` | Get session or throw error | No (throws) |
+| `getAccountContext()` | Get user context for protected pages | Yes (to sign-in) |
+| `requireActiveOrganizationId()` | Require org context | Yes (to dashboard) |
+| `requireAdmin()` | Require admin role | Yes (to 403) |
+| `isUserAdmin()` | Check admin without redirect | No |
+| `authenticatedActionClient` | Protect server actions | No (throws) |
+| `authClient.useSession()` | Client-side session | No |
+
+## When to Use Each Pattern
+
+**Use `getSession()` when:**
+- You need to check if a user is logged in
+- You want to handle unauthenticated state yourself
+- You're in a server component or server action
+
+**Use `getAccountContext()` when:**
+- Building protected pages that should redirect if not authenticated
+- You need to know if the user is in personal or organization context
+
+**Use `requireActiveOrganizationId()` when:**
+- The page requires an active organization
+- You want automatic redirect to dashboard if no org is selected
+
+**Use `requireAdmin()` when:**
+- Building admin-only pages or layouts
+- You want automatic redirect to 403 if not an admin
+
+**Use `authenticatedActionClient` when:**
+- Building server actions that require authentication
+- You want automatic error throwing if not authenticated
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Is getSession() called multiple times per request?", "answer": "No. getSession() is wrapped in React's cache() function, so multiple calls within the same request share the same result. You can call it freely without performance concerns."},
+     {"question": "How do I sign out a user?", "answer": "Use authClient.signOut() from the client. This clears the session cookie and removes the session from the database. The user is then redirected to the sign-in page."},
+     {"question": "How long do sessions last?", "answer": "Sessions are configured in Better Auth. By default, sessions expire after a period of inactivity. The exact duration depends on your configuration."},
+     {"question": "Can I access the session in middleware?", "answer": "The kit uses a proxy layer (apps/web/proxy.ts) for route protection instead of Next.js middleware. This provides better performance and reliability for auth checks."},
+     {"question": "What happens when a session expires?", "answer": "The next request with an expired session returns null from getSession(). Client components using useSession() will update automatically. Protected pages will redirect to sign-in."}
+   ]
+/%}
+
+---
+
+**Previous:** [Password Reset ←](./password-reset) | **Next:** [Multi-Factor Authentication →](./mfa)

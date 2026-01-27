@@ -1,0 +1,245 @@
+---
+status: "published"
+title: "Social Providers (OAuth)"
+label: "Social Providers"
+order: 4
+description: "Configure OAuth providers for social login including Google, GitHub, and other providers."
+---
+
+Add social login to reduce sign-up friction. Users can sign in with their existing Google, GitHub, or other OAuth provider accounts instead of creating new credentials.
+
+This page is part of the [Authentication documentation](./overview).
+
+## Overview
+
+OAuth authentication lets users sign in with existing accounts from providers like Google and GitHub. The kit supports any OAuth provider that Better Auth supports.
+
+**Default configuration:** Google OAuth is pre-configured but disabled until you add credentials.
+
+## Supported Providers
+
+Better Auth supports these OAuth providers out of the box:
+
+| Provider | Documentation |
+|----------|---------------|
+| Google | [Better Auth Google Docs](https://www.better-auth.com/docs/authentication/google) |
+| GitHub | [Better Auth GitHub Docs](https://www.better-auth.com/docs/authentication/github) |
+| Apple | [Better Auth Apple Docs](https://www.better-auth.com/docs/authentication/apple) |
+| Microsoft | [Better Auth Microsoft Docs](https://www.better-auth.com/docs/authentication/microsoft) |
+| Discord | [Better Auth Discord Docs](https://www.better-auth.com/docs/authentication/discord) |
+| Twitter/X | [Better Auth Twitter Docs](https://www.better-auth.com/docs/authentication/twitter) |
+
+## Google OAuth Setup
+
+Google is the most common OAuth provider. Here's how to set it up:
+
+### 1. Create Google OAuth Credentials
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project or select existing one
+3. Navigate to **APIs & Services > Credentials**
+4. Click **Create Credentials > OAuth client ID**
+5. Select **Web application**
+6. Add authorized redirect URI: `https://your-domain.com/api/auth/callback/google`
+7. Copy the Client ID and Client Secret
+
+### 2. Configure Environment Variables
+
+```bash {% title="apps/web/.env.local" %}
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+```
+
+### 3. Enable in Frontend
+
+```bash {% title="apps/web/.env.local" %}
+NEXT_PUBLIC_AUTH_OAUTH_PROVIDERS=google
+```
+
+To enable multiple providers:
+
+```bash
+NEXT_PUBLIC_AUTH_OAUTH_PROVIDERS=google,github
+```
+
+## Implementation Details
+
+Social providers are configured in `packages/better-auth/src/plugins/social-providers.ts`:
+
+```typescript
+import type { SocialProviders } from 'better-auth';
+import * as z from 'zod';
+
+export function createGoogleProviderPlugin() {
+  const googleClientId = z
+    .string()
+    .min(1)
+    .optional()
+    .parse(process.env.GOOGLE_CLIENT_ID);
+
+  const googleClientSecret = z
+    .string()
+    .min(1)
+    .optional()
+    .parse(process.env.GOOGLE_CLIENT_SECRET);
+
+  if (!googleClientId || !googleClientSecret) {
+    return {} as never;
+  }
+
+  return {
+    google: {
+      clientId: googleClientId,
+      clientSecret: googleClientSecret,
+    } satisfies SocialProviders['google'],
+  };
+}
+
+export function createSocialProviderPlugin(): SocialProviders {
+  const googleSocialProviderPlugin = createGoogleProviderPlugin();
+
+  return {
+    ...googleSocialProviderPlugin,
+    // add other Social providers here
+  };
+}
+```
+
+The plugin gracefully returns an empty object when credentials are missing, allowing the app to run without OAuth configured.
+
+## Adding GitHub OAuth
+
+### 1. Create GitHub OAuth App
+
+1. Go to [GitHub Developer Settings](https://github.com/settings/developers)
+2. Click **New OAuth App**
+3. Fill in application details:
+   - **Application name**: Your app name
+   - **Homepage URL**: `https://your-domain.com`
+   - **Authorization callback URL**: `https://your-domain.com/api/auth/callback/github`
+4. Copy the Client ID
+5. Generate a new client secret and copy it
+
+### 2. Add Environment Variables
+
+```bash {% title="apps/web/.env.local" %}
+GITHUB_CLIENT_ID=your-github-client-id
+GITHUB_CLIENT_SECRET=your-github-client-secret
+```
+
+### 3. Add GitHub to Social Providers
+
+Update `packages/better-auth/src/plugins/social-providers.ts`:
+
+```typescript
+function createGitHubProviderPlugin() {
+  const githubClientId = z
+    .string()
+    .min(1)
+    .optional()
+    .parse(process.env.GITHUB_CLIENT_ID);
+
+  const githubClientSecret = z
+    .string()
+    .min(1)
+    .optional()
+    .parse(process.env.GITHUB_CLIENT_SECRET);
+
+  if (!githubClientId || !githubClientSecret) {
+    return {} as never;
+  }
+
+  return {
+    github: {
+      clientId: githubClientId,
+      clientSecret: githubClientSecret,
+    },
+  };
+}
+
+export function createSocialProviderPlugin(): SocialProviders {
+  return {
+    ...createGoogleProviderPlugin(),
+    ...createGitHubProviderPlugin(),
+  };
+}
+```
+
+### 4. Update Frontend
+
+```bash {% title="apps/web/.env.local" %}
+NEXT_PUBLIC_AUTH_OAUTH_PROVIDERS=google,github
+```
+
+## Redirect URLs
+
+Each OAuth provider requires a redirect URL for the callback. The format is:
+
+```
+https://<your-site-url>/api/auth/callback/<provider-name>
+```
+
+| Provider | Redirect URL |
+|----------|-------------|
+| Google | `https://your-domain.com/api/auth/callback/google` |
+| GitHub | `https://your-domain.com/api/auth/callback/github` |
+| Apple | `https://your-domain.com/api/auth/callback/apple` |
+
+**Development URLs:**
+- Local: `http://localhost:3000/api/auth/callback/google`
+
+**Production URLs:**
+- Production: `https://your-app.com/api/auth/callback/google`
+
+## Client Usage
+
+### Sign In with OAuth
+
+```typescript
+import { authClient } from '@kit/better-auth/client';
+
+// Sign in with Google
+await authClient.signIn.social({
+  provider: 'google',
+  callbackURL: '/dashboard',
+});
+
+// Sign in with GitHub
+await authClient.signIn.social({
+  provider: 'github',
+  callbackURL: '/dashboard',
+});
+```
+
+### Check Available Providers
+
+The frontend reads `NEXT_PUBLIC_AUTH_OAUTH_PROVIDERS` to determine which OAuth buttons to show. The sign-in form automatically adapts.
+
+## Common Pitfalls
+
+- **Mismatched redirect URLs**: The redirect URL in your OAuth provider dashboard must exactly match what Better Auth expects. Check for trailing slashes.
+- **Missing environment variables**: OAuth silently disables when credentials are missing. Check both `CLIENT_ID` and `CLIENT_SECRET` are set.
+- **Wrong callback path**: Use `/api/auth/callback/<provider>`, not `/auth/callback/<provider>`.
+- **Development vs production URLs**: Register separate OAuth apps for development (localhost) and production.
+- **Forgetting `NEXT_PUBLIC_AUTH_OAUTH_PROVIDERS`**: Backend credentials alone aren't enough. The frontend needs this variable to show OAuth buttons.
+
+## Security Considerations
+
+- **Store secrets securely**: Never commit OAuth secrets to version control. Use `.env.local` for development and environment variables in production.
+- **Use HTTPS in production**: OAuth providers require HTTPS for redirect URLs (except localhost).
+- **Limit OAuth scopes**: Request only the permissions your app needs. The default configuration requests email and profile only.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Can I use OAuth without email/password?", "answer": "Yes. Set NEXT_PUBLIC_AUTH_PASSWORD=false to disable password auth and use OAuth only."},
+     {"question": "What user data do OAuth providers share?", "answer": "Typically email, name, and profile picture. The exact data depends on the provider and scopes requested."},
+     {"question": "How do I add a provider not listed here?", "answer": "Check Better Auth documentation for the provider. Most providers follow the same pattern: create OAuth app, add credentials to env, configure in social-providers.ts."},
+     {"question": "Can users link multiple OAuth accounts?", "answer": "Yes. Better Auth supports account linking. Users can connect additional OAuth providers from their account settings."},
+     {"question": "What happens if a user's OAuth email already exists?", "answer": "By default, Better Auth links the OAuth account to the existing user with that email. This can be configured in auth.ts."}
+   ]
+/%}
+
+---
+
+**Next:** [MFA Configuration →](./mfa-configuration)

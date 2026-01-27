@@ -1,9 +1,8 @@
 ---
 status: "published"
-
 label: "Database Webhooks"
 order: 6
-title: "How to handle custom database webhooks in your Remix Supabase application"
+title: "Handling Custom Database Webhooks"
 description: "Learn how to handle custom database webhooks in your Remix Supabase application"
 ---
 
@@ -28,7 +27,7 @@ export async function POST(request: Request) {
 
   try {
     // handle the webhook event
-    await service.handleWebhook(request, {
+    await service.handleWebhook(body, signature, {
       handleEvent(change) {
         if (change.type === 'INSERT' && change.table === 'invitations') {
           // do something with the invitation

@@ -1,102 +1,184 @@
 ---
 status: "published"
 label: "Email Configuration"
-description: "Learn how to configure the mailer provider to start sending emails from your Next.js Supabase Starter Kit."
-title: "Email Configuration in the Next.js Supabase Starter Kit"
+description: "Configure Nodemailer (SMTP) or Resend to send transactional emails from your Next.js Supabase application. Learn the difference between MakerKit emails and Supabase Auth emails."
+title: "Email Configuration in the Next.js Supabase SaaS Starter Kit"
 order: 0
 ---
 
-{% sequence title="Sending Emails in Makerkit" description="Learn how to configure the mailer provider to start sending emails from your Next.js Supabase Starter Kit." %}
+MakerKit uses the `@kit/mailers` package to send transactional emails like team invitations and account notifications. You can choose between Nodemailer (any SMTP provider) or Resend (HTTP API).
 
-[Understanding Makerkit and Supabase Auth emails](#understanding-makerkit-and-supabase-auth-emails)
+## MakerKit vs Supabase Auth Emails
 
-[Configuring the mailer provider](#configuring-the-mailer-provider)
+Before configuring your email provider, understand the two email systems in your application:
 
-[Nodemailer](#nodemailer)
+| Email Type | Purpose | Configuration | Examples |
+|------------|---------|---------------|----------|
+| **MakerKit Emails** | Application transactional emails | Environment variables | Team invitations, account deletion, OTP codes |
+| **Supabase Auth Emails** | Authentication flows | Supabase Dashboard | Email verification, password reset, magic links |
 
-[Resend](#resend)
+This guide covers MakerKit email configuration. For Supabase Auth emails, see the [Authentication Emails](/docs/next-supabase-turbo/authentication-emails) guide.
 
-{% /sequence %}
+## Choosing a Mailer Provider
 
-## Understanding Makerkit and Supabase Auth emails
+MakerKit supports two mailer implementations:
 
-Before we delve into the configuration details, it's crucial to distinguish between Makerkit emails and Supabase Auth emails.
+### Nodemailer (Default)
 
-1. **Makerkit Emails**: These are transactional emails used for actions like team member invitations, account deletion confirmations, and any additional ones you'll be implementing.
-2. **Supabase Auth Emails**: These emails are used for authentication-related actions, such as email verification and password reset.
+Best for: Most production deployments using any SMTP provider (SendGrid, Mailgun, Amazon SES, etc.)
 
-To have a comprehensive email setup in your application, you'll need to configure both Makerkit and Supabase Auth emails.
+- Works with any SMTP server
+- Requires Node.js runtime (not compatible with Edge)
+- Full control over SMTP configuration
 
-This guide focuses on setting up Makerkit emails. For Supabase Auth, please refer to the [Supabase documentation](https://supabase.com/docs/guides/auth/auth-smtp).
+### Resend
 
-## Configuring the mailer provider
+Best for: Edge runtime deployments, simpler setup, or if you're already using Resend
 
-Makerkit offers the `@kit/mailers` package to configure and send emails, providing a straightforward API for email operations.
+- HTTP-based API (Edge compatible)
+- No SMTP configuration needed
+- Requires Resend account and API key
 
-There are three mailer implementations provided by Makerkit:
+## Configuring Nodemailer
 
-1. `nodemailer`: This is the default mailer that leverages the `nodemailer` library. It's ideal for Node.js environments as it's compatible with any SMTP server, ensuring you're not tied to a specific provider.
-2. `resend`: This mailer uses the [Resend](https://resend.com) API via HTTP. It's a suitable choice if you opt for Resend.
-
-The following sections will guide you on configuring the mailer provider to start sending emails from your Next.js Supabase Starter Kit.
-
-## Nodemailer
-
-To specify the mailer provider, set the `MAILER_PROVIDER` environment variable in the `apps/web/.env` file. 
-
-For instance, to use the `nodemailer` mailer, set `MAILER_PROVIDER` to `nodemailer`:
+Nodemailer is the default provider. Set these environment variables in `apps/web/.env`:
 
 ```bash
 MAILER_PROVIDER=nodemailer
+
+# SMTP Configuration
+EMAIL_HOST=smtp.your-provider.com
+EMAIL_PORT=587
+EMAIL_USER=your-smtp-username
+EMAIL_PASSWORD=your-smtp-password
+EMAIL_TLS=true
+EMAIL_SENDER=YourApp <hello@yourapp.com>
 ```
 
-By default, `nodemailer` is used, so you don't need to set the `MAILER_PROVIDER` environment variable by yourself.
+### Environment Variables Explained
 
-### SMTP Configuration
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `EMAIL_HOST` | SMTP server hostname | `smtp.sendgrid.net`, `email-smtp.us-east-1.amazonaws.com` |
+| `EMAIL_PORT` | SMTP port (587 for STARTTLS, 465 for SSL) | `587` |
+| `EMAIL_USER` | SMTP authentication username | Varies by provider |
+| `EMAIL_PASSWORD` | SMTP authentication password or API key | Varies by provider |
+| `EMAIL_TLS` | Use secure connection (`true` for SSL on port 465, `false` for STARTTLS on port 587) | `true` |
+| `EMAIL_SENDER` | Sender name and email address | `MyApp <noreply@myapp.com>` |
 
-If you're using the `nodemailer` mailer, you'll need to set the SMTP configuration in your environment variables. Here's an example of the SMTP configuration:
+**Note**: `EMAIL_TLS` maps to Nodemailer's `secure` option. When `true`, the connection uses SSL/TLS from the start (typically port 465). When `false`, the connection starts unencrypted and upgrades via STARTTLS (typically port 587). Most modern providers use port 587 with `EMAIL_TLS=false`.
+
+### Provider-Specific Configuration
+
+#### SendGrid
 
 ```bash
-EMAIL_USER=User # refer to your email provider's documentation
-EMAIL_PASSWORD=your-password # refer to your email provider's documentation
-EMAIL_HOST=smtp.your-email-provider.com # refer to your email provider's documentation
-EMAIL_PORT=587 # or 465 for SSL
-EMAIL_TLS=true # or false for SSL (see provider documentation)
-EMAIL_SENDER=Makerkit <your-email@app.com> # refer to your email provider's documentation
+EMAIL_HOST=smtp.sendgrid.net
+EMAIL_PORT=587
+EMAIL_USER=apikey
+EMAIL_PASSWORD=SG.your-api-key-here
+EMAIL_TLS=true
+EMAIL_SENDER=YourApp <verified-sender@yourdomain.com>
 ```
 
-The variables are:
+#### Amazon SES
 
-1. `EMAIL_USER`: The email address username. This is provider-specific, so refer to your email provider's documentation.
-2. `EMAIL_PASSWORD`: The email address password. This is provider-specific, so refer to your email provider's documentation.
-3. `EMAIL_HOST`: The SMTP server host. This is provider-specific, so refer to your email provider's documentation.
-4. `EMAIL_PORT`: The SMTP server port. This is provider-specific, so refer to your email provider's documentation.
-5. `EMAIL_TLS`: The TLS configuration. This is provider-specific, so refer to your email provider's documentation. Generally, you can set it to `true`.
-6. `EMAIL_SENDER`: The sender of the emails. This is usually the email address of your application. It's usually in the format `Sender Name <email@app.com>`.
+```bash
+EMAIL_HOST=email-smtp.us-east-1.amazonaws.com
+EMAIL_PORT=587
+EMAIL_USER=your-ses-smtp-username
+EMAIL_PASSWORD=your-ses-smtp-password
+EMAIL_TLS=true
+EMAIL_SENDER=YourApp <verified@yourdomain.com>
+```
 
-### EMAIL_SENDER format
+#### Mailgun
 
-Sometimes, `EMAIL_SENDER` should be written in the format `Sender Name <email@app.com>` so that the email provider can identify the sender of the email. This setting can be different for different email providers, so please refer to your email provider's documentation.
+```bash
+EMAIL_HOST=smtp.mailgun.org
+EMAIL_PORT=587
+EMAIL_USER=postmaster@your-domain.mailgun.org
+EMAIL_PASSWORD=your-mailgun-password
+EMAIL_TLS=true
+EMAIL_SENDER=YourApp <noreply@your-domain.mailgun.org>
+```
 
-{% alert type="warn" title="Double check the settings" %}
-Please double check the settings above and confirm them with your email provider. If the settings are not correct, you won't be able to send emails.
+### EMAIL_SENDER Format
+
+The `EMAIL_SENDER` variable accepts two formats:
+
+```bash
+# With display name (recommended)
+EMAIL_SENDER=YourApp <hello@yourapp.com>
+
+# Email only
+EMAIL_SENDER=hello@yourapp.com
+```
+
+{% alert type="warn" title="Verify Your Sender Domain" %}
+Most email providers require you to verify your sending domain before emails will be delivered. Check your provider's documentation for domain verification instructions.
 {% /alert %}
 
-## Resend
+## Configuring Resend
 
-As an alternative, you can use [Resend](https://resend.com), a modern email service that provides a simple API for sending emails.
-
-Set the `MAILER_PROVIDER` environment variable to `resend` in the `apps/web/.env` file:
+To use Resend instead of Nodemailer:
 
 ```bash
 MAILER_PROVIDER=resend
+RESEND_API_KEY=re_your-api-key
+EMAIL_SENDER=YourApp <hello@yourapp.com>
 ```
 
-And provide the Resend API key:
+### Getting a Resend API Key
 
-```bash
-RESEND_API_KEY=your-api-key
-EMAIL_SENDER=your-email
-```
+1. Create an account at [resend.com](https://resend.com)
+2. Add and verify your sending domain
+3. Generate an API key from the dashboard
+4. Add the key to your environment variables
 
-That's it! You're now ready to send emails from your Next.js Supabase Starter Kit using the configured mailer provider.
+{% alert type="default" title="Edge Runtime Compatible" %}
+Resend uses HTTP requests instead of SMTP, making it compatible with Vercel Edge Functions and Cloudflare Workers. If you deploy to edge runtimes, Resend is the recommended choice.
+{% /alert %}
+
+## Verifying Your Configuration
+
+After configuring your email provider, test it by triggering an email in your application:
+
+1. Start your development server: `pnpm dev`
+2. Sign up a new user and invite them to a team
+3. Check that the invitation email arrives
+
+For local development, emails are captured by Mailpit at [http://localhost:54324](http://localhost:54324). See the [Local Development](/docs/next-supabase-turbo/emails/inbucket) guide for details.
+
+## Common Configuration Errors
+
+### Connection Timeout
+
+If emails fail with connection timeout errors:
+
+- Verify `EMAIL_HOST` and `EMAIL_PORT` are correct
+- Check if your hosting provider blocks outbound SMTP (port 25, 465, or 587)
+- Some providers like Vercel block raw SMTP; use Resend instead
+
+### Authentication Failed
+
+If you see authentication errors:
+
+- Double-check `EMAIL_USER` and `EMAIL_PASSWORD`
+- Some providers use API keys as passwords (e.g., SendGrid uses `apikey` as username)
+- Ensure your credentials have sending permissions
+
+### Emails Not Delivered
+
+If emails send but don't arrive:
+
+- Verify your sender domain is authenticated (SPF, DKIM, DMARC)
+- Check the spam folder
+- Review your email provider's delivery logs
+- Ensure `EMAIL_SENDER` uses a verified email address
+
+## Next Steps
+
+- [Send your first email](/docs/next-supabase-turbo/sending-emails) using the mailer API
+- [Create custom email templates](/docs/next-supabase-turbo/email-templates) with React Email
+- [Configure Supabase Auth emails](/docs/next-supabase-turbo/authentication-emails) for verification flows

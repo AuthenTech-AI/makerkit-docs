@@ -1,0 +1,344 @@
+---
+status: published
+title: Billing & Subscriptions
+label: Overview
+order: 0
+description: Learn how to implement and manage billing with Stripe or Polar via Better Auth
+---
+
+Monetize your SaaS with a production-ready billing system that supports Stripe and Polar. Configure products in one file, switch providers via environment variable, and handle subscriptions, trials, upgrades, and cancellations without touching billing code.
+
+The MakerKit billing system is a provider-agnostic subscription management layer built on Better Auth that abstracts Stripe and Polar behind a unified `BillingClient` API, enabling checkout, portal access, plan limits, entitlements, and usage metering through a single interface.
+
+**Don't use directly:** the raw Stripe/Polar SDKs unless you need features not exposed by `BillingClient` - use `billing.getProviderClient()` as an escape hatch.
+
+## Overview
+
+The billing system provides:
+
+- **Multi-Provider Billing** - Switch between Stripe and Polar via environment variable
+- **Subscription Management** - Create, upgrade, cancel, and restore subscriptions
+- **Multi-Tenant Billing** - Support for both personal accounts and organizations
+- **Flexible Pricing** - Configure multiple products, plans, and billing intervals
+- **Per-seat billing** - Quantity-based subscriptions using seat count
+- **Trial Periods** - Built-in support for free trials with automatic conversion
+- **Customer Portal** - Provider-hosted portal for self-service billing management
+- **Lifecycle Hooks** - Extensible hooks for subscription events
+- **Permission-Based** - Role-based authorization for billing operations
+
+### Provider Selection
+
+Switch billing providers via environment variable:
+
+```bash
+# Use Stripe (default)
+NEXT_PUBLIC_BILLING_PROVIDER=stripe
+
+# Use Polar
+NEXT_PUBLIC_BILLING_PROVIDER=polar
+```
+
+The same application code works with either provider - only configuration changes.
+
+## Key Concepts (Context, IDs, Permissions)
+
+Billing in Makerkit is **contextual**: the same UI and APIs work for **personal accounts** and **organizations**. Understanding the identifiers below makes it much easier to debug and extend billing safely.
+
+### Context: `referenceId` + `customerType`
+
+- **`referenceId`**: The owner of the subscription. It is either:
+  - A **user ID** for personal billing
+  - An **organization ID** for organization billing
+- **`customerType`**: Which billing “entity” the provider should use:
+  - `'user'` for personal billing
+  - `'organization'` for organization billing (not all providers support true org customers)
+
+In the web app, the billing page resolves this from the current account context:
+
+- **Personal**: `referenceId = session.user.id`, `customerType = 'user'`
+- **Organization**: `referenceId = session.session.activeOrganizationId`, `customerType = 'organization'`
+
+### IDs: `customerId`, `subscriptionId`, `providerSubscriptionId`
+
+| Name | Meaning | Typical examples | Notes |
+|------|---------|------------------|-------|
+| `customerId` | Provider customer ID | Stripe: `cus_…` | Used for portals, entitlements, usage meters. Stripe supports separate **user** and **org** customers. |
+| `subscriptionId` | Subscription identifier used in API calls (cancel/restore/upgrade) | Implementation-defined | **Important:** this is delegated to the active provider implementation. In the kit UI, it is sourced from `subscription.providerSubscriptionId`. |
+| `providerSubscriptionId` | Provider’s subscription ID (when available) | Stripe: `sub_…` | Exposed on the unified `Subscription` returned by `billing.listSubscriptions`. |
+
+### Permissions: personal vs organization billing
+
+- **Personal billing**: the current user can manage their own billing.
+- **Organization billing**: operations are gated by Better Auth org permissions on the `billing` resource.
+
+Common mapping used across the kit:
+
+| Permission | Enables |
+|-----------|---------|
+| `billing:read` | View billing page and list subscriptions |
+| `billing:create` | Start checkout / upgrade subscription |
+| `billing:update` | Open customer portal, restore subscription |
+| `billing:delete` | Cancel subscription |
+
+### Required environment variables (high level)
+
+- **`NEXT_PUBLIC_BILLING_PROVIDER`**: `stripe` (default) or `polar`
+- **`NEXT_PUBLIC_SITE_URL`**: required for server-side return URLs (must be a valid absolute URL, e.g. `https://yourdomain.com`)
+
+See [Stripe Setup](./stripe-setup) and [Polar Setup](./polar-setup) for provider-specific variables.
+
+## Architecture
+
+The billing implementation consists of several key packages:
+
+```
+packages/
+├── billing/
+│   ├── api/             # @kit/billing-api - Unified BillingClient
+│   ├── core/            # @kit/billing - Core types and registry
+│   ├── config/          # @kit/web-billing-config - App config
+│   ├── stripe/          # @kit/billing-stripe - Stripe provider
+│   ├── polar/           # @kit/billing-polar - Polar provider
+│   └── ui/              # @kit/billing-ui - UI components
+├── better-auth/
+│   └── src/plugins/
+│       └── billing.ts   # Better Auth billing plugin (provider factory)
+```
+
+### System Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              UI LAYER                                        │
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐              │
+│  │ pricing-table   │  │ checkout-button │  │ subscription-   │              │
+│  │                 │  │                 │  │ card            │              │
+│  └────────┬────────┘  └────────┬────────┘  └────────┬────────┘              │
+│           │                    │                    │                        │
+│  ┌────────┴────────┐  ┌────────┴────────┐  ┌────────┴────────┐              │
+│  │ plan-picker     │  │ billing-portal- │  │ cancel-dialog   │              │
+│  │                 │  │ button          │  │                 │              │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘              │
+│                              @kit/billing-ui                                 │
+└───────────────────────────────────┬─────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           SERVER ACTIONS                                     │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │  billing-server-actions.ts                                          │    │
+│  │  • createCheckoutSessionAction                                      │    │
+│  │  • createBillingPortalSessionAction                                 │    │
+│  │  • cancelSubscriptionAction                                         │    │
+│  │  • restoreSubscriptionAction                                        │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+└───────────────────────────────────┬─────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           BILLING CLIENT                                     │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │  getBilling(auth) → BillingClient                                   │    │
+│  │  ┌─────────────────────────────────────────────────────────────┐    │    │
+│  │  │  Methods:                  │  Utilities:                    │    │    │
+│  │  │  • checkout()              │  • checkPlanLimit()            │    │    │
+│  │  │  • portal()                │  • checkEntitlement()          │    │    │
+│  │  │  • listSubscriptions()     │  • recordUsage()               │    │    │
+│  │  │  • cancelSubscription()    │  • capabilities                │    │    │
+│  │  │  • restoreSubscription()   │  • getProvider()               │    │    │
+│  │  └─────────────────────────────────────────────────────────────┘    │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+│                              @kit/billing-api                                │
+└───────────────────────────────────┬─────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        PROVIDER REGISTRY                                     │
+│  ┌─────────────────────────────────────────────────────────────────────┐    │
+│  │  NEXT_PUBLIC_BILLING_PROVIDER env var → Provider Factory (lazy)    │    │
+│  └─────────────────────────────────────────────────────────────────────┘    │
+└───────────────────────────────────┬─────────────────────────────────────────┘
+                                    │
+                    ┌───────────────┴───────────────┐
+                    ▼                               ▼
+┌──────────────────────────────────┐  ┌──────────────────────────────────┐
+│         STRIPE PROVIDER          │  │         POLAR PROVIDER           │
+│  ┌────────────────────────────┐  │  │  ┌────────────────────────────┐  │
+│  │  Capabilities:             │  │  │  │  Capabilities:             │  │
+│  │  ✓ checkout                │  │  │  │  ✓ checkout                │  │
+│  │  ✓ portal                  │  │  │  │  ✓ portal                  │  │
+│  │  ✓ cancel                  │  │  │  │  ✗ cancel (via portal)     │  │
+│  │  ✓ restore                 │  │  │  │  ✗ restore (via portal)    │  │
+│  │  ✓ entitlements            │  │  │  │  ✗ entitlements            │  │
+│  │  ✓ usage meters            │  │  │  │  ✓ usage meters            │  │
+│  └────────────────────────────┘  │  │  └────────────────────────────┘  │
+│       @kit/billing-stripe        │  │       @kit/billing-polar         │
+└──────────────────────────────────┘  └──────────────────────────────────┘
+```
+
+### Checkout Flow
+
+```
+  User                   UI                   Server Action              Provider
+   │                     │                         │                        │
+   │  Click Checkout     │                         │                        │
+   │────────────────────>│                         │                        │
+   │                     │  createCheckoutSession  │                        │
+   │                     │────────────────────────>│                        │
+   │                     │                         │  billing.checkout()    │
+   │                     │                         │───────────────────────>│
+   │                     │                         │                        │
+   │                     │                         │   Checkout URL         │
+   │                     │                         │<───────────────────────│
+   │                     │   redirect(url)         │                        │
+   │                     │<────────────────────────│                        │
+   │  Redirect to        │                         │                        │
+   │  Provider Checkout  │                         │                        │
+   │<────────────────────│                         │                        │
+   │                     │                         │                        │
+   │  Complete Payment   │                         │                        │
+   │─────────────────────────────────────────────────────────────────────── >│
+   │                     │                         │  Webhook: subscription │
+   │                     │                         │<───────────────────────│
+   │                     │                         │  Update DB via         │
+   │                     │                         │  Better Auth Plugin    │
+   │                     │                         │  Execute lifecycle     │
+   │                     │                         │  hooks                 │
+   │  Redirect to        │                         │                        │
+   │  Success Page       │                         │                        │
+   │<──────────────────────────────────────────────────────────────────────-│
+```
+
+### Key Concept: BillingClient
+
+The `@kit/billing-api` package exports a unified `BillingClient` that provides:
+
+- **Core operations**: checkout, portal, subscriptions, cancel/restore
+- **Plan limits**: check and enforce quotas (seats, projects, storage)
+- **Entitlements**: boolean feature gating (returns defaults if unsupported)
+- **Usage meters**: usage-based billing (returns defaults if unsupported)
+
+```typescript
+import { getBilling } from '@kit/billing-api';
+
+const billing = await getBilling(auth);
+
+// All methods available on single object
+await billing.checkout({ ... });
+await billing.checkPlanLimit({ referenceId, limitKey, currentUsage });
+await billing.checkEntitlement(customerId, 'feature-key');
+```
+
+## Key Features
+
+### Subscription Lifecycle
+
+The system handles the complete subscription lifecycle:
+
+1. **Checkout** - Stripe Checkout sessions for new subscriptions
+2. **Trials** - Automatic trial period management
+3. **Active Subscriptions** - Ongoing subscription monitoring
+4. **Upgrades/Downgrades** - Plan changes with prorated billing
+5. **Cancellations** - Cancel at period end with reactivation option
+6. **Payment Failures** - Automatic retry and notification handling
+
+### Multi-Tenant Support
+
+Billing works seamlessly across account types:
+
+```typescript
+// Personal account billing
+const referenceId = user.id;
+
+// Organization billing
+const referenceId = organizationId;
+```
+
+The same billing code handles both scenarios through Better Auth's polymorphic subscription system.
+
+## Quick Start
+
+### 1. Choose Your Provider
+
+Set your billing provider in `apps/web/.env.development`:
+
+```bash {title="apps/web/.env.development"}
+# For Stripe (default)
+NEXT_PUBLIC_BILLING_PROVIDER=stripe
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+
+# For Polar
+NEXT_PUBLIC_BILLING_PROVIDER=polar
+POLAR_ACCESS_TOKEN=polar_at_...
+POLAR_WEBHOOK_SECRET=whsec_...
+POLAR_ENVIRONMENT=sandbox
+```
+
+See [Stripe Setup](./stripe-setup) or [Polar Setup](./polar-setup) for detailed configuration.
+
+### 2. Configure Plans
+
+Create products in your provider's dashboard, then configure them:
+
+```typescript {title="packages/billing/config/src/config.ts"}
+import { BillingConfig } from '@kit/billing';
+
+export const billingConfig: BillingConfig = {
+  products: [
+    {
+      id: 'starter',
+      name: 'Starter',
+      description: 'For individuals and small teams',
+      currency: 'USD',
+      features: ['Core features', 'Email support'],
+      plans: [
+        {
+          name: 'starter-monthly',
+          // Configure provider-specific IDs
+          planId: process.env.STRIPE_PRICE_STARTER_MONTHLY!,
+          displayName: 'Starter Monthly',
+          interval: 'month',
+          cost: 9.99,
+        },
+      ],
+    },
+  ],
+};
+```
+
+Use environment variables for IDs so you can swap them in different environments. Only the active provider's configuration is used at runtime.
+
+### 3. Test the Flow
+
+1. Run the development server: `pnpm dev`
+2. Navigate to `/settings/billing`
+3. Select a plan and proceed to checkout
+4. For Stripe: Use test card `4242 4242 4242 4242`
+5. For Polar: Use the sandbox environment for testing
+
+## Common Pitfalls
+
+- **Using Price ID instead of Product ID for Polar**: Stripe uses Price IDs (`price_...`) but Polar uses Product IDs (`prod_...`). Mixing them causes checkout failures.
+- **Forgetting `NEXT_PUBLIC_SITE_URL`**: Server actions need this for return URLs. Without it, redirects fail silently.
+- **Missing webhook secret in production**: Webhooks fail signature verification and subscriptions won't sync. Set `STRIPE_WEBHOOK_SECRET` or `POLAR_WEBHOOK_SECRET`.
+- **Expecting Polar to have org customers**: Polar is user-centric. Organization billing works, but there's no separate org customer record. Use Stripe for strict B2B billing.
+- **Not testing webhooks locally**: Use `pnpm --filter web run stripe:listen` for Stripe or ngrok for Polar. Without webhooks, subscription state won't update.
+- **Confusing `referenceId` with `customerId`**: `referenceId` is your internal user/org ID. `customerId` is the provider's customer ID (`cus_...` for Stripe).
+- **Plan limits not enforcing automatically**: Limits are config-based and advisory. You must call `billing.checkPlanLimit()` in your code to actually block actions.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Can I use both Stripe and Polar simultaneously?", "answer": "No. Only one provider is active at a time, controlled by NEXT_PUBLIC_BILLING_PROVIDER. You can switch providers, but not run both for different customers."},
+     {"question": "How do I test billing without real payments?", "answer": "Use Stripe test mode (sk_test_ keys) or Polar sandbox environment (POLAR_ENVIRONMENT=sandbox). Both provide test cards and sandboxed transactions."},
+     {"question": "Do subscriptions survive provider switches?", "answer": "No. Subscription data is provider-specific and stored via Better Auth. Switching providers means existing subscriptions won't transfer."},
+     {"question": "How do I handle failed payments?", "answer": "Implement the onPaymentFailed lifecycle hook in packages/billing/stripe/src/hooks/. Stripe automatically retries, but you can send notifications or restrict access."},
+     {"question": "Can I offer lifetime deals?", "answer": "Yes, but configure them as one-time payments in the provider dashboard. The billing config supports any plan structure the provider allows."},
+     {"question": "How do I upgrade/downgrade plans?", "answer": "Use the customer portal (billing.portal()) which handles proration automatically. Or call the provider SDK directly for programmatic changes."}
+   ]
+/%}
+
+---
+
+**Next:** [Billing Configuration →](./billing-configuration)

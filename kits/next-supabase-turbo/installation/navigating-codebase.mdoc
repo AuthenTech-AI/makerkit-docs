@@ -1,134 +1,180 @@
 ---
 status: "published"
-
-title: "Navigating the your Next.js Supabase Turbo Starter Kit codebase"
+title: "Navigating the Next.js Supabase SaaS Kit Codebase"
 label: "Navigating the Codebase"
 order: 7
-description: "Learn how to navigate the codebase of the Next.js Supabase Turbo Starter Kit. Understand the project structure and how to update the codebase."
+description: "Understand the Turborepo monorepo structure, key directories, and where to add your custom code."
 ---
 
+The kit uses Turborepo to organize code into reusable packages. Understanding this structure helps you know where to find things and where to add your own code.
 
-As mentioned before, this SaaS Starter Kit is modular, thanks to Turborepo - which makes it easy to manage multiple packages in a single repository.
-
-## Project Structure
-
-The main directories in the project are:
-1. `apps` - the location of the Next.js app
-2. `packages` - the location of the shared code and the API
-
-### `apps` Directory
-
-This is where the app (or the apps, should you add more) lives. The main app is a Next.js app, which is a React framework that allows you to build static and server-rendered web applications.
-
-The Next.js app defines:
-
-1. the configuration of the project
-2. the routes of the application
-
-### `packages` Directory
-
-This is where the shared code and the API live. The shared code is a collection of functions that are used by both the Next.js app and the API. The API is a serverless function that is used to interact with the Supabase database.
-
-The shared code defines:
-
-1. shared libraries (Supabase, Mailers, CMS, Billing, etc.)
-2. shared features (admin, accounts, account, auth, etc.)
-3. UI components (buttons, forms, modals, etc.)
-
-All apps can use and reuse the API exported from the `packages` directory. This makes it easy to have one, or many apps in the same codebase, sharing the same code.
-
-## Diving into the Codebase
-
-The codebase is structured in a way that makes it easy to navigate and update. Here are some of the key files and directories you should be aware of:
+## Top-Level Structure
 
 ```
-- apps
----
- web
----
--- app
----
--- components
----
--- config
----
--- lib
----
--- content
----
--- styles
----
--- supabase
+├── apps/
+│   ├── web/          # Main Next.js application
+│   ├── dev-tool/     # Development debugging tool
+│   └── e2e/          # Playwright end-to-end tests
+├── packages/
+│   ├── features/     # Feature modules (auth, accounts, admin)
+│   ├── ui/           # Shared UI components
+│   ├── supabase/     # Database client and types
+│   ├── billing/      # Payment integrations
+│   ├── mailers/      # Email providers
+│   └── ...           # Other shared packages
+└── turbo.json        # Turborepo configuration
 ```
 
+## Where You'll Work Most
 
-### Diving into `apps/web`
+**90% of your work** happens in `apps/web/`. The packages provide infrastructure; you build your product in the app.
 
-The `apps/web` directory is where the Next.js app lives. Here are some of the key directories and files you should be aware of:
-
-1. `app` - this is where the main app lives. This is where you define the routes of the application.
-2. `components` - this is where you define the shared components of the application.
-3. `config` - this is where you define the configuration of the application.
-4. `lib` - this is where you define the shared libraries of the application.
-5. `content` - this is where you define the content of the application (by default, uses Keystatic Markdoc files)
-6. `styles` - this is where you define the styles of the application.
-7. `supabase` - this is where you define the Supabase configuration, migrations and tests
-
-### Diving into `app`
-
-The `app` directory is where the routing of the application is defined. Here are some of the key files you should be aware of:
+### apps/web/ Directory
 
 ```
-- app
----
- home
----
- (marketing)
----
- auth
----
- join
----
- admin
----
- update-password
----
- server-sitemap.xml
+apps/web/
+├── app/              # Next.js App Router (routes)
+├── components/       # App-specific components
+├── config/           # Application configuration
+├── lib/              # App-specific utilities
+├── content/          # CMS content (Keystatic)
+├── styles/           # Global CSS
+└── supabase/         # Migrations and database tests
 ```
 
-Let's break down the directories:
+| Directory | What Goes Here |
+|-----------|---------------|
+| `app/` | All routes and pages |
+| `components/` | Components specific to this app |
+| `config/` | App settings, feature flags, navigation |
+| `lib/` | Utilities that don't belong in packages |
+| `supabase/` | Database migrations and seed data |
 
-1. `home` - this is where the internal home of the application lives. This is where you define the routes when the user is logged in.
-2. `(marketing)` - this is where the marketing pages of the application live. This is where you define the routes when the user is not logged in. It's a pathless route, so you don't see it in the URL.
-3. `auth` - this is where the authentication pages of the application live. This is where you define the routes for the login, signup, and forgot password pages.
-4. `join` - this is where the join pages of the application live. This route is the route where the user can join a team account following an invitation.
-5. `admin` - this is where the admin pages of the application live. This is where you define the routes for the super admin pages.
-6. `update-password` - this is where the update password pages of the application live. This is the route the user is redirected to after resetting their password.
-7. `server-sitemap.xml` - this is where the sitemap of the application is defined.
+## App Router Structure
 
-### Diving into `home`
-
-The `home` directory is where the internal dashboard of the application lives. Here are some of the key files you should be aware of:
+The `app/` directory follows Next.js App Router conventions:
 
 ```
----
- home
----
----
- (user)
----
----
- [account]
+app/
+├── (marketing)/      # Public pages (landing, pricing, blog)
+├── auth/             # Authentication pages
+├── home/             # Authenticated dashboard
+│   ├── (user)/       # Personal account routes
+│   └── [account]/    # Team account routes (dynamic)
+├── admin/            # Super admin dashboard
+├── join/             # Team invitation acceptance
+├── update-password/  # Password reset completion
+├── api/              # API route handlers
+├── identities/       # OAuth identity linking
+└── healthcheck/      # Health check endpoint
 ```
 
-Let's break down the directories:
+### Route Groups Explained
 
-1. `(user)` - this is where the user pages of the application live. This is where you define the routes for the personal account pages.
-2. `[account]` - this is where the account pages of the application live. This is where you define the routes for the team account pages.
+**`(marketing)`** - Pathless group for public pages. URLs don't include "marketing":
+- `app/(marketing)/page.tsx` → `/`
+- `app/(marketing)/pricing/page.tsx` → `/pricing`
 
-The `home` path allows us to separate the marketing pages from the internal dashboard pages.
+**`home/(user)`** - Personal account dashboard. Pathless group under /home:
+- `app/home/(user)/page.tsx` → `/home`
+- `app/home/(user)/settings/page.tsx` → `/home/settings`
 
-So the user home page would be `/home/user` and the account home page would be `/home/[account]`.
+**`home/[account]`** - Team account dashboard. Dynamic segment for team slug:
+- `app/home/[account]/page.tsx` → `/home/acme-corp`
+- `app/home/[account]/settings/page.tsx` → `/home/acme-corp/settings`
+
+## Packages Overview
+
+Packages provide reusable functionality. Import from them; don't modify unless necessary.
+
+### Feature Packages (`packages/features/`)
+
+| Package | Import | Contains |
+|---------|--------|----------|
+| `@kit/auth` | `@kit/auth/*` | Sign in/up forms, auth hooks |
+| `@kit/accounts` | `@kit/accounts/*` | Personal account components |
+| `@kit/team-accounts` | `@kit/team-accounts/*` | Team management, invitations |
+| `@kit/admin` | `@kit/admin/*` | Super admin dashboard |
+| `@kit/notifications` | `@kit/notifications/*` | In-app notifications |
+
+### Infrastructure Packages
+
+| Package | Import | Contains |
+|---------|--------|----------|
+| `@kit/ui` | `@kit/ui/*` | Shadcn components, design system |
+| `@kit/supabase` | `@kit/supabase/*` | Database clients, types |
+| `@kit/next` | `@kit/next/*` | Server actions, route helpers |
+| `@kit/billing` | `@kit/billing/*` | Subscription logic |
+| `@kit/mailers` | `@kit/mailers/*` | Email sending |
+
+## Adding Your Own Code
+
+### New Pages
+
+Add routes in `apps/web/app/`:
+
+```
+# Public page
+apps/web/app/(marketing)/features/page.tsx → /features
+
+# Authenticated page (personal)
+apps/web/app/home/(user)/dashboard/page.tsx → /home/dashboard
+
+# Authenticated page (team)
+apps/web/app/home/[account]/projects/page.tsx → /home/[slug]/projects
+```
+
+### New Components
+
+Add to `apps/web/components/` for app-specific components:
+
+```
+apps/web/components/
+├── dashboard/
+│   ├── stats-card.tsx
+│   └── activity-feed.tsx
+└── projects/
+    ├── project-list.tsx
+    └── project-form.tsx
+```
+
+### New Database Tables
+
+1. Create migration in `apps/web/supabase/migrations/`
+2. Run `pnpm run supabase:web:reset` to apply
+3. Run `pnpm run supabase:web:typegen` to update types
+
+### New API Routes
+
+Add to `apps/web/app/api/`:
+
+```typescript
+// apps/web/app/api/projects/route.ts
+import { enhanceRouteHandler } from '@kit/next/routes';
+
+export const GET = enhanceRouteHandler(async ({ user }) => {
+  // Your logic here
+});
+```
+
+## Configuration Files
+
+Located in `apps/web/config/`:
+
+| File | Purpose | When to Edit |
+|------|---------|--------------|
+| `app.config.ts` | App name, URLs | During initial setup |
+| `auth.config.ts` | Auth providers | Adding OAuth providers |
+| `billing.config.ts` | Plans, prices | Setting up billing |
+| `feature-flags.config.ts` | Feature toggles | Enabling/disabling features |
+| `paths.config.ts` | Route constants | Adding new routes |
+| `*-navigation.config.tsx` | Sidebar menus | Customizing navigation |
+
+## Next Steps
+
+- [Review common commands](/docs/next-supabase-turbo/installation/common-commands) for daily development
+- [Configure the app](/docs/next-supabase-turbo/configuration/application-configuration) for your product
+- [Add marketing pages](/docs/next-supabase-turbo/development/marketing-pages) to start building
 
 
 

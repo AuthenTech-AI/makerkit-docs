@@ -40,9 +40,9 @@ styles/
 
 ### Retaining your existing styles
 
-If you wish to kee your existing theme colors, please update the `shadcn-ui.css` file and keep the same variables for the theme.
+If you wish to keep your existing theme colors, please update the `shadcn-ui.css` file and keep the same variables for the theme.
 
-NB: you have to use the `hsl` function to update the theme colors.
+**Note:** You have to use the `hsl` function to update the theme colors.
 
 ```css {% title="apps/web/styles/shadcn-ui.css" %}
 @layer base {
@@ -133,7 +133,7 @@ NB: you have to use the `hsl` function to update the theme colors.
 - `shadow-sm` → `shadow-xs`
 - `shadow-lg` → `shadow-xl`
 
-NB: the spacing has changed from v3 using dynamic spacing, so you may need to update your custom spacing values.
+**Note:** The spacing has changed from v3 using dynamic spacing, so you may need to update your custom spacing values.
 
 ### 2. Border Radius Changes
 
@@ -166,7 +166,8 @@ NB: the spacing has changed from v3 using dynamic spacing, so you may need to up
 }
 ```
 
-1. **Outline Utilities**
+#### **Outline Utilities**
+
 ```css
 /* Old */
 focus:outline-none
@@ -175,7 +176,8 @@ focus:outline-none
 focus:outline-hidden
 ```
 
-2. **Shadow Utilities**
+#### **Shadow Utilities**
+
 ```css
 /* Old */
 shadow-sm
@@ -186,7 +188,8 @@ shadow-xs
 
 ## Migration Steps
 
-1. **Update Dependencies**
+#### **Update Dependencies**
+
 ```json
 {
   "dependencies": {
@@ -198,7 +201,8 @@ shadow-xs
 
 The `tailwindcss-animate` dependency is now part of `apps/web/package.json` and should be removed from `package.json` in the Tailwind CSS v4 upgrade.
 
-2. **Update PostCSS Config**
+#### **Update PostCSS Config**
+
 ```js
 module.exports = {
   plugins: {
@@ -207,12 +211,12 @@ module.exports = {
 };
 ```
 
-3. **CSS Files**
+#### **CSS Files**
 - Move existing global styles to appropriate new CSS files
 - Update import statements to include new CSS files
 - Remove old tailwind.config.ts and replace with new CSS structure
 
-4. **Component Updates**
+#### **Component Updates**
 - Review all components using spacing utilities
 - Update shadow utilities
 - Review and update color usage

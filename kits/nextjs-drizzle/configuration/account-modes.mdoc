@@ -1,0 +1,165 @@
+---
+status: "published"
+title: "Account Modes"
+label: "Account Modes"
+order: 3
+description: "Configure personal, organization, or hybrid account modes for your SaaS."
+---
+
+Choose how users interact with your SaaS: individual accounts only (B2C), team/organization accounts only (B2B), or both (hybrid like GitHub). This single setting cascades through billing, navigation, permissions, and UI.
+
+Account mode determines the fundamental relationship between users and data in your application. It controls whether entities (projects, documents, resources) belong to individuals, organizations, or both.
+
+This page is part of the [Configuration documentation](./overview).
+
+## Quick Decision
+
+| If your product is... | Use | Example |
+|----------------------|-----|---------|
+| For individuals, no collaboration | `personal-only` | Note-taking app, personal finance |
+| For teams, always shared | `organizations-only` | Project management, team chat |
+| For both individuals and teams | `hybrid` | GitHub, Notion, Figma |
+
+**Use `personal-only` when:** your product serves individual users who don't need to share or collaborate. Simpler UX, no team management overhead.
+
+**Use `organizations-only` when:** every user belongs to a team. Common for B2B SaaS where you sell seats, not individual subscriptions.
+
+**Use `hybrid` when:** users might start solo and later invite teammates, or when you serve both freelancers and enterprises. More complex but most flexible.
+
+**If unsure:** start with `organizations-only` for B2B or `personal-only` for B2C. Migrating to `hybrid` later is easier than migrating away from it.
+
+## Configuration
+
+```bash
+# apps/web/.env
+NEXT_PUBLIC_ACCOUNT_MODE=hybrid  # personal-only | organizations-only | hybrid
+```
+
+## Personal Only (B2C)
+
+```bash
+NEXT_PUBLIC_ACCOUNT_MODE=personal-only
+```
+
+**What happens:**
+- Users sign up and land in their personal workspace
+- No organization creation or invitations
+- Account switcher is hidden
+- Billing attaches to the user directly
+- Data is private to each user
+
+**Best for:** Consumer apps, personal productivity tools, individual subscriptions.
+
+**Automatic feature flags:**
+```bash
+enableOrganizations=false
+enablePersonalAccountBilling=true
+enableOrganizationsBilling=false
+showAccountSwitcher=false
+```
+
+## Organizations Only (B2B)
+
+```bash
+NEXT_PUBLIC_ACCOUNT_MODE=organizations-only
+```
+
+**What happens:**
+- Sign-up automatically creates an organization for the user
+- Users always operate in an organization context
+- Personal account routes are hidden
+- Billing attaches to organizations (seats, team plans)
+- All data belongs to organizations
+
+**Best for:** Team collaboration tools, enterprise SaaS, seat-based pricing.
+
+**Automatic feature flags:**
+```bash
+enableOrganizations=true
+enablePersonalAccountBilling=false
+enableOrganizationsBilling=true
+showAccountSwitcher=true  # To switch between orgs
+```
+
+## Hybrid Mode (Default)
+
+```bash
+NEXT_PUBLIC_ACCOUNT_MODE=hybrid
+```
+
+**What happens:**
+- Users have both personal workspaces and can create/join organizations
+- Account switcher shows personal + all organizations
+- Billing can attach to either (but pick one strategy - see pitfalls)
+- Data can belong to personal account or any organization
+
+**Best for:** Platforms that serve freelancers growing into agencies, developer tools used personally and professionally.
+
+**Automatic feature flags:**
+```bash
+enableOrganizations=true
+enablePersonalAccountBilling=true
+enableOrganizationsBilling=true
+showAccountSwitcher=true
+```
+
+## Feature Flag Overrides
+
+Account mode sets sensible defaults, but you can override specific flags:
+
+```bash
+# Allow hybrid users to create orgs (default: true)
+NEXT_PUBLIC_ALLOW_USER_TO_CREATE_ORGANIZATION=true
+
+# Enable personal billing in hybrid mode (default: false)
+NEXT_PUBLIC_ENABLE_PERSONAL_ACCOUNT_BILLING=false
+
+# Enable org billing in hybrid mode (default: true)
+NEXT_PUBLIC_ENABLE_ORGANIZATIONS_BILLING=true
+```
+
+See [Feature Flags](./feature-flags) for the complete list.
+
+## Common Pitfalls
+
+- **Billing both personal and org accounts in hybrid mode**: Confuses users and complicates your pricing. Pick one billing target - usually organizations for B2B, personal for B2C.
+- **Changing modes after launch**: Existing data associations break. If users created personal data and you switch to `organizations-only`, that data becomes orphaned. Plan your mode before launch.
+- **Forgetting context in queries**: In hybrid mode, always filter by the current account context. A user's personal projects shouldn't appear in their organization's dashboard.
+- **Navigation doesn't match mode**: If you customize navigation, use the `context` property to show/hide routes appropriately. See [Navigation Configuration](./navigation).
+- **Invitations in personal-only mode**: The invitation system still exists but routes are hidden. If you expose invite links manually, they'll fail silently.
+
+## Database Impact
+
+Account mode affects how you structure your [Drizzle schema](https://orm.drizzle.team/docs/sql-schema-declaration):
+
+```typescript
+// Personal-only: reference user directly
+export const notes = pgTable('notes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').notNull().references(() => users.id),
+  content: text('content').notNull(),
+});
+
+// Organizations-only: reference organization
+export const projects = pgTable('projects', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organizationId: text('organization_id').notNull().references(() => organizations.id),
+  name: text('name').notNull(),
+});
+```
+
+In hybrid mode, you'll need to decide per-entity whether it belongs to users, organizations, or both. Most teams pick one model per entity to keep authorization logic simple.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Can I switch modes after launching?", "answer": "Technically yes, but it requires data migration. Personal-only to hybrid is straightforward - existing data stays with personal accounts. Hybrid to organizations-only requires reassigning or deleting personal data."},
+     {"question": "Do I need different billing providers for each mode?", "answer": "No. Stripe and other providers work with all modes. The difference is what you attach subscriptions to: users (personal) or organizations."},
+     {"question": "How does authorization work with account modes?", "answer": "Authorization checks use the current context. Server actions and API routes validate that the user has access to the requested resource. For organizations, membership is checked; for personal data, ownership is verified."},
+     {"question": "Can organizations exist in personal-only mode?", "answer": "No. The organization routes, invitation system, and team management UI are all hidden. The database tables exist but are not used."}
+   ]
+/%}
+
+---
+
+**Next:** [Feature Flags →](./feature-flags)

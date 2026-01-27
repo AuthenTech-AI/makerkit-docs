@@ -1,0 +1,221 @@
+---
+status: "published"
+title: "User Management"
+label: "User Management"
+order: 2
+description: "Manage users, sessions, and account status from the admin panel."
+---
+
+User Management in MakerKit's admin panel lets you search, filter, and take action on any user account. You can change roles, ban or unban users, impersonate accounts for debugging, manage active sessions, and permanently delete users. All actions are protected by RBAC permissions and integrate with Better Auth's admin plugin.
+
+> Actions like ban/unban use Better Auth's `user:ban` permission for both operations.
+
+## User List
+
+### Search and Filtering
+
+The user table supports multiple search and filter options:
+
+| Filter | Options | Description |
+|--------|---------|-------------|
+| **Search** | Text input | Search by name or email |
+| **Role** | All / User / Admin | Filter by user role |
+| **Status** | All / Active / Banned | Filter by account status |
+| **Sort** | Multiple fields | Order by name, email, date, role, or status |
+
+Results are paginated at 25 users per page.
+
+{% img src="/images/docs/admin-users-table.webp" width="2844" height="1938" alt="Admin Users Table with filters" /%}
+
+### User Table Columns
+
+Each row displays:
+
+- **Avatar and Name** - Profile picture with display name
+- **Email** - User's email address
+- **Role** - User or admin badge
+- **Status** - Active or banned indicator
+- **Created** - Account creation date
+- **Actions** - Dropdown menu with available actions
+
+## User Actions
+
+Click the action menu (three dots) on any user row to access these options:
+
+### View Details
+
+Opens a side panel with comprehensive user information:
+
+- **Profile**: Avatar, name, email, user ID
+- **Status**: Account status, role, email verification, 2FA status
+- **Dates**: Account creation and last update timestamps
+- **Subscriptions**: Active subscription details (if billing is enabled)
+- **Ban Info**: Reason and expiration for banned users
+- **Sessions**: All active sessions with device info
+
+{% img src="/images/docs/admin-users-detail.webp" width="2844" height="1938" alt="User Details Sheet" /%}
+
+### Change Role
+
+Promote a user to admin or demote an admin to user:
+
+```typescript
+// Server action with RBAC permission check
+export const changeRoleAction = adminActionClient
+  .use(withAdminPermission({ user: ['set-role'] }))
+  .inputSchema(changeRoleSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    const result = await service.changeRole({
+      adminId: ctx.user.id,
+      ...parsedInput,
+    });
+    revalidatePath('/admin', 'layout');
+    return result;
+  });
+```
+
+**Requirements:**
+- Admin must have `user:set-role` permission
+- Changes take effect on the user's next session
+
+### Impersonate User
+
+Sign in as another user for debugging and support purposes. After confirming, you'll be redirected to the app dashboard as that user.
+
+**Restrictions:**
+- Cannot impersonate admin users
+- Cannot impersonate banned users
+- A banner appears during impersonation indicating the original admin
+
+To end impersonation, use the "Stop Impersonating" button or sign out.
+
+```typescript
+// Client-side impersonation using Better Auth
+const { mutateAsync } = useMutation({
+  mutationFn: async (userId: string) => {
+    const { data, error } = await authClient.admin.impersonateUser({
+      userId,
+    });
+    if (error) throw new Error(error.message);
+    return data;
+  },
+});
+```
+
+### Ban User
+
+Restrict a user's access to the platform:
+
+- **Reason**: Optional explanation for the ban
+- **Duration**: Temporary (with expiration date) or permanent
+- Banned users cannot sign in
+- Existing sessions are not automatically revoked (use "Revoke All Sessions" if needed)
+
+### Unban User
+
+Restore access for a banned user. The ban reason and expiration are cleared.
+
+### Remove User
+
+Permanently delete a user account.
+
+**Important:**
+- Cannot delete admin users (demote first if needed)
+- This action is irreversible
+- Associated data (sessions, memberships) is also deleted
+
+## Session Management
+
+### Viewing Sessions
+
+The user details panel lists all active sessions with:
+
+- **Device**: Browser and OS information
+- **IP Address**: Last known IP
+- **Created**: Session start time
+- **Expires**: Session expiration time
+
+### Revoking Sessions
+
+Two options for ending sessions:
+
+**Revoke Single Session**: End a specific session while keeping others active.
+
+**Revoke All Sessions**: Force logout from all devices. Useful when:
+- User reports account compromise
+- After changing sensitive account settings
+- Before or after banning a user
+
+```typescript
+export const revokeAllUserSessionsAction = adminActionClient
+  .use(withAdminPermission({ session: ['revoke'] }))
+  .inputSchema(revokeUserSessionsSchema)
+  .action(async ({ parsedInput, ctx }) => {
+    const result = await service.revokeAllUserSessions({
+      adminId: ctx.user.id,
+      ...parsedInput,
+    });
+    revalidatePath('/admin/users');
+    return result;
+  });
+```
+
+## Subscription Information
+
+When billing is enabled, the user details panel shows subscription data:
+
+- **Plan Name**: Current subscription tier
+- **Status**: Active, canceled, past due, etc.
+- **Billing Period**: Monthly or yearly
+- **Next Billing Date**: When the subscription renews
+
+This requires the `subscriptions:list` permission in your RBAC config:
+
+```typescript
+export default defineAdminRBACConfig({
+  resources: {
+    SUBSCRIPTIONS: 'subscriptions',
+  },
+  accessController: {
+    subscriptions: ['list'],
+  },
+});
+```
+
+## Permission Requirements
+
+User management actions require specific RBAC permissions:
+
+| Action | Required Permission |
+|--------|-------------------|
+| View user list | `user:list` |
+| View user details | `user:get` |
+| Change role | `user:set-role` |
+| Ban/Unban user | `user:ban` |
+| Delete user | `user:delete` |
+| List sessions | `session:list` |
+| Revoke sessions | `session:revoke` |
+| View subscriptions | `subscriptions:list` |
+
+**Note:** The `user:ban` permission covers both ban and unban operations. This matches Better Auth's internal permission model.
+
+The default `admin` role has all permissions. Custom roles need explicit grants.
+
+See [RBAC Permissions](./rbac-permissions) for configuring custom admin roles.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Why doesn't a role change take effect immediately?", "answer": "Role changes apply on the user's next session. The user must sign out and back in, or you can revoke all their sessions to force a refresh."},
+     {"question": "Can I ban a user temporarily?", "answer": "Yes. When banning, set an expiration date for a temporary ban. Leave it empty for a permanent ban. The user regains access automatically when the ban expires."},
+     {"question": "What data is deleted when I remove a user?", "answer": "Removing a user deletes their account, all sessions, and organization memberships. This action is irreversible. Subscription data may be retained by your billing provider."},
+     {"question": "Why can't I delete an admin user?", "answer": "Security restriction. Demote the admin to a regular user first, then delete. This prevents accidental deletion of admin accounts."},
+     {"question": "Does banning a user end their active sessions?", "answer": "No. Banned users can't create new sessions, but existing sessions remain active until they expire. Use 'Revoke All Sessions' alongside banning for immediate lockout."}
+   ]
+/%}
+
+---
+
+**Previous:** [Overview](./overview)
+
+**Next:** [Organization Management](./organization-management)

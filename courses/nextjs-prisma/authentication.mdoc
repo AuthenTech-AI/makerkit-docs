@@ -1,0 +1,201 @@
+---
+status: "published"
+title: "Authentication with Better Auth in Makerkit Next.js Prisma"
+label: "Authentication"
+order: 6
+description: "Understand Makerkit's authentication system and add OAuth sign-in. By the end, users can sign in with Google."
+---
+
+This module covers Makerkit's authentication system using Better Auth and adds Google OAuth sign-in to TeamPulse.
+
+**Technologies used:**
+- [Better Auth](https://better-auth.com/) - Authentication framework
+- [Prisma ORM](https://www.prisma.io/) - Database tables for auth
+
+**What you'll accomplish:**
+- Understand the existing auth system
+- Add Google OAuth sign-in
+- Test the complete auth flow
+
+---
+
+## Understanding the Auth System
+
+Makerkit uses [Better Auth](https://better-auth.com/), a TypeScript-first authentication framework.
+
+### Auth Pages
+
+| URL | Purpose |
+|-----|---------|
+| `/auth/sign-up` | Create new account |
+| `/auth/sign-in` | Sign in to existing account |
+| `/auth/password-reset` | Request password reset |
+| `/auth/verify` | Two-factor authentication (when enabled) |
+
+### Key Configuration Files
+
+| File | Purpose |
+|------|---------|
+| `packages/better-auth/src/auth.ts` | Server-side auth configuration |
+| `packages/better-auth/src/auth-client.ts` | Client-side auth hooks |
+| `apps/web/config/auth.config.ts` | Feature flags (OAuth, MFA, etc.) |
+| `apps/web/app/api/auth/[...all]/route.ts` | API route handler |
+
+### How It Works
+
+1. **Sign-up flow:**
+   - User submits email/password
+   - Account created in `users` table
+   - Verification email sent (check Mailpit at http://localhost:8025)
+   - User clicks link → signed in
+   - Organization auto-created (only in B2B mode)
+2. **Sign-in flow:**
+   - User submits credentials
+   - Session created in `session` table
+   - Cookie set for authentication
+   - Redirected to `/dashboard`
+3. **Session access:**
+   ```typescript
+   // Server-side (in server actions, loaders, pages)
+   import { getSession } from '@kit/better-auth/context';
+
+   const session = await getSession();
+   const userId = session?.user?.id;
+   ```
+
+---
+
+## Checkpoint: Test the Existing Flow
+
+Before adding OAuth, verify email/password auth works:
+
+1. Go to `/auth/sign-up`
+2. Create a new account
+3. Check Mailpit for new emails at http://localhost:8025
+4. Click the verification link
+5. Confirm you land on the dashboard
+
+If you seeded test data using `pnpm seed`, you can also sign in with `user1@makerkit.dev` / `testingpassword`.
+
+---
+
+## Adding Google OAuth
+
+### Step 1: Create Google Cloud Credentials
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project (or select existing)
+3. Navigate to **APIs & Services → Credentials**
+4. Click **Create Credentials → OAuth client ID**
+5. Select **Web application**
+6. Add authorized redirect URI:
+   ```
+   http://localhost:3000/api/auth/callback/google
+   ```
+
+   > **Note:** For production, use `https://` and your actual domain (e.g., `https://yourdomain.com/api/auth/callback/google`). OAuth providers require HTTPS for production redirect URIs.
+
+7. Copy the **Client ID** and **Client Secret**
+
+### Step 2: Configure Environment Variables
+
+Add to `apps/web/.env.local`:
+
+```bash {% title="apps/web/.env.local" %}
+# Google OAuth
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-client-secret
+
+# Enable Google in the OAuth providers list
+NEXT_PUBLIC_AUTH_OAUTH_PROVIDERS=google
+```
+
+> **Important:** In production, use a secrets manager instead of environment files for sensitive values.
+
+### Step 3: Test
+
+Visit `/auth/sign-in`. You should see a "Sign in with Google" button.
+
+1. Click "Sign in with Google"
+2. Complete Google's sign-in
+3. You're redirected back and signed in
+
+---
+
+## How OAuth Works in Makerkit
+
+### The Plugin System
+
+Better Auth uses plugins for OAuth providers. Configuration lives in `packages/better-auth/src/plugins/social-providers.ts`.
+
+When you set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, the plugin automatically:
+- Handles the OAuth redirect flow
+- Creates or links user accounts
+- Manages OAuth tokens securely
+
+### Adding Other Providers
+
+Please refer to the [documentation to add social providers](/docs/nextjs-prisma/authentication/social-providers).
+
+---
+
+## Additional Auth Features
+
+### Magic Links (Passwordless)
+Let users sign in via email link - no password needed.
+- **Enable:** `NEXT_PUBLIC_AUTH_MAGIC_LINK=true`
+
+### Password Requirements
+Enforce stronger passwords with special characters, numbers, uppercase.
+- **Configure:** (all default to `false`)
+  ```bash
+  NEXT_PUBLIC_PASSWORD_REQUIRE_SPECIAL_CHARS=true
+  NEXT_PUBLIC_PASSWORD_REQUIRE_NUMBERS=true
+  NEXT_PUBLIC_PASSWORD_REQUIRE_UPPERCASE=true
+  ```
+
+### Custom Email Templates
+Customize verification, password reset, and invitation emails.
+- **Templates:** `packages/email-templates/src/emails/` (React Email components)
+
+### Captcha Protection
+Add Cloudflare Turnstile to prevent bot sign-ups.
+- **Configure:**
+  ```bash
+  NEXT_PUBLIC_CAPTCHA_SITE_KEY=your-site-key
+  TURNSTILE_SECRET_KEY=your-secret
+  ```
+- **Docs:** [Better Auth Captcha](https://better-auth.com/docs/plugins/captcha)
+
+---
+
+## Module Complete
+
+You now have:
+- [x] Understanding of Makerkit's auth architecture
+- [x] Google OAuth sign-in working
+- [x] Awareness of advanced auth features (MFA, magic links, captcha, etc.)
+
+**Next:** In [Module 7: Organizations & Teams](./organizations-and-teams), you'll apply role-based access control to TeamPulse features.
+
+---
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "What authentication library does this kit use?", "answer": "This kit uses Better Auth, a TypeScript-first authentication framework. It handles email/password authentication, OAuth providers, magic links, two-factor authentication, and session management out of the box."},
+     {"question": "How do I add Google OAuth to my Makerkit app?", "answer": "Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables from Google Cloud Console, then add google to the NEXT_PUBLIC_AUTH_OAUTH_PROVIDERS list. The redirect URI is /api/auth/callback/google."},
+     {"question": "Can I add multiple OAuth providers?", "answer": "Yes. Add multiple providers to NEXT_PUBLIC_AUTH_OAUTH_PROVIDERS as a comma-separated list (e.g., google,github,microsoft). Each provider needs its own client ID and secret configured."},
+     {"question": "How do I enable passwordless authentication?", "answer": "Set NEXT_PUBLIC_AUTH_MAGIC_LINK=true to enable magic link sign-in. Users enter their email and receive a link to sign in without a password."},
+     {"question": "Where are auth sessions stored?", "answer": "Sessions are stored in the database session table and managed via secure HTTP-only cookies. Better Auth handles session creation, validation, and cleanup automatically."}
+   ]
+/%}
+
+---
+
+## Learn More
+
+- [Authentication Documentation](/docs/nextjs-prisma/authentication/overview)
+- [Better Auth Documentation](https://better-auth.com/docs)
+- [Better Auth Plugins](https://better-auth.com/docs/plugins)
+- [Google OAuth Setup Guide](https://better-auth.com/docs/authentication/google)

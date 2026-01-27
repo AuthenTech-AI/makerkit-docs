@@ -1,0 +1,307 @@
+---
+status: "published"
+title: "Internationalization"
+label: "Overview"
+order: 0
+description: "Add multi-language support to your SaaS application using next-intl with server-side rendering, namespace-based organization, and automatic locale detection."
+---
+
+MakerKit uses [next-intl](https://next-intl.dev/) for internationalization, providing type-safe translations with full support for React Server Components, streaming, and automatic locale detection.
+
+To add a new language: enable the locale in `packages/i18n/src/locales.tsx`, create translation JSON files in `apps/web/i18n/messages/{locale}/`, and restart the dev server. The middleware handles locale detection from URLs, cookies, and browser headers automatically.
+
+This page covers the architecture, configuration, and core concepts. For implementation details, see [Setup Guide](./setup), [Using Translations](./using-translations), and [Managing Translations](./managing-translations).
+
+## Architecture
+
+The i18n system separates shared infrastructure from app-specific translations:
+
+```
+packages/i18n/                    # Shared i18n package
+├── src/
+│   ├── routing.ts                # Routing configuration
+│   ├── navigation.ts             # Locale-aware navigation utilities
+│   ├── default-locale.ts         # Default locale configuration
+│   ├── locales.tsx               # Supported locales array
+│   └── client-provider.tsx       # Client-side provider
+
+apps/web/
+├── i18n/
+│   ├── request.ts                # Namespace definitions and message loading
+│   └── messages/
+│       └── en/                   # English translations (add more locales)
+│           ├── common.json       # Shared UI labels
+│           ├── auth.json         # Authentication
+│           ├── account.json      # Account management
+│           ├── organizations.json # Team features
+│           ├── billing.json      # Billing and subscriptions
+│           ├── marketing.json    # Marketing pages
+│           ├── settings.json     # Settings pages
+│           ├── goodbye.json      # Account deletion
+│           └── errors.json       # Error messages
+└── proxy.ts                      # Middleware with i18n routing
+```
+
+**Why this structure?** The shared package (`@kit/i18n`) provides reusable utilities across the monorepo, while app-specific translations stay in `apps/web/i18n`. This separation lets you customize translations per app without modifying shared code.
+
+## How It Works
+
+When a request comes in, the middleware detects the locale from:
+
+1. URL path prefix (`/es/dashboard` for Spanish)
+2. Browser `Accept-Language` header
+3. Cookie preference (set when user changes language)
+
+The middleware then:
+
+1. Validates the locale against supported locales
+2. Redirects to a localized URL if needed
+3. Sets headers for downstream components
+
+In the root layout, `getMessages()` loads all translation namespaces for the detected locale, and `RootProviders` wraps the app with the i18n context.
+
+```typescript title="apps/web/app/[locale]/layout.tsx"
+import { getMessages } from 'next-intl/server';
+import { RootProviders } from '@components/root-providers';
+
+export default async function LocaleLayout({ children, params }) {
+  const { locale } = await params;
+  const messages = await getMessages({ locale });
+
+  return (
+    <html lang={locale}>
+      <body>
+        <RootProviders locale={locale} messages={messages}>
+          {children}
+        </RootProviders>
+      </body>
+    </html>
+  );
+}
+```
+
+## URL Structure
+
+With `localePrefix: 'as-needed'`, the default locale has no URL prefix:
+
+| URL | Locale | Notes |
+|-----|--------|-------|
+| `/dashboard` | English | Default locale, no prefix |
+| `/es/dashboard` | Spanish | Non-default locales get prefixed |
+| `/fr/dashboard` | French | Non-default locales get prefixed |
+| `/de/settings` | German | Non-default locales get prefixed |
+
+This keeps URLs clean for your primary market while supporting additional languages.
+
+## Package Exports
+
+The `@kit/i18n` package provides several entry points:
+
+### `@kit/i18n/routing`
+
+Locale configuration and type definitions:
+
+```typescript
+import { routing, type Locale } from '@kit/i18n/routing';
+
+// Access configuration
+routing.locales;      // ['en', 'es', 'fr']
+routing.defaultLocale; // 'en'
+routing.localePrefix;  // 'as-needed'
+```
+
+### `@kit/i18n/navigation`
+
+Locale-aware navigation utilities that automatically handle prefixes:
+
+```typescript
+import { Link, redirect, useRouter, usePathname, permanentRedirect } from '@kit/i18n/navigation';
+
+// Link automatically adds locale prefix when needed
+<Link href="/settings">Settings</Link>
+
+// Redirects work with locale context
+redirect('/dashboard');
+permanentRedirect('/new-path');
+
+// Client-side navigation
+const router = useRouter();
+router.push('/settings');
+router.replace('/settings', { locale: 'es' }); // Switch locale
+
+// Get current pathname without locale prefix
+const pathname = usePathname(); // '/dashboard' not '/es/dashboard'
+```
+
+### `@kit/i18n/provider`
+
+Client-side provider for translation context:
+
+```typescript
+import { I18nClientProvider } from '@kit/i18n/provider';
+
+<I18nClientProvider locale={locale} messages={messages}>
+  {children}
+</I18nClientProvider>
+```
+
+## Namespaces
+
+Translations are organized into namespaces for code splitting and maintainability:
+
+| Namespace | Purpose | Example Keys |
+|-----------|---------|--------------|
+| `common` | Shared UI elements | `routes`, `roles`, `otp`, `language` |
+| `auth` | Authentication flows | `signIn`, `signUp`, `forgotPassword` |
+| `account` | User profile management | `updateProfile`, `changePassword` |
+| `organizations` | Team features | `createOrganization`, `inviteMembers` |
+| `billing` | Payments and subscriptions | `plans`, `checkout`, `invoices` |
+| `marketing` | Public pages | `hero`, `features`, `pricing` |
+| `settings` | Preferences and config | `personalSettings`, `notifications` |
+| `goodbye` | Account deletion | `confirmDelete`, `feedback` |
+| `errors` | Error messages | `notFound`, `serverError`, `validation` |
+
+Each namespace maps to a JSON file: `apps/web/i18n/messages/{locale}/{namespace}.json`
+
+## Configuration Reference
+
+### Routing Configuration
+
+Located in `packages/i18n/src/routing.ts`:
+
+```typescript
+import { defineRouting } from 'next-intl/routing';
+
+export const routing = defineRouting({
+  // Supported locales
+  locales,
+
+  // Default locale (no URL prefix)
+  defaultLocale,
+
+  // URL prefix strategy
+  localePrefix: 'as-needed',
+
+  // Auto-detect from browser
+  localeDetection: true,
+});
+```
+
+### Available Locale Prefix Modes
+
+| Mode | Description | Example URLs |
+|------|-------------|--------------|
+| `as-needed` | Default locale has no prefix | `/about`, `/es/about` |
+| `always` | All locales have prefix | `/en/about`, `/es/about` |
+| `never` | No locale prefixes | `/about` (locale from cookie/header) |
+
+### Supported Locales
+
+Defined in `packages/i18n/src/locales.tsx`:
+
+```typescript
+import { defaultLocale } from './default-locale';
+
+export const locales: string[] = [
+  defaultLocale,
+  // Add more locales:
+  // 'es', // Spanish
+  // 'fr', // French
+  // 'de', // German
+];
+```
+
+### Default Locale
+
+Configured via environment variable or fallback:
+
+```typescript title="packages/i18n/src/default-locale.ts"
+export const defaultLocale = process.env.NEXT_PUBLIC_DEFAULT_LOCALE ?? 'en';
+```
+
+Set in your `.env` file:
+
+```bash
+NEXT_PUBLIC_DEFAULT_LOCALE=en
+```
+
+## Server vs Client Components
+
+next-intl works differently in Server and Client Components:
+
+| Context | API | Notes |
+|---------|-----|-------|
+| Server Components | `getTranslations()` | Async, direct access to messages |
+| Client Components | `useTranslations()` | Hook, requires provider context |
+| Metadata | `getTranslations()` | Use in `generateMetadata()` |
+| Middleware | `createIntlMiddleware()` | Handles locale detection/routing |
+
+See [Using Translations](./using-translations) for detailed examples.
+
+## Testing Considerations
+
+When testing components with translations:
+
+```typescript
+import { NextIntlClientProvider } from 'next-intl';
+import messages from '@/i18n/messages/en/common.json';
+
+function renderWithI18n(component: React.ReactNode) {
+  return render(
+    <NextIntlClientProvider locale="en" messages={{ common: messages }}>
+      {component}
+    </NextIntlClientProvider>
+  );
+}
+```
+
+## Common Patterns
+
+### Conditional Content by Locale
+
+```typescript
+import { getLocale } from 'next-intl/server';
+
+async function PricingPage() {
+  const locale = await getLocale();
+
+  // Show different pricing for different regions
+  const prices = locale === 'en'
+    ? { monthly: '$19', annual: '$190' }
+    : { monthly: '17', annual: '170' };
+
+  return <PricingTable prices={prices} currency={locale === 'en' ? 'USD' : 'EUR'} />;
+}
+```
+
+### Locale-Specific Formatting
+
+```typescript
+import { getLocale } from 'next-intl/server';
+
+async function DateDisplay({ date }: { date: Date }) {
+  const locale = await getLocale();
+
+  const formatted = new Intl.DateTimeFormat(locale, {
+    dateStyle: 'long',
+  }).format(date);
+
+  return <time dateTime={date.toISOString()}>{formatted}</time>;
+}
+```
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "What i18n library does MakerKit use?", "answer": "MakerKit uses next-intl, a popular internationalization library for Next.js that provides full support for React Server Components, streaming, and automatic locale detection. It uses ICU message format for pluralization and formatting."},
+     {"question": "How do I add a new language to my MakerKit app?", "answer": "Add the locale code to the locales array in packages/i18n/src/locales.tsx, create translation JSON files in apps/web/i18n/messages/{locale}/, and restart the dev server. The language selector will automatically appear in user settings."},
+     {"question": "Where are translation files stored?", "answer": "Translation files are stored in apps/web/i18n/messages/{locale}/ as JSON files. Each namespace (common, auth, billing, etc.) has its own file. Email templates have separate translations in packages/email-templates/src/locales/."},
+     {"question": "How does locale detection work?", "answer": "The middleware detects locale from: 1) URL path prefix (/es/dashboard), 2) NEXT_LOCALE cookie from previous preference, 3) Browser Accept-Language header, 4) Default locale fallback. Users can change their preference in settings."},
+     {"question": "Can I use different URL structures for locales?", "answer": "Yes, next-intl supports three modes: 'as-needed' (default locale has no prefix), 'always' (all locales have prefix), and 'never' (no prefixes, locale from cookie/header). Configure this in packages/i18n/src/routing.ts."},
+     {"question": "How do I translate emails?", "answer": "Email templates use a separate translation system in the @kit/email-templates package. Create JSON files in packages/email-templates/src/locales/{locale}/ and pass the user's language preference when rendering emails."}
+   ]
+/%}
+
+---
+
+**Next:** [Setup Guide](./setup) | [Using Translations](./using-translations)

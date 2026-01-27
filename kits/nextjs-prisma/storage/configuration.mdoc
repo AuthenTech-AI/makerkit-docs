@@ -1,0 +1,130 @@
+---
+status: "published"
+title: "Storage Configuration"
+label: "Configuration"
+order: 2
+description: "Configure storage providers and environment variables."
+---
+
+The storage package uses environment variables to configure the storage provider and connection settings.
+
+## Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `STORAGE_PROVIDER` | Provider name (`fs`, `s3`, or a registered provider key) | `fs` |
+| `STORAGE_BASE_URL` | Base URL for public file access | Provider-specific |
+
+## Provider Selection
+
+Set the `STORAGE_PROVIDER` variable in your `.env` file. By default, we support `fs` for local development, or `s3` for AWS S3 or any S3-compatible provider.
+
+```bash
+# Local filesystem (development)
+STORAGE_PROVIDER=fs
+
+# AWS S3 (or any S3-compatible provider)
+STORAGE_PROVIDER=s3
+```
+
+## Development Configuration
+
+For local development, the filesystem driver is used by default:
+
+```bash
+# .env.local
+STORAGE_PROVIDER=fs
+STORAGE_BASE_URL=/storage.dev
+```
+
+Files are stored in `./public/storage.dev` and accessible via HTTP at `/storage.dev/*`.
+
+**Note:** The filesystem driver is only available in non-production environments (`NODE_ENV !== 'production'`).
+
+## Production Configuration
+
+For production, configure a cloud provider. Example for S3:
+
+```bash
+# .env.production
+STORAGE_PROVIDER=s3
+STORAGE_BASE_URL=https://my-bucket.s3.us-east-1.amazonaws.com
+
+# AWS S3 or any S3-compatible provider credentials
+STORAGE_S3_ACCESS_KEY_ID=your-access-key
+STORAGE_S3_SECRET_ACCESS_KEY=your-secret-key
+# Optional for S3-compatible providers (R2, MinIO, etc.)
+STORAGE_S3_ENDPOINT=https://your-endpoint
+STORAGE_S3_REGION=us-east-1
+STORAGE_S3_BUCKET=my-bucket
+```
+
+## Base URL Configuration
+
+The `STORAGE_BASE_URL` is used to generate public URLs for uploaded files:
+
+```typescript
+// If STORAGE_BASE_URL=https://cdn.example.com
+// And file key is: uploads/image.png
+// Generated URL: https://cdn.example.com/uploads/image.png
+```
+
+For S3 with a custom domain or CDN:
+
+```bash
+STORAGE_BASE_URL=https://cdn.example.com
+```
+
+For S3 bucket URL:
+
+```bash
+STORAGE_BASE_URL=https://my-bucket.s3.us-east-1.amazonaws.com
+```
+
+For local development, `STORAGE_BASE_URL` can be a relative path such as `/storage.dev`.
+
+## Registry Pattern
+
+The package uses a registry pattern to manage providers. Providers are lazily loaded and cached.
+
+Makerkit ships with an S3-compatible provider, which covers most services (AWS S3, Cloudflare R2, Backblaze B2, MinIO). If you need another driver, register it in the storage registry:
+
+1. **Find a driver** in the [Unstorage drivers list](https://unstorage.unjs.io/drivers)
+2. **Register it** in the storage registry
+
+For example, we want to use [Netlify Blob](https://unstorage.unjs.io/drivers/netlify):
+
+```typescript {% title="packages/storage/src/registry.ts" %}
+import { storageRegistry } from '@kit/storage';
+
+// Register a custom provider
+storageRegistry.register('netlify-blob', async () => {
+  const { createStorage } = await import("unstorage");
+
+  const { default: netlifyBlobsDriver } =
+    await import("unstorage/drivers/netlify-blobs");
+
+  const storage = createStorage({
+    driver: netlifyBlobsDriver({
+      name: "blob-store-name",
+    }),
+  });
+});
+```
+
+Then, set the `STORAGE_PROVIDER` environment variable to `netlify-blob`:
+```bash
+STORAGE_PROVIDER=netlify-blob
+```
+
+And use the storage service as usual:
+
+```typescript
+const storage = await getStorageService();
+```
+
+Note: `getStorageService()` returns an instance of the [Unstorage API](https://unstorage.unjs.io/guide), so you can use the complete API reference there.
+
+---
+
+**Next:** [Usage](./usage)

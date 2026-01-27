@@ -1,0 +1,605 @@
+---
+status: "published"
+title: "Production Readiness and Deployment for Makerkit Next.js Drizzle"
+label: "Production Readiness"
+order: 12
+description: "Complete production deployment guide for your Next.js SaaS. Learn database migration strategies, authentication security hardening, Stripe live configuration, email deliverability optimization, and deployment with Vercel or Docker."
+---
+
+You've built TeamPulse from the ground up - database schema, authentication, billing, and a polished admin dashboard. Now it's time to take everything you've built and prepare it for real users. 
+
+Production deployment introduces new challenges: secure credential management, reliable database migrations, and the operational concerns that only matter when actual customers depend on your application.
+
+This module walks you through each production consideration systematically. Rather than a simple checklist, you'll understand *why* each configuration matters and what can go wrong if you skip it.
+
+By the end, you'll have confidence that TeamPulse is secure, monitored, and ready for launch.
+
+**What you'll accomplish:**
+- Understand production vs development differences
+- Configure authentication, billing, and email for production
+- Learn deployment options
+- Complete a security and performance checklist
+- Have a pre-launch checklist ready
+
+---
+
+## Production Environment Overview
+
+The development environment is designed for fast iteration - you can break things, reset databases, and experiment freely. Production is the opposite: every change must be deliberate, errors affect real users, and security is non-negotiable.
+
+### Development vs Production
+
+The table below summarizes the key differences. Notice that production isn't just "development with a different URL" - each aspect requires its own configuration and careful handling:
+
+| Aspect | Development | Production |
+|--------|-------------|------------|
+| **URL** | http://localhost:3000 | https://yourdomain.com |
+| **Database** | Local Docker PostgreSQL | Managed PostgreSQL (SSL) |
+| **Email** | Mailpit (captured locally) | Resend or production SMTP |
+| **Stripe** | Test keys (pk_test_) | Live keys (pk_live_) |
+| **Errors** | Verbose console output | Error tracking (Sentry) |
+
+### Environment Variable Categories
+
+Next.js distinguishes between public and private environment variables. This distinction is crucial for security - leaking a secret key to the browser would expose your entire application.
+
+**Public variables** are bundled into your client-side JavaScript. Anyone can see them in the browser's Network tab or by inspecting your JavaScript bundle. Only include values that are safe to expose publicly:
+
+```bash
+# Prefix with NEXT_PUBLIC_
+NEXT_PUBLIC_SITE_URL=https://teampulse.com
+NEXT_PUBLIC_ACCOUNT_MODE=organizations-only
+```
+
+**Private variables** remain on the server. Next.js deliberately excludes them from client bundles. Never prefix these with `NEXT_PUBLIC_`, and never log them or pass them to client components:
+
+```bash
+# No prefix - never sent to browser
+DATABASE_URL=postgresql://...
+BETTER_AUTH_SECRET=random-32-char-secret
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+```
+
+## Database for Production
+
+Your local Docker PostgreSQL was perfect for development, but production requires a managed database service. 
+
+Managed providers handle backups, security patches, high availability, and scaling - tasks that would otherwise consume significant time and expertise.
+
+### Managed PostgreSQL Providers
+
+Each provider has different strengths. Choose based on your team's needs and budget:
+
+| Provider | Best For | Notes |
+|----------|----------|-------|
+| **Supabase** | Quick setup | Built on PostgreSQL, includes auth (not used) |
+| **Neon** | Serverless | Auto-scaling, branching for dev |
+| **AWS RDS** | Enterprise | Full control, more setup |
+| **PlanetScale** | Performance | Postgres or MySQL |
+
+### Migration Strategy
+
+Database migrations in production require a different approach than development. In development, you can wipe and recreate the database freely. In production, you're managing real customer data that can never be lost.
+
+We do not recommend using Drizzle's `push` command, but to always generate migration files and apply them before deploying to production.
+
+Each migration is a versioned SQL file that can be reviewed, tested, and rolled back if needed. This deliberate process protects against accidental data loss:
+
+```bash
+# 1. Generate migration files
+pnpm --filter @kit/database drizzle:generate
+
+# 2. Review generated SQL in /packages/database/src/schema/
+
+# 3. Run migrations before deployment
+pnpm --filter @kit/database drizzle:migrate
+```
+
+### Migration Best Practices
+
+Each of these practices protects your production data from common migration failures:
+
+1. **Add nullable columns** - Adding a required column without a default value fails immediately on tables with existing rows. Either make new columns nullable, provide a default value, or use a multi-step migration.
+2. **Test on staging first** - Run every migration against a copy of production data before applying to production. This catches issues with existing data that unit tests miss.
+3. **Backup before migrating** - Even with careful testing, migrations can fail partway through. Point-in-time recovery lets you restore to moments before the migration started.
+4. **Run migrations before deployment** - If migrations run during application startup and fail, your new code deploys without the database changes it expects. Run migrations as a separate CI/CD step that must succeed before deployment proceeds.
+
+---
+
+## Authentication in Production
+
+Authentication is the most security-critical component of your application. A compromised auth system exposes all user data and allows attackers to impersonate any user. Better Auth handles most security concerns automatically, but you must configure it correctly.
+
+### Required Configuration
+
+The `BETTER_AUTH_SECRET` cryptographically signs session tokens. If an attacker discovers this secret, they can forge valid sessions for any user. Generate a strong random value and never commit it to version control:
+
+```bash
+# Random 32+ character secret (generate with: openssl rand -hex 32)
+BETTER_AUTH_SECRET=your-random-secret-at-least-32-characters
+
+# Your production URL (HTTPS required)
+NEXT_PUBLIC_SITE_URL=https://teampulse.com
+```
+
+> **Note:** Better Auth uses `NEXT_PUBLIC_SITE_URL` for CORS and origin validation automatically.
+
+### Session Security
+
+Better Auth configures secure cookie settings automatically in production. Understanding these settings helps you audit your security posture:
+
+- **secure: true** - Cookies transmit only over HTTPS, preventing interception on insecure networks
+- **httpOnly: true** - JavaScript cannot access the cookie, blocking XSS attacks from stealing sessions
+- **sameSite: lax** - Cookies aren't sent with cross-site requests, preventing CSRF attacks
+
+### OAuth Redirect URLs
+
+OAuth providers validate redirect URLs to prevent authorization code interception attacks. You must register your production URLs in each provider's dashboard - attempts to redirect elsewhere will fail:
+
+**Google Cloud Console:**
+```
+Authorized redirect URIs:
+https://teampulse.com/api/auth/callback/google
+```
+
+**GitHub Developer Settings:**
+```
+Authorization callback URL:
+https://teampulse.com/api/auth/callback/github
+```
+
+### OAuth Provider Configuration
+
+Create separate OAuth applications for production - don't reuse development credentials. Production credentials should have stricter redirect URL restrictions and be stored only in your production environment:
+
+```bash
+# Production OAuth credentials
+GOOGLE_CLIENT_ID=your-production-client-id
+GOOGLE_CLIENT_SECRET=your-production-client-secret
+
+# Add other providers as needed
+GITHUB_CLIENT_ID=...
+GITHUB_CLIENT_SECRET=...
+```
+
+---
+
+## Billing/Stripe Production Setup
+
+Stripe maintains completely separate environments for testing and production. Test mode charges don't process real payments - you can experiment freely without affecting real money. Production mode processes real charges against real credit cards.
+
+### Test vs Live Keys
+
+The key prefix tells you immediately which environment you're using. Mixing keys (e.g., live publishable with test secret) causes authentication failures:
+
+| Key Type | Prefix | Use |
+|----------|--------|-----|
+| Test Secret | sk_test_ | Development |
+| Live Secret | sk_live_ | Production |
+| Test Webhook Secret | whsec_test_ | Development |
+| Live Webhook Secret | whsec_live_ | Production |
+
+### Production Configuration
+
+You'll need to create new products and prices in Stripe's live mode - test mode products don't exist in production. The price IDs will be different, so update all environment variables:
+
+```bash
+# Stripe live keys
+STRIPE_SECRET_KEY=sk_live_...
+
+# Production webhook secret (different from test)
+STRIPE_WEBHOOK_SECRET=whsec_...
+
+# Price IDs (create new products for production)
+NEXT_PUBLIC_STRIPE_PRO_MONTHLY_PLAN_ID=price_live_...
+NEXT_PUBLIC_STRIPE_PRO_YEARLY_PLAN_ID=price_live_...
+```
+
+### Production Webhook Setup
+
+Webhooks allow Stripe to notify your application about payment events - subscription created, payment failed, trial ending, etc. Without webhooks, your application won't know when customers successfully complete checkout or when their subscriptions change.
+
+Create a production webhook endpoint (separate from your test endpoint):
+
+1. Go to **Stripe Dashboard → Developers → Webhooks**
+2. Click **Add endpoint**
+3. Enter URL: `https://teampulse.com/api/auth/stripe/webhook`
+4. Select events:
+   - `checkout.session.completed`
+   - `customer.subscription.created`
+   - `customer.subscription.updated`
+   - `customer.subscription.deleted`
+5. Copy the signing secret to `STRIPE_WEBHOOK_SECRET`
+
+**Note**: if you added certain lifecycle hooks, you should also add the events for the lifecycle hooks. For example, if you added the `onTrialEnding` hook, you should also add the `customer.subscription.trial_will_end` event - and so on.
+
+### Stripe Checklist
+
+Before launching, verify every component of the billing flow works with live credentials:
+
+- [ ] Create production products and prices in Stripe Dashboard
+- [ ] Update price IDs in environment variables
+- [ ] Configure production webhook endpoint
+- [ ] Verify webhook events are received
+- [ ] Set up failed payment email notifications in Stripe
+
+---
+
+## Email in Production
+
+Email deliverability is often underestimated. Sending from an unverified domain, using generic provider domains, or missing authentication records will land your emails in spam folders - or block them entirely. Proper email configuration directly impacts user experience and conversion rates. 
+
+Now, you... don't want your emails to end up in spam folders, right?
+
+### Provider Options
+
+Choose a provider based on your volume and integration preferences. Both options below deliver reliably when configured correctly:
+
+**Option 1: Resend (Recommended)** - Modern API, excellent developer experience, built-in analytics:
+
+```bash
+MAILER_PROVIDER=resend
+RESEND_API_KEY=re_live_...
+EMAIL_SENDER=TeamPulse <noreply@teampulse.com>
+```
+
+**Option 2: SMTP (SendGrid, AWS SES, etc.)** - Traditional approach, works with any SMTP-compatible provider:
+
+```bash
+MAILER_PROVIDER=nodemailer
+EMAIL_HOST=smtp.sendgrid.net
+EMAIL_PORT=587
+EMAIL_TLS=true
+EMAIL_USER=apikey
+EMAIL_PASSWORD=SG.your-sendgrid-api-key
+EMAIL_SENDER=TeamPulse <noreply@teampulse.com>
+```
+
+### Domain Verification
+
+Email providers and recipients verify sender authenticity through DNS records. Without proper verification, your emails may be rejected or marked as spam. These records prove you control the domain you're sending from:
+
+**Resend:**
+1. Add domain in Resend dashboard
+2. Add DNS records (SPF, DKIM, DMARC)
+3. Wait for verification
+
+**SMTP providers:**
+1. Verify domain in provider dashboard
+2. Configure SPF record: `v=spf1 include:sendgrid.net ~all`
+3. Set up DKIM signing
+4. Consider DMARC policy
+
+**SPF** (Sender Policy Framework) lists which servers can send email for your domain. **DKIM** (DomainKeys Identified Mail) cryptographically signs messages to prove they haven't been tampered with. **DMARC** tells receiving servers what to do when SPF or DKIM checks fail.
+
+### Email Checklist
+
+Test every email your application sends before launching - broken password reset emails lock users out of their accounts:
+
+- [ ] Choose email provider (Resend recommended)
+- [ ] Verify sending domain
+- [ ] Update EMAIL_SENDER with your domain
+- [ ] Test all email types (verification, password reset, invitations)
+- [ ] Check emails don't land in spam
+
+---
+
+## Deployment Options
+
+Your deployment choice affects operational complexity, cost, and scaling behavior. 
+- Vercel optimizes specifically for Next.js and handles most operational concerns automatically. 
+- Railway is a great option if you want to deploy your application to a managed platform without maintaining your own infrastructure.
+- Docker provides flexibility for teams with existing infrastructure or specific compliance requirements.
+
+**Note**: these are just some of the options available. There are many other deployment platforms out there, and you can use any of them if you want.
+
+### Option 1: Vercel
+
+Vercel provides the easiest deployment for Next.js applications. The platform auto-detects Next.js projects, optimizes builds, and handles edge functions, image optimization, and global CDN distribution without configuration:
+
+### Option 2: Railway
+
+Railway is my personal favorite deployment platform. It's easy to use, it's fairly priced, and you can deploy virtually anything you want - including your PostgreSQL database, S3-compatible storage, servers, a Redis cache, and so on.
+
+Railway can support the entire Makerkit stack with ease, and it's a great option if you want to deploy your application to a managed platform without maintaining your own infrastructure.
+
+### Option 3: Self-hosted Docker
+
+For self-hosted deployments on AWS, GCP, DigitalOcean, or your own servers, Makerkit provides a Docker generator that handles the monorepo structure correctly:
+
+```bash
+# Generate Dockerfile and enable standalone output
+pnpm turbo gen docker
+```
+
+This generator:
+1. Adds `output: "standalone"` to next.config.ts
+2. Creates a production-ready Dockerfile for the monorepo
+3. Handles all monorepo-specific paths correctly
+
+Build and run the container:
+
+```bash
+docker build -t teampulse .
+docker run -p 3000:3000 --env-file .env.production teampulse
+```
+
+> **Note:** Don't copy a Dockerfile from tutorials - the monorepo structure requires specific paths. Always use the generator.
+
+### Deployment Checklist
+
+Regardless of platform, verify these items before considering deployment complete:
+
+- [ ] Choose deployment platform
+- [ ] Configure all environment variables
+- [ ] Set up custom domain with SSL
+- [ ] Run database migrations before deployment
+- [ ] Verify all systems work after deployment
+
+---
+
+## Security Checklist
+
+Security isn't a feature you add at the end - it's a property of how your application is built. 
+
+This checklist helps you verify that the security measures built into Makerkit and TeamPulse are properly configured for production.
+
+### Authentication Security
+
+These items protect against session hijacking, credential theft, and authentication bypass:
+
+- [ ] **Strong secret**: BETTER_AUTH_SECRET is 32+ random characters - A weak secret lets attackers forge valid session tokens
+- [ ] **HTTPS only**: NEXT_PUBLIC_SITE_URL uses https:// - HTTP exposes session cookies to network interception
+- [ ] **OAuth configured**: Redirect URLs match production domain - Mismatched URLs cause login failures or enable redirect attacks
+
+### Data Security
+
+These protections guard against the most common web vulnerabilities:
+
+- [ ] **Input validation**: All forms use Zod schemas - Validates data on the server before processing
+- [ ] **SQL injection**: Using Drizzle ORM (parameterized queries) - Query parameters are automatically escaped
+- [ ] **XSS prevention**: React auto-escapes output - User content is rendered as text, not executable HTML
+
+### Access Control
+
+Multi-tenant applications must enforce strict data isolation:
+
+- [ ] **Multi-tenancy**: All queries filter by organizationId - Users see only their organization's data
+- [ ] **Role checks**: Permissions verified server-side - Client-side checks can be bypassed
+- [ ] **Admin protection**: Admin routes require admin role - Super admin functions require explicit role verification
+
+### Environment Security
+
+Credential management prevents the most damaging breaches:
+
+- [ ] **No secrets in code**: All secrets in environment variables - Code is often committed to version control or exposed in builds
+- [ ] **No secrets in logs**: Sensitive data not logged - Logs are often less protected than databases
+- [ ] **Separate keys**: Different API keys for dev/production - Compromised dev keys don't affect production
+
+### Database Security
+
+Your database contains your most valuable asset - customer data:
+
+- [ ] **SSL required**: DATABASE_URL includes ?sslmode=require - Encrypts database traffic against network interception
+- [ ] **Backups enabled**: Provider has automated backups - Point-in-time recovery protects against data loss and ransomware
+- [ ] **Minimal permissions**: DB user has only required permissions - Limits damage if credentials are compromised
+
+---
+
+## Monitoring & Error Tracking
+
+In development, you see errors immediately in your terminal. In production, errors happen silently - users experience problems but you don't know unless they report it (and most won't). Proper monitoring transforms production from a black box into an observable system.
+
+### Sentry Integration
+
+Sentry captures errors with full context: stack traces, user information, request details, and breadcrumbs showing what happened before the error. This context is invaluable for debugging issues you can't reproduce locally:
+
+[Read more about the Sentry Integration](/docs/nextjs-drizzle/monitoring/sentry).
+
+### Uptime Monitoring
+
+External uptime monitors check your application from outside your infrastructure - they'll catch outages that internal monitoring might miss. Configure alerts via SMS, email, or Slack so you know immediately when users can't reach your application:
+
+- **BetterStack** (formerly BetterUptime) - Modern interface, incident management
+- **UptimeRobot** - Free tier available, simple setup
+- **Pingdom** - Enterprise-grade, detailed analytics
+
+Configure to check `/api/healthcheck` every 5 minutes.
+
+### Logging Strategy
+
+Effective logging helps you debug production issues without access to the running system. Structure your logging to make searching and filtering easy:
+
+- **Use structured logging (JSON format)** - Enables searching and filtering in log aggregators
+- **Don't log sensitive data (passwords, tokens)** - Logs are often less protected than databases
+- **Log important business events (signups, subscriptions)** - Helps debug user-reported issues
+- **Set appropriate log levels** - Info in production, debug in development; verbose logging impacts performance
+
+### Monitoring Checklist
+
+- [ ] Error tracking configured (Sentry recommended)
+- [ ] Health check endpoint created
+- [ ] Uptime monitoring set up
+- [ ] Important events are logged
+- [ ] Alerts configured for critical errors
+
+---
+
+## Performance Checklist
+
+Performance directly impacts user experience and conversion rates. Slow applications lose users - studies consistently show that page load time correlates with bounce rate. These optimizations ensure TeamPulse remains responsive as usage grows.
+
+### Image Optimization
+
+Images often account for the majority of page weight. Next.js Image component automatically serves appropriately sized images and modern formats:
+
+- [ ] Using Next.js Image component for images
+- [ ] Images have appropriate quality setting (80 recommended)
+- [ ] Large images are properly sized
+
+### Database Performance
+
+Database queries are frequently the bottleneck. Index frequently-filtered columns and avoid fetching data you won't display:
+
+- [ ] Indexes added on frequently queried columns
+- [ ] Queries fetch only needed columns
+- [ ] N+1 queries avoided (use Drizzle relations)
+- [ ] Connection pooling configured
+
+### Bundle Optimization
+
+Large JavaScript bundles increase time-to-interactive. Analyze your bundle and eliminate unnecessary code:
+
+- [ ] Analyze bundle: `pnpm --filter web analyze`
+- [ ] Remove unused dependencies
+- [ ] Dynamic imports for heavy components
+- [ ] Tree shaking working (import only what you need)
+
+---
+
+## Pre-Launch Checklist
+
+This comprehensive checklist consolidates everything you've configured. Work through each section systematically before announcing your launch. A missing checkbox here is a production issue waiting to happen.
+
+### Infrastructure
+
+- [ ] Production database provisioned
+- [ ] Database migrations run
+- [ ] Deployment platform configured
+- [ ] Custom domain with SSL
+- [ ] Environment variables set
+
+### Authentication
+
+- [ ] BETTER_AUTH_SECRET set (32+ chars)
+- [ ] OAuth providers configured for production
+- [ ] Email verification working
+- [ ] Password reset working
+
+### Billing
+
+- [ ] Stripe live keys configured
+- [ ] Production webhook endpoint set up
+- [ ] All price IDs updated
+- [ ] Test purchase completed
+- [ ] Webhook events verified
+
+### Email
+
+- [ ] Production email provider configured
+- [ ] Sending domain verified
+- [ ] All email templates tested
+- [ ] Emails not going to spam
+
+### Security
+
+- [ ] HTTPS enforced
+- [ ] Secrets not in code
+- [ ] Database SSL enabled
+- [ ] Security headers configured
+
+### Monitoring
+
+- [ ] Error tracking enabled
+- [ ] Uptime monitoring configured
+- [ ] Health check responding
+- [ ] Alerts set up
+
+### Testing
+
+- [ ] All critical flows tested manually
+- [ ] E2E tests passing
+- [ ] Mobile responsive verified
+- [ ] Different browsers tested
+
+### Legal & Compliance
+
+- [ ] Privacy policy page
+- [ ] Terms of service page
+- [ ] Cookie consent (if required)
+- [ ] GDPR compliance (if applicable)
+
+---
+
+## Module 12 Complete!
+
+You now have:
+- [x] Understanding of production vs development configuration
+- [x] Knowledge of database, auth, billing, and email production setup
+- [x] Awareness of deployment options (Vercel, Docker)
+- [x] Security checklist for launch
+- [x] Performance optimization checklist
+- [x] Complete pre-launch checklist
+
+**Congratulations!** You've completed the course and built TeamPulse - a fully-featured B2B SaaS application with:
+- Feedback boards with CRUD operations
+- Feedback items with voting and status workflow
+- Public boards for anonymous submissions
+- Google OAuth authentication
+- Role-based permissions (Owner/Admin/Member)
+- Plan limits for boards and feedback
+- Custom email notifications
+- Admin dashboard for platform management
+- Production-ready configuration
+
+More importantly, you've learned the patterns and practices that make Makerkit effective: loaders for data fetching, server actions for mutations, Zod for validation, and the multi-tenant architecture that keeps customer data isolated. These patterns will serve you as you extend TeamPulse or build entirely new applications.
+
+**What's next?** Launch TeamPulse for real users, or use what you've learned to build your own SaaS product. The foundation you've built is production-ready - everything else is iteration based on user feedback.
+
+---
+
+## Troubleshooting Production Issues
+
+### Build Fails on Deployment
+
+If the build fails on Vercel or your CI:
+
+1. Run `pnpm build` locally first to catch errors
+2. Check environment variables are set on the platform
+3. Verify all packages have correct peer dependencies
+4. Look for TypeScript errors: `pnpm typecheck`
+
+### Database Connection Timeouts
+
+If you see connection timeouts in production:
+
+1. Verify connection string includes `?pgbouncer=true` for pooled connections
+2. Check database is in the same region as your app
+3. Ensure SSL mode is enabled: `?sslmode=require`
+4. Review connection pool limits match your plan
+
+### OAuth Callback Failures in Production
+
+If OAuth works locally but not in production:
+
+1. Add production callback URLs to OAuth provider (exact match required)
+2. Verify `NEXT_PUBLIC_SITE_URL` matches your production domain
+3. Check `BETTER_AUTH_URL` is set correctly
+4. Ensure cookies aren't blocked by browser privacy settings
+
+---
+
+## Frequently Asked Questions
+
+{% faq
+   title="Production FAQ"
+   items=[
+     {"question": "Which hosting platform is best for Makerkit?", "answer": "Vercel offers the smoothest experience with automatic deployments and built-in edge functions. Railway is excellent for Docker deployments with included PostgreSQL. Both have generous free tiers for starting out."},
+     {"question": "What's the recommended way to handle secrets?", "answer": "Never commit secrets to git. Use your hosting platform's environment variables (Vercel, Railway) or a secrets manager (AWS Secrets Manager, Doppler). Rotate secrets immediately if exposed."},
+     {"question": "How much will hosting cost to start?", "answer": "You can start free: Vercel hobby plan, Supabase free tier (500MB database), and Stripe test mode. Expect $20-50/month once you have real users and need production database capacity."},
+     {"question": "Should I set up a staging environment?", "answer": "Yes, especially once you have paying customers. Create a separate Vercel project and database for staging. Test all changes there before production. Branch deployments on Vercel make this nearly automatic."}
+   ]
+/%}
+
+Good luck with your launch!
+
+---
+
+## Learn More
+
+- [Going to Production Documentation](/docs/nextjs-drizzle/going-to-production/overview)
+- [Vercel Deployment](https://vercel.com/docs)
+- [Stripe Production Checklist](https://stripe.com/docs/development/checklist)
+- [Resend Documentation](https://resend.com/docs)
+- [Sentry for Next.js](https://docs.sentry.io/platforms/javascript/guides/nextjs/)

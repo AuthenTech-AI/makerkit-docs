@@ -1,115 +1,422 @@
 ---
 status: "published"
 label: "SEO"
-title: SEO - Improve your Next.js application's search engine optimization"
-description:  "Learn how to improve your Makerkit application's search engine optimization (SEO)"
+title: "SEO Configuration for the Next.js Supabase Starter Kit"
+description: "Configure sitemaps, metadata, structured data, and search engine optimization for your Makerkit SaaS application."
 order: 10
 ---
 
-{% sequence title="How to improve your Makerkit application's SEO" description="Learn how to improve your Makerkit application's search engine optimization (SEO)" %}
+SEO in Makerkit starts with Next.js Metadata API for page-level optimization, an auto-generated sitemap at `/sitemap.xml`, and proper robots.txt configuration. The kit handles technical SEO out of the box, so you can focus on content quality and backlink strategy.
 
-[Best Practices for SEO](#best-practices-for-seo)
+{% sequence title="SEO Configuration" description="Set up search engine optimization for your SaaS" %}
 
-[Adding pages to the sitemap](#adding-pages-to-the-sitemap)
+[Configure page metadata](#page-metadata)
 
-[Adding your website to Google Search Console](#adding-your-website-to-google-search-console)
+[Customize the sitemap](#sitemap-configuration)
 
-[Backlinks](#backlinks)
+[Add structured data](#structured-data)
 
-[Content](#content)
-
-[Indexing and ranking take time](#indexing-and-ranking-take-time)
+[Submit to Google Search Console](#google-search-console)
 
 {% /sequence %}
 
-SEO is an important part of building a website. It helps search engines understand your website and rank it higher in search results. In this guide, you'll learn how to improve your Makerkit application's search engine optimization (SEO).
+## Page Metadata
 
-## Best Practices for SEO
+### Next.js Metadata API
 
-Makerkit is already optimized for SEO out of the box. However, there are a few things you can do to improve your application's SEO:
+Use the Next.js Metadata API to set page-level SEO:
 
-1. **Content**: The most important thing you can do to improve your application's SEO is to **create high-quality content**. No amount of technical optimization can replace good content. Make sure your content is relevant, useful, and engaging - and make sure it's updated regularly.
-2. **Write content helpful to your customers**: To write good content, the kit comes with a blog and documentation feature. You can use these features to create high-quality content that will help your website rank higher in search results - and help your customers find what they're looking for.
-3. **Use the correct keywords**: Use descriptive titles and meta descriptions for your pages. Titles and meta descriptions are the first things users see in search results, so make sure they are descriptive and relevant to the content on the page. Use keywords that your customers are likely to search for.
-4. **Optimize images**: Use descriptive filenames and alt text for your images. This helps search engines understand what the image is about and can improve your website's ranking in image search results.
-5. **Website Speed**: This is much less important than it used to be, but it's still a factor. Make sure your website loads quickly and is mobile-friendly. You can use tools like Google's PageSpeed Insights to check your website's speed and get suggestions for improvement. Optimize all images and assets to reduce load times.
-6. **Mobile Optimization**: Make sure your website is mobile-friendly. Google ranks mobile-friendly websites higher in search results. You can use Google's Mobile-Friendly Test to check if your website is mobile-friendly.
-7. **Sitemap and Robots.txt**: Makerkit generates a sitemap and robots.txt file for your website. These files help search engines understand your website's structure and what pages they should index. Make sure to update the sitemap as you add new pages to your website.
-8. **Backlinks**: Backlinks are links from other websites to your website. It's touted to be **the single most important factor in SEO** these days. The more backlinks you have from high-quality websites, the higher your website will rank in search results. You can get backlinks by creating high-quality content that other websites want to link to.
+```tsx {% title="apps/web/app/(marketing)/pricing/page.tsx" %}
+import type { Metadata } from 'next';
 
-### Adding pages to the sitemap
+export const metadata: Metadata = {
+  title: 'Pricing | Your SaaS Name',
+  description: 'Simple, transparent pricing. Start free, upgrade when you need more.',
+  openGraph: {
+    title: 'Pricing | Your SaaS Name',
+    description: 'Simple, transparent pricing for teams of all sizes.',
+    images: ['/images/og/pricing.png'],
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Pricing | Your SaaS Name',
+    description: 'Simple, transparent pricing for teams of all sizes.',
+    images: ['/images/og/pricing.png'],
+  },
+};
 
-Generally speaking, Google will find your pages without a sitemap as it follows the link in your website. However, you can add pages to the sitemap by adding them to the `apps/web/app/server-sitemap.xml/route.ts` route, which is used to generate the sitemap.
-
-If you add more static pages to your website, you can add them to the `getPaths` function in the `apps/web/app/server-sitemap.xml/route.ts` file. For example, if you add a new page at `/about`, you can add it to the `getPaths` function like this:
-
- ```tsx {% title="apps/web/app/server-sitemap.xml/route.ts" %}
-function getPaths() {
-  const paths = [
-    '/',
-    '/faq',
-    '/blog',
-    '/docs',
-    '/pricing',
-    '/contact',
-    '/cookie-policy',
-    '/terms-of-service',
-    '/privacy-policy',
-    // add more paths here,
-    '/about', // <-- add the new page here
-  ];
-
-  return paths.map((path) => {
-    return {
-      loc: new URL(path, appConfig.url).href,
-      lastmod: new Date().toISOString(),
-    };
-  });
+export default function PricingPage() {
+  // ...
 }
 ```
 
-All the blog and documentation pages are automatically added to the sitemap. You don't need to add them manually.
+### Dynamic Metadata
 
-### Adding your website to Google Search Console
+For pages with dynamic content, use `generateMetadata`:
 
-Once you've optimized your website for SEO, you can add it to Google Search Console. Google Search Console is a free tool that helps you monitor and maintain your website's presence in Google search results.
+```tsx {% title="apps/web/app/(marketing)/blog/[slug]/page.tsx" %}
+import type { Metadata } from 'next';
 
-You can use it to check your website's indexing status, submit sitemaps, and get insights into how Google sees your website.
+import { createCmsClient } from '@kit/cms';
 
-The first thing you need to do is verify your website in Google Search Console. You can do this by adding a meta tag to your website's HTML or by uploading an HTML file to your website.
+interface Props {
+  params: Promise<{ slug: string }>;
+}
 
-Once you've verified your website, you can submit your sitemap to Google Search Console. This will help Google find and index your website's pages faster.
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { slug } = await params;
+  const cms = await createCmsClient();
+  const post = await cms.getContentBySlug({ slug, collection: 'posts' });
 
-Please submit your sitemap to Google Search Console by going to the `Sitemaps` section and adding the URL of your sitemap. The URL of your sitemap is `https://your-website.com/server-sitemap.xml`.
+  return {
+    title: `${post.title} | Your SaaS Blog`,
+    description: post.description,
+    openGraph: {
+      title: post.title,
+      description: post.description,
+      images: [post.image],
+      type: 'article',
+      publishedTime: post.publishedAt,
+    },
+  };
+}
+```
 
-Of course, please replace `your-website.com` with your actual website URL.
+### Global Metadata
 
-### Backlinks
+Set default metadata in your root layout at `apps/web/app/layout.tsx`:
 
-Backlinks are said to be the most important factor in modern SEO. The more backlinks you have from high-quality websites, the higher your website will rank in search results - and the more traffic you'll get.
+```tsx {% title="apps/web/app/layout.tsx" %}
+import type { Metadata } from 'next';
 
-How do you get backlinks? The best way to get backlinks is to create high-quality content that other websites want to link to. However, you can also get backlinks by:
+import appConfig from '~/config/app.config';
 
-1. **Guest posting**: Write guest posts for other websites in your niche. This is a great way to get backlinks and reach a new audience.
-2. **Link building**: Reach out to other websites and ask them to link to your website. You can offer to write a guest post or provide a testimonial in exchange for a backlink.
-3. **Social media**: Share your content on social media to reach a wider audience and get more backlinks.
-4. **Directories**: Submit your website to online directories to get backlinks. Make sure to choose high-quality directories that are relevant to your niche.
+export const metadata: Metadata = {
+  title: {
+    default: appConfig.name,
+    template: `%s | ${appConfig.name}`,
+  },
+  description: appConfig.description,
+  metadataBase: new URL(appConfig.url),
+  openGraph: {
+    type: 'website',
+    locale: 'en_US',
+    siteName: appConfig.name,
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
+};
+```
 
-All these methods can help you get more backlinks and improve your website's SEO - and help you rank higher in search results.
+## Sitemap Configuration
 
-### Content
+Makerkit auto-generates a sitemap at `/sitemap.xml`. The configuration lives in `apps/web/app/sitemap.xml/route.ts`.
 
-When it comes to internal factors, content is king. Make sure your content is relevant, useful, and engaging. Make sure it's updated regularly and optimized for SEO.
+### Adding Static Pages
 
-What should you write about? Most importantly, you want to think about how your customers will search for the problem your SaaS is solving. For example, if you're building a project management tool, you might want to write about project management best practices, how to manage a remote team, or how to use your tool to improve productivity.
+Add new pages to the `getPaths` function:
 
-You can use the blog and documentation features in Makerkit to create high-quality content that will help your website rank higher in search results - and help your customers find what they're looking for.
+```tsx {% title="apps/web/app/sitemap.xml/route.ts" %}
+import appConfig from '~/config/app.config';
 
-### Indexing and ranking take time
+function getPaths() {
+  const paths = [
+    '/',
+    '/pricing',
+    '/faq',
+    '/blog',
+    '/docs',
+    '/contact',
+    '/about',          // Add new pages
+    '/features',
+    '/privacy-policy',
+    '/terms-of-service',
+    '/cookie-policy',
+  ];
 
-New websites can take a while to get indexed by search engines. It can take anywhere from a few days to a few weeks (in some cases, even months!) for your website to show up in search results. Be patient and keep updating your content and optimizing your website for search engines.
+  return paths.map((path) => ({
+    loc: new URL(path, appConfig.url).href,
+    lastmod: new Date().toISOString(),
+    changefreq: 'weekly',
+    priority: path === '/' ? 1.0 : 0.8,
+  }));
+}
+```
 
----
+### Dynamic Content
 
+Blog posts and documentation pages are automatically added to the sitemap. The CMS integration handles this:
 
-By following these tips, you can improve your Makerkit application's search engine optimization (SEO) and help your website rank higher in search results. Remember, SEO is an ongoing process, so make sure to keep updating your content and optimizing your website for search engines. Good luck!
+```tsx
+// Blog posts are added automatically
+const posts = await cms.getContentItems({ collection: 'posts' });
+
+posts.forEach((post) => {
+  sitemap.push({
+    loc: new URL(`/blog/${post.slug}`, appConfig.url).href,
+    lastmod: post.updatedAt || post.publishedAt,
+    changefreq: 'monthly',
+    priority: 0.6,
+  });
+});
+```
+
+### Excluding Pages
+
+Exclude pages from the sitemap by not including them in `getPaths()`. For pages that should not be indexed at all, use the `robots` metadata:
+
+```tsx
+export const metadata: Metadata = {
+  robots: {
+    index: false,
+    follow: false,
+  },
+};
+```
+
+## Structured Data
+
+Add JSON-LD structured data for rich search results.
+
+### Organization Schema
+
+Add to your home page or layout:
+
+```tsx {% title="apps/web/app/(marketing)/page.tsx" %}
+import { JsonLd } from '@kit/ui/json-ld';
+
+export default function HomePage() {
+  return (
+    <>
+      <JsonLd
+        data={{
+          '@context': 'https://schema.org',
+          '@type': 'Organization',
+          name: 'Your SaaS Name',
+          url: 'https://yoursaas.com',
+          logo: 'https://yoursaas.com/logo.png',
+          sameAs: [
+            'https://twitter.com/yoursaas',
+            'https://github.com/yoursaas',
+          ],
+        }}
+      />
+      {/* Page content */}
+    </>
+  );
+}
+```
+
+### Product Schema
+
+Add to your pricing page:
+
+```tsx {% title="apps/web/app/(marketing)/pricing/page.tsx" %}
+<JsonLd
+  data={{
+    '@context': 'https://schema.org',
+    '@type': 'SoftwareApplication',
+    name: 'Your SaaS Name',
+    applicationCategory: 'BusinessApplication',
+    offers: {
+      '@type': 'AggregateOffer',
+      lowPrice: '0',
+      highPrice: '99',
+      priceCurrency: 'USD',
+      offerCount: 3,
+    },
+  }}
+/>
+```
+
+### FAQ Schema
+
+Use the Markdoc FAQ node for automatic FAQ schema:
+
+```markdown
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "How do I get started?", "answer": "Sign up for a free account..."},
+     {"question": "Can I cancel anytime?", "answer": "Yes, you can cancel..."}
+   ]
+/%}
+```
+
+### Article Schema
+
+Add to blog posts:
+
+```tsx
+<JsonLd
+  data={{
+    '@context': 'https://schema.org',
+    '@type': 'Article',
+    headline: post.title,
+    description: post.description,
+    image: post.image,
+    datePublished: post.publishedAt,
+    dateModified: post.updatedAt,
+    author: {
+      '@type': 'Person',
+      name: post.author,
+    },
+  }}
+/>
+```
+
+## Robots.txt
+
+The robots.txt file is at `apps/web/public/robots.txt`:
+
+```txt {% title="apps/web/public/robots.txt" %}
+User-agent: *
+Allow: /
+Disallow: /home/
+Disallow: /admin/
+Disallow: /api/
+
+Sitemap: https://yoursaas.com/sitemap.xml
+```
+
+Update the sitemap URL to your production domain.
+
+## Google Search Console
+
+### Verification
+
+1. Go to [Google Search Console](https://search.google.com/search-console)
+2. Add your property (URL prefix method)
+3. Choose verification method:
+   - **HTML tag**: Add to your root layout's metadata
+   - **HTML file**: Upload to `public/`
+
+```tsx
+// HTML tag verification
+export const metadata: Metadata = {
+  verification: {
+    google: 'your-verification-code',
+  },
+};
+```
+
+### Submit Sitemap
+
+After verification:
+
+1. Navigate to **Sitemaps** in Search Console
+2. Enter `sitemap.xml` in the input field
+3. Click **Submit**
+
+Google will crawl and index your sitemap within a few days.
+
+### Monitor Indexing
+
+Check Search Console regularly for:
+
+- **Coverage**: Pages indexed vs. excluded
+- **Enhancements**: Structured data validation
+- **Core Web Vitals**: Performance metrics
+- **Mobile Usability**: Mobile-friendly issues
+
+## SEO Best Practices
+
+### Content Quality
+
+Content quality matters more than technical SEO. Focus on:
+
+- **Helpful content**: Solve problems your customers search for
+- **Unique value**: Offer insights competitors don't have
+- **Regular updates**: Keep content fresh and accurate
+- **Comprehensive coverage**: Answer related questions
+
+### Keyword Strategy
+
+| Element | Recommendation |
+|---------|----------------|
+| Title | Primary keyword near the beginning |
+| Description | Include keyword naturally, focus on click-through |
+| H1 | One per page, include primary keyword |
+| URL | Short, descriptive, include keyword |
+| Content | Use variations naturally, don't stuff |
+
+### Image Optimization
+
+```tsx
+import Image from 'next/image';
+
+<Image
+  src="/images/feature-screenshot.webp"
+  alt="Dashboard showing project analytics with team activity"
+  width={1200}
+  height={630}
+  priority={isAboveFold}
+/>
+```
+
+- Use WebP format for better compression
+- Include descriptive alt text with keywords
+- Use descriptive filenames (`project-dashboard.webp` not `img1.webp`)
+- Size images appropriately for their display size
+
+### Internal Linking
+
+Link between related content:
+
+```tsx
+// In your blog post about authentication
+<p>
+  Learn more about{' '}
+  <Link href="/docs/authentication/setup">
+    setting up authentication
+  </Link>{' '}
+  in our documentation.
+</p>
+```
+
+### Page Speed
+
+Makerkit is optimized for performance out of the box:
+
+- Next.js automatic code splitting
+- Image optimization with `next/image`
+- Font optimization with `next/font`
+- Static generation for marketing pages
+
+Check your scores with [PageSpeed Insights](https://pagespeed.web.dev/).
+
+## Backlinks
+
+Backlinks remain the strongest ranking factor. Strategies that work:
+
+| Strategy | Effort | Impact |
+|----------|--------|--------|
+| Create linkable content (guides, tools, research) | High | High |
+| Guest posting on relevant blogs | Medium | Medium |
+| Product directories (Product Hunt, etc.) | Low | Medium |
+| Open source contributions | Medium | Medium |
+| Podcast appearances | Medium | Medium |
+
+Focus on quality over quantity. One link from a high-authority site beats dozens of low-quality links.
+
+## Timeline Expectations
+
+SEO takes time. Typical timelines:
+
+| Milestone | Timeline |
+|-----------|----------|
+| Initial indexing | 1-2 weeks |
+| Rankings for low-competition terms | 1-3 months |
+| Rankings for medium-competition terms | 3-6 months |
+| Rankings for high-competition terms | 6-12+ months |
+
+Keep creating content and building backlinks. Results compound over time.
+
+## Related Resources
+
+- [Marketing Pages](/docs/next-supabase-turbo/development/marketing-pages) for building optimized landing pages
+- [CMS Setup](/docs/next-supabase-turbo/content/cms) for content marketing
+- [App Configuration](/docs/next-supabase-turbo/configuration/application-configuration) for base URL and metadata settings

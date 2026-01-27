@@ -1,0 +1,144 @@
+---
+status: published
+title: Customization Overview
+label: Customization
+order: 6
+description: Customize billing for your specific business needs
+---
+
+Customize seat calculation logic in `packages/billing/ui/src/services/billing-actions.service.ts`, modify Stripe checkout parameters in `packages/billing/stripe/src/stripe-plugin.ts`, or adjust the billing UI components in `packages/billing/ui/src/components/`. Plan limits are enforced via `billing.checkPlanLimit()` in your application code.
+
+This guide is part of the [Billing & Subscriptions](./overview) documentation.
+
+Billing customization involves modifying seat computation, checkout behavior, plan limit enforcement, or UI components to match your product's specific billing model.
+
+## Seat-Based (Quantity) Billing
+
+For organization billing, Makerkit can charge based on a **seat count** (“quantity billing”). The default behavior:
+
+- Seats are computed from the **organization member count** at checkout time
+- Seats have a **minimum of 1**
+- If the member count can’t be determined, checkout fails (to avoid underbilling)
+
+Where it happens:
+
+- `packages/billing/ui/src/services/billing-actions.service.ts` computes seats for org checkouts.
+
+Provider notes:
+
+- **Stripe**: seats are passed to Stripe via Better Auth’s Stripe subscription upgrade API.
+- **Polar**: seats are currently not applied (Polar checkout is user-centric).
+
+If your product’s “billable seats” differs from “organization members” (e.g., exclude guests, count only active users, count licensed users, etc.), customize the seat computation in the billing actions service.
+
+### Seat enforcement (org invitations)
+
+Stripe’s `seats` value is **purchased quantity**, not “seats available”.
+
+If you want to prevent orgs from exceeding their purchased quantity, you must enforce it in your app logic when:
+
+- inviting members
+- accepting invitations
+
+See: [Seat enforcement for organization invites](./seat-enforcement)
+
+If you want to require billing before orgs can invite/add members (even when there is no seat quantity), implement it via the Policy API (see “Requiring a subscription” in [Seat enforcement for organization invites](./seat-enforcement)).
+
+## Feature Gating With Plan Limits
+
+The billing client exposes config-based plan limits to help you gate features:
+
+```typescript
+import { getBilling } from '@kit/billing-api';
+import { auth } from '@kit/better-auth';
+
+const billing = await getBilling(auth);
+
+const { allowed, current, limit } = await billing.checkPlanLimit({
+  referenceId: organization.id, // or user.id for personal billing
+  limitKey: 'seats',
+  currentUsage: memberCount,
+});
+
+if (!allowed) {
+  throw new Error(`Seat limit reached (${current}/${limit})`);
+}
+```
+
+Notes:
+
+- Limits come from your billing config (`limits` in `docs/billing/billing-configuration`).
+- Limits are **not enforced automatically** - you decide where to check them in your app.
+
+## Entitlements (Stripe-only in this kit)
+
+If you want boolean “feature flags” tied to subscription, Stripe Entitlements can be used via:
+
+- `billing.checkEntitlement(customerId, lookupKey)`
+- `billing.listEntitlements(customerId)`
+
+The kit returns safe defaults when entitlements are unsupported.
+
+## Customizing Stripe Checkout / Customer Creation
+
+The Stripe integration is configured in `packages/billing/stripe/src/stripe-plugin.ts`. Common customizations include:
+
+- Checkout session parameters (tax, billing address collection, metadata)
+- Org customer creation metadata (e.g. add `organizationId`/`slug`)
+- Logging and post-create callbacks
+- Wiring additional Stripe events (e.g. trial reminders via `customer.subscription.trial_will_end`)
+
+See also: [Stripe Setup](./stripe-setup) and [Lifecycle Hooks](./lifecycle-hooks).
+
+## Customizing the Billing UI
+
+The billing UI is implemented in `packages/billing/ui/src/components/` and is designed to be composable:
+
+- `PlanPicker` + `PricingTable` for plan selection
+- `SubscriptionCard` for subscription display and actions
+- Portal / cancel / restore dialogs
+
+For the web app, billing lives at `/settings/billing` (see `apps/web/app/[locale]/(internal)/settings/billing/page.tsx`).
+
+## Decision Rules
+
+**Customize seat computation when:**
+- Your billable seats differ from organization members (e.g., exclude guests, count only active users)
+- You want minimum seat requirements beyond 1
+- You have per-user licensing instead of per-member
+
+**Customize checkout parameters when:**
+- You need to collect additional billing information (tax ID, address)
+- You want to pass custom metadata to Stripe
+- You need to modify proration behavior
+
+**Use plan limits when:**
+- You want to gate features by subscription tier
+- You need to enforce quotas (projects, storage, API calls)
+- You want to show upgrade prompts at limit thresholds
+
+**If unsure:** Start with default seat computation. Add limit checks incrementally where business logic requires enforcement.
+
+## Common Pitfalls
+
+- **Forgetting limits aren't automatic**: `checkPlanLimit()` returns whether an action is allowed - your code must actually block the action.
+- **Modifying core billing packages without understanding dependencies**: Changes to billing types can break multiple packages. Test thoroughly.
+- **Seat computation returning 0**: Always ensure a minimum of 1 seat. Zero seats cause checkout failures.
+- **Inconsistent limit enforcement**: If you check limits in one place but not another, users can bypass restrictions.
+- **Not handling the "no subscription" case**: `checkPlanLimit()` returns `hasSubscription: false` when there's no subscription. Decide if that means "allowed" or "blocked" for your product.
+- **Customizing Polar seats**: Polar doesn't support quantity billing. Seat customization only applies to Stripe.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "How do I change what counts as a 'seat'?", "answer": "Edit the seat computation logic in packages/billing/ui/src/services/billing-actions.service.ts. The default uses organization member count."},
+     {"question": "Can I have usage-based billing instead of seat-based?", "answer": "Yes, but it requires using Stripe Billing Meters or Polar meters. The kit supports recording usage via billing.recordUsage() and retrieving it via billing.getUsage()."},
+     {"question": "How do I show upgrade prompts when limits are reached?", "answer": "Call checkPlanLimit() before actions. When allowed is false, show a modal with a link to the billing page or trigger the checkout flow."},
+     {"question": "Where do I customize the pricing table UI?", "answer": "The PricingTable component is in packages/billing/ui/src/components/. Modify it to change layout, styling, or displayed information."},
+     {"question": "Can I add custom fields to checkout?", "answer": "Yes. Edit the Stripe plugin (packages/billing/stripe/src/stripe-plugin.ts) to add billing_address_collection, custom_fields, or other Stripe checkout session parameters."}
+   ]
+/%}
+
+---
+
+**Next:** [Seat Enforcement →](./seat-enforcement)

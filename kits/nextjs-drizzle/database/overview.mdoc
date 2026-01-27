@@ -1,0 +1,158 @@
+---
+status: "published"
+title: "Database Overview"
+label: "Overview"
+order: 1
+description: "Database architecture for the Next.js Drizzle SaaS Kit: PostgreSQL, Drizzle ORM, multi-tenancy, and type-safe queries."
+---
+
+The Next.js Drizzle SaaS Kit uses **PostgreSQL** as its default database and **Drizzle ORM** for type-safe database operations. You get a production-ready setup with connection pooling, multi-tenant isolation, and in-memory testing out of the box.
+
+## Technology Stack
+
+| Component | Purpose | Why It Matters |
+|-----------|---------|----------------|
+| PostgreSQL | Relational database | ACID compliance, JSON support, excellent hosting options |
+| Drizzle ORM | Type-safe query builder | SQL-like syntax, minimal runtime overhead, full TypeScript inference |
+| Drizzle Kit | Schema migrations | Generate SQL from TypeScript, strict mode catches errors early |
+| PGlite | In-memory PostgreSQL | Fast isolated tests without Docker or external services |
+
+## Package Structure
+
+The database layer lives in the `@kit/database` package:
+
+```
+packages/database/
+├── src/
+│   ├── adapters/
+│   │   └── postgres.ts       # PostgreSQL connection with pooling
+│   ├── schema/
+│   │   ├── core.ts           # Better Auth tables (auto-generated)
+│   │   └── schema.ts         # Your app tables (extend here)
+│   ├── auth/
+│   │   └── context.ts        # Multi-tenant auth context utilities
+│   ├── services/
+│   │   └── rate-limit.service.ts
+│   ├── test-utils/           # Testing utilities with PGlite
+│   ├── client.ts             # Database client export
+│   └── index.ts              # Package exports
+├── drizzle.config.mjs        # Drizzle Kit configuration
+└── package.json
+```
+
+## Why PostgreSQL?
+
+PostgreSQL handles the core requirements of a SaaS application:
+
+- **ACID compliance** for reliable transactions
+- **JSON/JSONB support** for flexible metadata storage
+- **Full-text search** without external dependencies
+- **Row-level security** for multi-tenant isolation (if needed)
+- **Excellent hosting options**: Supabase, Neon, Railway, AWS RDS, and self-hosted
+
+The kit uses the `postgres` driver with connection pooling configured for both production and development environments.
+
+## Why Drizzle ORM?
+
+Drizzle provides a different tradeoff than Prisma: less abstraction, more control.
+
+- **Type-safe queries** with full TypeScript inference
+- **SQL-like syntax** that maps directly to the generated SQL
+- **Minimal runtime overhead** (no query engine, just a thin wrapper)
+- **Relational queries** via the `with` option for joins without manual SQL
+- **Schema-as-code** with migrations generated from TypeScript definitions
+
+If you've used SQL before, Drizzle feels familiar. The queries you write look like the SQL they generate.
+
+## Connection Handling
+
+The adapter uses a singleton pattern to prevent connection exhaustion during development:
+
+```typescript {% title="packages/database/src/adapters/postgres.ts" %}
+import { drizzle } from 'drizzle-orm/postgres-js';
+import postgres from 'postgres';
+
+let db: Database;
+
+if (process.env.NODE_ENV === 'production') {
+  db = createDrizzle(createPostgres());
+} else {
+  // Reuse connection across hot reloads
+  if (!global.db) {
+    global.db = createDrizzle(createPostgres());
+  }
+  db = global.db;
+}
+
+function createPostgres() {
+  return postgres(databaseUrl, { prepare: false });
+}
+```
+
+{% callout type="warning" title="Why prepare: false?" %}
+This disables prepared statements, which is **required** when using transaction pooling mode. Managed PostgreSQL services like Supabase and Neon use transaction pooling by default. Without this setting, you'll see errors like "prepared statement already exists".
+{% /callout %}
+
+## Multi-Tenancy Model
+
+All tenant data is isolated by organization. The kit provides auth context utilities to enforce this:
+
+```typescript
+import { createOrgAuthContext } from '@kit/database';
+
+const ctx = createOrgAuthContext(userId, organizationId, role);
+
+// Filter queries by organization
+const projects = await db
+  .select()
+  .from(projectsTable)
+  .where(ctx.org(projectsTable));
+
+// Auto-fill organizationId on inserts
+await db.insert(projectsTable).values(
+  ctx.values(projectsTable, { name: 'New Project' })
+);
+```
+
+This pattern prevents accidental cross-tenant data access. The `ctx.org()` method generates `eq(projectsTable.organizationId, organizationId)`, and `ctx.values()` automatically adds the `organizationId` field to your insert data.
+
+## Alternative Databases
+
+While PostgreSQL is recommended, you can migrate to MySQL or SQLite if your infrastructure requires it:
+
+- [Migrating to MySQL](./mysql) for AWS Aurora, PlanetScale, or existing MySQL infrastructure
+- [Migrating to SQLite](./sqlite) for edge deployments (Cloudflare D1, Turso) or simple setups
+
+The kit uses an adapters pattern that makes switching databases straightforward.
+
+## Quick Reference
+
+| Task | Command |
+|------|---------|
+| Generate migrations | `pnpm --filter @kit/database drizzle:generate` |
+| Apply migrations | `pnpm --filter @kit/database drizzle:migrate` |
+| Open Drizzle Studio | `pnpm --filter @kit/database drizzle:studio` |
+| Run tests | `pnpm --filter @kit/database test:unit` |
+
+## Common Mistakes to Avoid
+
+**Forgetting to filter by organizationId**: Every query on tenant-scoped data must include an organization filter. Use `createOrgAuthContext()` to make this automatic.
+
+**Creating new connections on every request**: Always use the singleton `db` export from `@kit/database`. Creating connections manually leads to pool exhaustion.
+
+**Editing core.ts directly**: The `core.ts` schema file is auto-generated by Better Auth. Add your tables to `schema.ts` instead. Changes to `core.ts` will be overwritten.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Can I use a different database instead of PostgreSQL?", "answer": "Yes, the kit supports MySQL and SQLite through the adapters pattern. PostgreSQL is recommended for most SaaS applications, but you can migrate to MySQL for PlanetScale/Aurora compatibility or SQLite for edge deployments with Turso/D1."},
+     {"question": "How does connection pooling work in development?", "answer": "The adapter uses a global singleton pattern to prevent connection exhaustion during hot reloads. In production, a fresh connection pool is created. The pool is configured with prepare: false to support transaction pooling mode used by hosted PostgreSQL providers."},
+     {"question": "What PostgreSQL version should I use?", "answer": "PostgreSQL 16 or later is recommended. The kit uses gen_random_uuid() for ID generation which requires PostgreSQL 13+, but newer versions provide better performance for JSON operations and query optimization."},
+     {"question": "How is multi-tenancy enforced?", "answer": "All tenant data should be scoped by organizationId. The kit provides createOrgAuthContext() utility that automatically filters queries and adds organizationId to inserts, preventing accidental cross-tenant data access."},
+     {"question": "What is PGlite and why is it used for testing?", "answer": "PGlite is PostgreSQL compiled to WebAssembly that runs in-memory. It provides real PostgreSQL behavior without Docker or external services, making tests fast, isolated, and portable. Each test suite gets a fresh database."}
+   ]
+/%}
+
+---
+
+**Next:** [Drizzle Configuration](./drizzle)

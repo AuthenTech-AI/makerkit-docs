@@ -1,0 +1,106 @@
+---
+status: "published"
+title: "Using Keystatic"
+label: "Keystatic"
+description: "Keystatic is a CMS that stores data in a JSON file or on your GitHub repository. It's the default CMS implementation in the kit."
+order: 1
+---
+
+To use Keystatic, you need to set the `CMS_CLIENT` environment variable to `keystatic`. This is the default value, so you don't need to do anything.
+
+```bash
+CMS_CLIENT=keystatic
+```
+
+## Storage kinds
+Keystatic can be used in two ways:
+
+1. **Local storage**: the content is loaded directly from the file system.
+2. **GitHub storage**: the content is loaded from a GitHub repository. This is best for collaborative content editing or if using Cloudflare.
+
+## Local storage
+
+Keystatic uses the `local` storage kind by default. It is easy to get started with and requires no additional setup. Perfect for personal projects.
+
+```bash
+NEXT_PUBLIC_KEYSTATIC_STORAGE_KIND=local # local, cloud, github
+KEYSTATIC_PATH_PREFIX=apps/web
+NEXT_PUBLIC_KEYSTATIC_CONTENT_PATH=./content
+```
+
+## GitHub storage
+
+You can also use Keystatic Cloud or GitHub as the storage kind as remote storage.
+
+If `NEXT_PUBLIC_KEYSTATIC_STORAGE_KIND` is set to `cloud`, the following environment variables are required:
+
+```bash
+NEXT_PUBLIC_KEYSTATIC_STORAGE_KIND=cloud
+KEYSTATIC_STORAGE_PROJECT=project-id
+```
+
+If `NEXT_PUBLIC_KEYSTATIC_STORAGE_KIND` is set to `github`, the following environment variables are required:
+
+```bash
+NEXT_PUBLIC_KEYSTATIC_STORAGE_KIND=github
+NEXT_PUBLIC_KEYSTATIC_STORAGE_REPO=<your-repo>
+KEYSTATIC_PATH_PREFIX=apps/web
+NEXT_PUBLIC_KEYSTATIC_CONTENT_PATH=./content
+KEYSTATIC_GITHUB_TOKEN=github_**********************************************
+```
+
+Of course, you need to replace the `NEXT_PUBLIC_KEYSTATIC_STORAGE_REPO` and `KEYSTATIC_GITHUB_TOKEN` with your own values.
+
+### GitHub token
+The `KEYSTATIC_GITHUB_TOKEN` is a GitHub token with read permissions to the repository, which you can generate from the GitHub Developer Settings in your account.
+
+**Note**: the GitHub token must have permissions to read to the repository (for read-only).
+
+### GitHub mode
+GitHub mode requires the installation of a GitHub app for displaying the admin.
+
+Please refer to the [Keystatic documentation](https://keystatic.com/docs/) for more information.
+
+If your content folder is not at `content`, you can set the `NEXT_PUBLIC_KEYSTATIC_CONTENT_PATH` environment variable to the correct path. For example, if your content folder is at `data/content`, you can set the `NEXT_PUBLIC_KEYSTATIC_CONTENT_PATH` environment variable as:
+
+```bash
+NEXT_PUBLIC_KEYSTATIC_CONTENT_PATH=apps/web/data/content
+```
+
+## Adding the Keystatic admin to your app
+
+To add the Keystatic admin UI to your app, please run the following command:
+
+```bash
+turbo gen keystatic
+```
+
+Your app will now have a new route at `/keystatic` where you can manage your content.
+
+- **Note**: your GitHub token must have permissions to read to the repository (for read-only).
+- **Note**: by default, the Keystatic admin is only available in a development environment. For production environments, please add some sort of authentication.
+
+## Cloudflare
+
+Cloudflare Workers doesn't send the User-Agent header which the GitHub API requires, so you need to add a little customization  to the `fetch` global at `packages/cms/keystatic/src/keystatic-client.ts`:
+
+```tsx {% title="packages/cms/keystatic/src/keystatic-client.ts" %}
+const self = global || globalThis || this;
+const originalFetch = self.fetch;
+
+self.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+  const requestInit: RequestInit = {
+    ...(init ?? {}),
+    headers: {
+      ...(init?.headers ?? {}),
+      'User-Agent': 'Cloudflare-Workers',
+    }
+  };
+
+  return originalFetch(input, requestInit);
+}
+```
+
+---
+
+**Next:** [Wordpress](./wordpress)

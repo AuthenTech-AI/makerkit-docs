@@ -1,0 +1,155 @@
+---
+status: "published"
+label: "Email Templates"
+description: "Learn how to write email templates in Makerkit with React.Email"
+title: "Email Templates in Makerkit"
+order: 2
+---
+
+Create email templates in MakerKit using React Email components in `packages/email-templates/src/emails/`. Each template is a React component that uses `@react-email/components` for email-safe HTML. Export a render function (e.g., `renderInviteEmail`) that returns HTML via the `render()` function. Import and use with `mailer.sendEmail({ html: renderInviteEmail(props) })`.
+
+This guide is part of the [Email Configuration](./configuration) documentation.
+
+React Email templates are JSX components that compile to email-compatible HTML, using the `@react-email/components` library for layout primitives (Html, Head, Body, Container) and Tailwind CSS for styling.
+
+{% sequence title="Email Templates" description="Learn how to write email templates in MakerKit with React.Email" %}
+
+[Where to find the email templates](#where-to-find-the-email-templates)
+
+[Example of an email template in the kit](#example-of-an-email-template-in-the-kit)
+
+[Creating your own email templates](#creating-your-own-email-templates)
+
+{% /sequence %}
+
+Email templates provide beautiful, consistent transactional emails. MakerKit uses [React Email](https://react.email) for type-safe, component-based email templates.
+
+## Where to find the email templates
+
+Templates are stored in the package `@kit/email-templates` which you can find in the `packages/email-templates` directory.
+
+These templates use [React.Email](https://react.email) to create beautiful-looking email templates.
+
+## Example of an email template in the kit
+
+For example, here is a simplified version of our invitation email template:
+
+```tsx
+import {
+  Body,
+  Head,
+  Html,
+  Preview,
+  Section,
+  Tailwind,
+  Text,
+  render,
+} from '@react-email/components';
+
+interface Props {
+  teamName: string;
+  teamLogo?: string;
+  inviter: string | undefined;
+  invitedUserEmail: string;
+  link: string;
+  productName: string;
+  language?: string;
+}
+
+export async function renderInviteEmail(props: Props) {
+  const previewText = `Join ${props.invitedUserEmail} on ${props.productName}`;
+
+  const html = await render(
+    <Html>
+      <Head />
+      <Preview>{previewText}</Preview>
+
+      <Tailwind>
+        <Body className="mx-auto my-auto bg-gray-50 font-sans">
+          <Section className="mx-auto my-[40px] w-[465px] rounded-lg border border-solid border-[#eaeaea] bg-white p-[20px]">
+            <Text className="text-[14px] leading-[24px] text-black">
+              Hello {props.invitedUserEmail},
+            </Text>
+            <Text className="text-[14px] leading-[24px] text-black">
+              <strong>{props.inviter}</strong> has invited you to the{' '}
+              <strong>{props.teamName}</strong> team on{' '}
+              <strong>{props.productName}</strong>.
+            </Text>
+          </Section>
+        </Body>
+      </Tailwind>
+    </Html>,
+  );
+
+  return {
+    html,
+    subject: `Join ${props.teamName} on ${props.productName}`,
+  };
+}
+```
+
+Note: The actual MakerKit template includes i18n support, a CTA button, team logo display, and shared components. See `packages/email-templates/src/emails/invite.email.tsx` for the full implementation.
+
+## Creating your own email templates
+
+If you want to create your own email templates, you can create a new file in the `packages/email-templates/src/emails` directory and export a function that returns the email template.
+
+Now, export the function from the package.
+
+```tsx {% filename="packages/email-templates/src/index.ts" %}
+export * from './emails/example';
+```
+
+Then, import the function and transform the template into HTML that you can send using the mailer.
+
+```tsx
+import { getMailer } from '@kit/mailers';
+import { renderInviteEmail } from '@kit/email-templates';
+
+async function sendInvitationEmail() {
+  // renderInviteEmail is async and returns { html, subject }
+  const { html, subject } = await renderInviteEmail({
+    teamName: 'My Team',
+    teamLogo: 'https://example.com/logo.png',
+    inviter: 'John Doe',
+    invitedUserEmail: 'user@example.com',
+    link: 'https://app.example.com/invite/abc123',
+    productName: 'MakerKit',
+  });
+
+  const mailer = await getMailer();
+
+  return mailer.sendEmail({
+    to: 'user@example.com',
+    from: process.env.EMAIL_SENDER!,
+    subject,
+    html,
+  });
+}
+```
+
+When building MakerKit's templates, we found that wrapping content in the `Tailwind` component was essential - without it, styles don't inline properly and Gmail strips them.
+
+## Common Pitfalls
+
+- **Missing Tailwind wrapper**: React Email's Tailwind styles only work when wrapped in the `<Tailwind>` component. Without it, classes like `bg-gray-50` are ignored.
+- **Using web-only CSS**: Email clients don't support flexbox universally. Use React Email's `Row`, `Column`, and `Section` components instead of CSS flex/grid.
+- **Forgetting to export from index.ts**: New templates must be exported from `packages/email-templates/src/index.ts` to be importable via `@kit/email-templates`.
+- **Images with relative URLs**: Email clients can't resolve relative paths. Always use absolute URLs (`https://...`) for images.
+- **Not testing in Mailpit**: Preview emails at `localhost:8025` during development. Email rendering varies wildly between clients.
+- **Overly complex layouts**: Deeply nested tables (React Email's compiled output) can break in Outlook. Keep layouts simple with 1-2 levels of nesting.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "How do I preview email templates locally?", "answer": "Send a test email and view it in Mailpit at localhost:8025. React Email also has a dev server: run 'pnpm --filter @kit/email-templates dev' if configured."},
+     {"question": "Can I use custom fonts in emails?", "answer": "Limited support. Web fonts work in Apple Mail and some others, but Gmail and Outlook fall back to system fonts. Use web-safe fonts for reliable rendering."},
+     {"question": "How do I add dynamic content to templates?", "answer": "Templates are React components. Pass props to the component (like teamName, userEmail) and use them in JSX. The render function serializes to static HTML."},
+     {"question": "Why are my styles not applying in Gmail?", "answer": "Gmail strips style tags. React Email's Tailwind component inlines styles, but ensure you're wrapping content in <Tailwind>. Also check that your Tailwind classes are valid."},
+     {"question": "Can I use React hooks in email templates?", "answer": "No. Email templates are rendered server-side to static HTML via the render() function. Hooks require a React runtime which emails don't have."}
+   ]
+/%}
+
+---
+
+**Next:** [Email Inventory →](./email-inventory)

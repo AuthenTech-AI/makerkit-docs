@@ -1,0 +1,100 @@
+---
+status: published
+title: Captcha Plugin
+label: Captcha Plugin
+order: 5
+description: Bot protection with Cloudflare Turnstile
+---
+
+Block automated sign-up and credential stuffing attacks with [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/) - add two environment variables and the captcha appears on auth forms automatically.
+
+This page is part of the [Authentication documentation](./overview).
+
+The captcha plugin protects authentication endpoints from bots and automated attacks using Cloudflare Turnstile. When configured, sign-in, sign-up, and password reset forms require captcha verification before submitting. The plugin uses Turnstile's "invisible" mode by default - most legitimate users pass without interaction, while bots are blocked. The plugin self-disables when credentials aren't set, allowing development without captcha friction.
+
+[Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/) is a privacy-focused captcha alternative that verifies users are human without puzzles, using browser signals and machine learning.
+
+- **Enable captcha when:** you're launching publicly and want to prevent automated attacks, or you're seeing bot traffic on auth endpoints.
+- **Skip captcha when:** you're in early development, running locally, or testing auth flows.
+
+## Setup
+
+### 1. Create Turnstile Widget
+
+1. Go to [Cloudflare Dashboard → Turnstile](https://dash.cloudflare.com/?to=/:account/turnstile)
+2. Click "Add Widget"
+3. Enter your domain(s)
+4. Choose widget mode (Managed recommended)
+5. Copy the Site Key and Secret Key
+
+### 2. Add Environment Variables
+
+```bash {% title="apps/web/.env.local" %}
+TURNSTILE_SECRET_KEY=your_secret_key
+NEXT_PUBLIC_CAPTCHA_SITE_KEY=your_site_key
+```
+
+### 3. Verify It Works
+
+The plugin automatically enables when credentials are present. Sign-in and sign-up forms will show the Turnstile widget. In development, you can use Cloudflare's test keys:
+
+```bash {% title="apps/web/.env.local (testing only)" %}
+# Always passes - for development testing
+TURNSTILE_SECRET_KEY=1x0000000000000000000000000000000AA
+NEXT_PUBLIC_CAPTCHA_SITE_KEY=1x00000000000000000000AA
+```
+
+## How It Works
+
+1. User loads sign-in/sign-up form
+2. Turnstile widget renders (often invisibly)
+3. Turnstile analyzes browser signals
+4. On form submit, a token is included
+5. Server validates token with Cloudflare
+6. If valid, auth proceeds; if invalid, request is rejected
+
+## Configuration
+
+The plugin is in `packages/better-auth/src/plugins/captcha.ts`:
+
+```typescript
+import { captcha } from 'better-auth/plugins/captcha';
+
+export function createCaptchaPlugin() {
+  const secretKey = process.env.TURNSTILE_SECRET_KEY;
+
+  if (!secretKey) {
+    return [] as never; // Disabled when not configured
+  }
+
+  return [
+    captcha({
+      provider: 'cloudflare-turnstile',
+      secretKey,
+    }),
+  ];
+}
+```
+
+## Common Pitfalls
+
+- **Using production keys in development**: Turnstile may block localhost. Use test keys during development.
+- **Mismatched domains**: The Site Key is domain-specific. Add `localhost` to allowed domains for development.
+- **Forgetting the client-side key**: `NEXT_PUBLIC_CAPTCHA_SITE_KEY` must be set for the widget to render.
+- **Testing with headless browsers**: Turnstile blocks headless browsers by default. Use test keys in E2E tests.
+- **Rate limiting on top of captcha**: If you also have rate limiting, captcha failures don't count against rate limits - verify this behavior matches your security needs.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Why Cloudflare Turnstile over reCAPTCHA?", "answer": "Turnstile is privacy-focused (no tracking cookies), often invisible (better UX), and free for most use cases. reCAPTCHA requires user interaction more often."},
+     {"question": "Can I use reCAPTCHA instead?", "answer": "Better Auth supports multiple captcha providers. See the Better Auth captcha documentation for reCAPTCHA configuration."},
+     {"question": "Does captcha protect all endpoints?", "answer": "By default, it protects sign-in, sign-up, and password reset. Other endpoints (like session refresh) do not require captcha."},
+     {"question": "What happens if Cloudflare is down?", "answer": "Turnstile has high availability, but if it fails, the plugin can be configured to fail-open (allow requests) or fail-closed (reject requests). The kit defaults to fail-closed for security."},
+     {"question": "How do I test captcha in E2E tests?", "answer": "Use Cloudflare test keys that always pass. Set them in your E2E test environment configuration."}
+   ]
+/%}
+
+---
+
+**Next:** [OTP Plugin →](./otp-plugin)

@@ -1,0 +1,23 @@
+---
+status: "published"
+title: "Storage Bucket Access"
+label: "Bucket Access"
+order: 6
+description: "Access control for storage buckets."
+---
+
+The application-level service doesn't provide access control for storage buckets. This is because the storage buckets are managed by the hosting provider, and the application-level service doesn't have access to the hosting provider's API.
+
+In short - Storage Buckets' access control must be managed in your hosting provider's console.
+
+The recommended way is to give public access to the `avatars` storage bucket. This way, we can simply store the public URLs in the database and use them in the application - without much hassle. Just please remember to only grant read access to the `avatars` bucket. These are ID-prefixed and unguessable, so we don't need to worry about security too much for public images like avatars.
+
+Keep in mind that "unguessable" URLs are not the same as "secure" - anyone with the URL can access the file. This is perfectly fine for avatars and other public content, but would be a problem for sensitive documents.
+
+For buckets that require access control (private documents, user uploads, etc.), you should:
+
+1. Keep the bucket private
+2. Generate signed URLs server-side when users need to access files
+3. Set appropriate expiration times on the signed URLs
+
+This ensures that only authorized users can access sensitive files, and that access is time-limited.

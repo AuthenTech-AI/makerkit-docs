@@ -1,0 +1,346 @@
+---
+status: "published"
+title: "Server Actions"
+label: "Server Actions"
+order: 3
+description: "Build type-safe server actions for handling user mutations with authentication and validation in your Next.js Drizzle SaaS application."
+---
+
+Server actions are the backbone of data mutations in your application. They run on the server, have full access to your database, and can be called directly from client components without building API endpoints.
+
+## What are Server Actions?
+
+Server Actions are async functions that execute on the server when invoked from the client. They're ideal for form submissions, data mutations, and any operation requiring server-side logic. Key benefits include:
+
+- **Type safety** — Full TypeScript support from client to server
+- **Automatic serialization** — Arguments and return values are serialized automatically
+- **Built-in error handling** — Errors propagate back to the client predictably
+- **Session management** — Access the authenticated user through middleware
+
+## Basic Server Action
+
+At its simplest, a server action is an async function marked with `'use server'`. Always verify authentication before performing operations:
+
+```typescript {% title="apps/web/lib/actions/my-action.ts" %}
+'use server';
+
+import { getSession } from '@kit/better-auth/context';
+
+export async function myAction(data: { name: string }) {
+  const session = await getSession();
+
+  if (!session) {
+    throw new Error('Unauthorized');
+  }
+
+  // Perform operation
+  return { success: true };
+}
+```
+
+## With Validation
+
+Never trust client input. Use Zod schemas to validate data before processing. The `authenticatedActionClient` from `@kit/action-middleware` handles authentication automatically, so you can focus on business logic:
+
+```typescript {% title="apps/web/lib/actions/create-user.ts" %}
+'use server';
+
+import { z } from 'zod';
+
+import { authenticatedActionClient } from '@kit/action-middleware';
+import { db, user } from '@kit/database';
+
+const schema = z.object({
+  name: z.string().min(3),
+  email: z.string().email(),
+});
+
+export const createUserAction = authenticatedActionClient
+  .inputSchema(schema)
+  .action(async ({ parsedInput: validated, ctx }) => {
+    // ctx.user available from middleware
+    // Input already validated by schema
+    const [newUser] = await db.insert(user).values(validated).returning();
+
+    return newUser;
+  });
+```
+
+## Error Handling
+
+Server actions need careful error handling. One common pitfall: Next.js redirects throw special errors that must propagate — catching them breaks navigation:
+
+```typescript
+'use server';
+
+import { isRedirectError } from 'next/dist/client/components/redirect-error';
+
+export async function myAction() {
+  try {
+    await someOperation();
+    return { success: true };
+  } catch (error) {
+    // Don't catch redirects
+    if (isRedirectError(error)) {
+      return;
+    }
+
+    console.error('Action failed:', error);
+    return { 
+      success: false, 
+      error: 'Operation failed' 
+    };
+  }
+}
+```
+
+## With Redirects
+
+Redirecting after a successful operation is common—creating a project should navigate to it. Call `redirect()` after your mutation:
+
+```typescript
+'use server';
+
+import { redirect } from 'next/navigation';
+
+export async function createProject(data: ProjectInput) {
+  const project = await db.insert(projects).values(data);
+  
+  // Redirect to project page
+  redirect(`/projects/${project.id}`);
+}
+```
+
+When calling server actions that redirect from client components, let redirect errors propagate. Catching them prevents navigation:
+
+```typescript
+'use client';
+
+import { isRedirectError } from 'next/dist/client/components/redirect-error';
+
+const onSubmit = async (data) => {
+  try {
+    await createProject(data);
+  } catch (error) {
+    if (isRedirectError(error)) {
+      return;
+    }
+
+    // Handle other errors
+    toast.error('Failed to create project');
+  }
+};
+```
+
+## Using next-safe-action
+
+The codebase uses `next-safe-action` for enhanced server actions. It provides input validation, middleware support, and consistent return types:
+
+```typescript
+'use server';
+
+import { z } from 'zod';
+
+import { authenticatedActionClient } from '@kit/action-middleware';
+
+const schema = z.object({
+  name: z.string(),
+});
+
+export const myAction = authenticatedActionClient
+  .inputSchema(schema)
+  .action(async ({ parsedInput, ctx }) => {
+    // ctx.user available from middleware
+    // parsedInput is validated input
+    return { success: true };
+  });
+```
+
+## Multi-tenancy Pattern
+
+In a multi-tenant application, every operation must be scoped to the current organization. The `organizationActionClient` provides the organization context, or use `withFeaturePermission` to verify specific permissions:
+
+```typescript
+'use server';
+
+import { z } from 'zod';
+
+import { organizationActionClient } from '@kit/action-middleware';
+import { db } from '@kit/database';
+
+const schema = z.object({
+  organizationId: z.string(),
+});
+
+export const getOrganizationDataAction = organizationActionClient
+  .inputSchema(schema)
+  .action(async ({ parsedInput, ctx }) => {
+    // ctx.organizationId and ctx.role available from middleware
+    // User is verified as a member of the organization
+
+    return db.query.projects.findMany({
+      where: (projects, { eq }) => eq(projects.organizationId, ctx.organizationId),
+    });
+  });
+```
+
+## Permission Checks
+
+Authorization should be declarative. Use `withFeaturePermission` for resource-based checks or `withMinRole` for role hierarchy checks:
+
+```typescript
+'use server';
+
+import { z } from 'zod';
+import { eq } from 'drizzle-orm';
+
+import { authenticatedActionClient, withFeaturePermission, withMinRole } from '@kit/action-middleware';
+import { db, project } from '@kit/database';
+
+const schema = z.object({
+  projectId: z.string(),
+});
+
+// Using resource:action permission check
+export const deleteProjectAction = authenticatedActionClient
+  .use(withFeaturePermission({ project: ['delete'] }))
+  .inputSchema(schema)
+  .action(async ({ parsedInput: { projectId }, ctx }) => {
+    // Permission already verified by middleware
+    await db.delete(project).where(eq(project.id, projectId));
+  });
+
+// Or using minimum role check
+export const adminOnlyAction = authenticatedActionClient
+  .use(withMinRole('admin'))
+  .inputSchema(schema)
+  .action(async ({ parsedInput, ctx }) => {
+    // Only admins and owners can reach here
+    // ctx.role is guaranteed to be 'admin' or higher
+  });
+```
+
+## Logging in Server Actions
+
+Adding structured logging helps debug production issues. Use the logger service to track action execution:
+
+```typescript
+'use server';
+
+import { z } from 'zod';
+
+import { authenticatedActionClient } from '@kit/action-middleware';
+import { getLogger } from '@kit/shared/logger';
+
+const schema = z.object({
+  name: z.string(),
+});
+
+export const createProjectAction = authenticatedActionClient
+  .inputSchema(schema)
+  .action(async ({ parsedInput: data, ctx }) => {
+    const logger = (await getLogger()).child({
+      name: 'projects.create',
+      userId: ctx.user.id,
+    });
+
+    logger.info('Creating project...');
+
+    try {
+      // Create project
+      const project = await db.insert(project).values({
+        id: generateId(),
+        name: data.name,
+        // ...
+      }).returning();
+
+      logger.info({ projectId: project[0].id }, 'Project created');
+
+      return { project: project[0] };
+    } catch (error) {
+      logger.error({ error }, 'Failed to create project');
+      throw error;
+    }
+  });
+```
+
+## Best Practices
+
+Follow these guidelines for robust server actions:
+
+1. **Always validate input** — Use Zod schemas for type-safe validation
+2. **Use middleware** — `authenticatedActionClient` handles auth; don't roll your own
+3. **Verify permissions** — Use `withFeaturePermission` or `withMinRole` middleware
+4. **Handle errors carefully** — Use try/catch but let redirects propagate
+5. **Scope to organizations** — Every query should include the organization context
+6. **Add 'use server'** — The directive must be at the top of the file
+7. **Revalidate paths** — Call `revalidatePath()` after mutations to refresh data
+8. **Use logging** — Add structured logs for debugging production issues
+
+## Common Mistakes
+
+### Forgetting to handle redirect errors
+
+```typescript
+// ❌ Wrong - this swallows redirect errors
+const onSubmit = async (data) => {
+  try {
+    await createProject(data);
+  } catch (error) {
+    toast.error('Failed');
+  }
+};
+
+// ✅ Correct - let redirects propagate
+import { isRedirectError } from 'next/dist/client/components/redirect-error';
+
+const onSubmit = async (data) => {
+  try {
+    await createProject(data);
+  } catch (error) {
+    if (isRedirectError(error)) {
+      return; // Let it redirect
+    }
+    toast.error('Failed');
+  }
+};
+```
+
+### Missing organization scope
+
+```typescript
+// ❌ Wrong - returns all projects
+const projects = await db.select().from(project);
+
+// ✅ Correct - scoped to organization
+const organizationId = await getActiveOrganizationId();
+const projects = await db
+  .select()
+  .from(project)
+  .where(eq(project.organizationId, organizationId));
+```
+
+### Not revalidating after mutations
+
+```typescript
+// ❌ Wrong - UI shows stale data
+export const deleteProjectAction = authenticatedActionClient
+  .inputSchema(schema)
+  .action(async ({ parsedInput }) => {
+    await db.delete(project).where(eq(project.id, parsedInput.id));
+  });
+
+// ✅ Correct - revalidate the path
+import { revalidatePath } from 'next/cache';
+
+export const deleteProjectAction = authenticatedActionClient
+  .inputSchema(schema)
+  .action(async ({ parsedInput }) => {
+    await db.delete(project).where(eq(project.id, parsedInput.id));
+    revalidatePath('/projects', 'layout');
+  });
+```
+
+---
+
+**Next:** [Action Middleware →](./action-middleware)

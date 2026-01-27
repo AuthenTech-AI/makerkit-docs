@@ -1,0 +1,240 @@
+---
+status: "published"
+title: "Marketing"
+label: "Marketing"
+order: 9
+description: "Landing page components for heroes, features, and CTAs."
+---
+
+Build landing pages with `Hero`/`HeroTitle` for main sections, `FeatureCard`/`FeatureGrid` for feature showcases, `CtaButton` for calls-to-action, `GradientText` for visual emphasis, `Header`/`Footer` for page structure, and `NewsletterSignup` for email capture. All components export from `@kit/ui/marketing`.
+
+This guide is part of the [UI Components](./overview) documentation.
+
+Marketing components are pre-styled, conversion-optimized UI elements designed for landing pages and promotional content - from hero sections to feature grids - enabling rapid marketing page development.
+
+```typescript
+import { Hero, HeroTitle, SecondaryHero, CtaButton, Pill, GradientText, GradientSecondaryText, FeatureCard, FeatureGrid, FeatureShowcase, NewsletterSignup, Header, Footer, ComingSoon } from '@kit/ui/marketing';
+```
+
+## Hero
+
+Main hero section for landing pages.
+
+```tsx
+<Hero>
+  <HeroTitle>Build your SaaS faster</HeroTitle>
+  <p className="text-muted-foreground text-lg">
+    Launch your product in days, not months.
+  </p>
+  <div className="flex gap-4">
+    <CtaButton>Get Started</CtaButton>
+    <Button variant="outline">Learn More</Button>
+  </div>
+</Hero>
+```
+
+## Hero Title
+
+Large, bold hero heading.
+
+```tsx
+<HeroTitle>
+  The fastest way to build SaaS
+</HeroTitle>
+```
+
+## Secondary Hero
+
+Smaller hero variant for secondary sections.
+
+```tsx
+<SecondaryHero>
+  <h2>Feature Highlight</h2>
+  <p>Description of the feature section.</p>
+</SecondaryHero>
+```
+
+## CTA Button
+
+Call-to-action button with enhanced styling.
+
+```tsx
+<CtaButton>Start Free Trial</CtaButton>
+<CtaButton variant="outline">Learn More</CtaButton>
+```
+
+## Pill
+
+Small badge/pill for labels and tags.
+
+```tsx
+<Pill>New Feature</Pill>
+<Pill>Beta</Pill>
+<Pill>Coming Soon</Pill>
+```
+
+## Gradient Text
+
+Text with gradient color effect.
+
+```tsx
+<h1>
+  Build <GradientText>amazing</GradientText> products
+</h1>
+
+{/* Secondary variant */}
+<GradientSecondaryText>Highlighted text</GradientSecondaryText>
+```
+
+## Feature Card
+
+Card for displaying product features.
+
+```tsx
+<FeatureCard
+  icon={<Zap className="h-6 w-6" />}
+  title="Lightning Fast"
+  description="Optimized for performance out of the box."
+/>
+```
+
+## Feature Grid
+
+Grid layout for feature cards.
+
+```tsx
+<FeatureGrid>
+  <FeatureCard
+    icon={<Shield />}
+    title="Secure"
+    description="Enterprise-grade security."
+  />
+  <FeatureCard
+    icon={<Zap />}
+    title="Fast"
+    description="Optimized performance."
+  />
+  <FeatureCard
+    icon={<Globe />}
+    title="Global"
+    description="CDN deployment worldwide."
+  />
+</FeatureGrid>
+```
+
+## Feature Showcase
+
+Showcase section with image and features list.
+
+```tsx
+<FeatureShowcase
+  heading="Everything you need"
+  description="All the features to build your SaaS"
+  features={[
+    'Authentication built-in',
+    'Multi-tenancy support',
+    'Stripe billing integration',
+    'Beautiful UI components',
+  ]}
+  image="/screenshot.png"
+/>
+```
+
+## Newsletter Signup
+
+Email subscription form.
+
+```tsx
+<NewsletterSignup
+  heading="Stay updated"
+  description="Get the latest news and updates."
+  successMessage="Thanks for subscribing!"
+/>
+```
+
+## Header
+
+Marketing page header with navigation.
+
+```tsx
+<Header
+  logo={<Logo />}
+  navigation={
+    <nav className="flex gap-6">
+      <Link href="/features">Features</Link>
+      <Link href="/pricing">Pricing</Link>
+      <Link href="/docs">Docs</Link>
+    </nav>
+  }
+  actions={
+    <div className="flex gap-2">
+      <Button variant="ghost">Sign In</Button>
+      <Button>Get Started</Button>
+    </div>
+  }
+/>
+```
+
+## Footer
+
+Marketing page footer.
+
+```tsx
+<Footer
+  logo={<Logo />}
+  columns={[
+    {
+      title: 'Product',
+      links: [
+        { label: 'Features', href: '/features' },
+        { label: 'Pricing', href: '/pricing' },
+      ],
+    },
+    {
+      title: 'Company',
+      links: [
+        { label: 'About', href: '/about' },
+        { label: 'Blog', href: '/blog' },
+      ],
+    },
+  ]}
+  copyright="2024 Your Company"
+/>
+```
+
+## Coming Soon
+
+Coming soon page template.
+
+```tsx
+<ComingSoon
+  title="Something big is coming"
+  description="Sign up to be notified when we launch."
+/>
+```
+
+The MakerKit landing page uses these components throughout. We've found FeatureGrid with 3 cards works best for quick scanning, while FeatureShowcase works better for detailed feature explanations.
+
+## Common Pitfalls
+
+- **Hero without proper spacing**: Hero needs vertical padding. If content feels cramped, add `className="py-20"` or adjust container styles.
+- **FeatureGrid uneven cards**: FeatureGrid uses CSS grid. Ensure all FeatureCards have similar content length to prevent uneven heights.
+- **GradientText not visible**: Gradient requires sufficient text size to be visible. Works best on headings, not body text.
+- **Footer columns overflow**: Too many columns or links cause overflow on mobile. Test responsive behavior and limit to 3-4 columns.
+- **NewsletterSignup without backend**: The component handles UI only. You must implement the form submission logic to your email service.
+- **CtaButton without href**: CtaButton is styled but needs `render={<Link href="..." />}` for actual navigation.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Can I use marketing components in the app section?", "answer": "Yes, but they're styled for public-facing pages. For in-app UI, prefer the standard Card, Button, and layout components instead."},
+     {"question": "How do I customize the gradient colors?", "answer": "GradientText uses CSS custom properties. Override --gradient-start and --gradient-end in your CSS or via style prop."},
+     {"question": "Can Header handle mobile navigation?", "answer": "Header provides structure but you need to implement mobile menu logic. Combine with Sheet or Drawer for mobile nav."},
+     {"question": "How do I connect NewsletterSignup to my email service?", "answer": "Pass an onSubmit handler that calls your API route or directly integrates with services like ConvertKit, Mailchimp, or Resend."},
+     {"question": "Is FeatureShowcase responsive?", "answer": "Yes. It stacks image and features vertically on mobile and displays side-by-side on larger screens."}
+   ]
+/%}
+
+---
+
+**Previous:** [Utilities](./utilities)

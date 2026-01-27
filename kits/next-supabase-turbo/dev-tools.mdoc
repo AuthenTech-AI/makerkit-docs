@@ -1,9 +1,213 @@
 ---
 status: "published"
-title: "Developer Tools | Next.js Supabase Turbo"
+title: "Developer Tools for Next.js Supabase SaaS Development"
 label: "Developer Tools"
 order: 17
-description: "Using the Developer Tools to solve common issues in your application"
+description: "Debug environment variables, translations, and configuration issues using Makerkit's built-in developer tools. Validate settings before deployment and troubleshoot common problems."
 collapsible: true
 collapsed: true
 ---
+
+Makerkit includes a dedicated developer tools application that helps you debug configuration issues, validate environment variables, and troubleshoot common problems during development and deployment.
+
+## Why developer tools?
+
+Building a SaaS application involves managing dozens of environment variables, translations, and configuration settings across multiple environments. Common problems include:
+
+- Missing or incorrectly typed environment variables
+- Typos in translation keys
+- Configuration mismatches between development and production
+- Difficulty identifying which variables override others
+
+The developer tools provide a visual interface to catch these issues before they cause runtime errors.
+
+## Accessing the developer tools
+
+Start the developer tools by running:
+
+```bash
+pnpm dev
+```
+
+The dev tools are available at `http://localhost:3010`. Navigate to different sections to debug specific areas of your application.
+
+## Environment variables debugger
+
+The environment variables debugger provides a comprehensive view of all configuration values across your application.
+
+### Features
+
+| Feature | Description |
+|---------|-------------|
+| **Visual validation** | See which variables are valid, invalid, or missing |
+| **Override detection** | Identify when variables are overridden by other files |
+| **Contextual validation** | Validate dependent variables (e.g., Stripe keys when Stripe is enabled) |
+| **Export functionality** | Copy validated variables for your hosting provider |
+
+### Development vs. Production modes
+
+Switch between modes to see how variables resolve in different environments:
+
+**Development mode** uses:
+- `.env`
+- `.env.development`
+- `.env.local`
+
+**Production mode** uses:
+- `.env`
+- `.env.production`
+- `.env.local`
+- `.env.production.local`
+
+### Debugging production variables
+
+To debug production variables safely:
+
+1. Copy variables from your hosting provider
+2. Create `apps/web/.env.production.local` (gitignored)
+3. Paste the variables and select "Production" mode
+4. Analyze the results in the dev tool
+5. Delete the file when done
+
+{% link href="/docs/next-supabase-turbo/dev-tools/environment-variables" title="Environment Variables" description="Complete guide to debugging and validating environment variables." /%}
+
+## Translation debugger
+
+The translation debugger helps identify missing or incorrect translation keys across your application.
+
+### Common issues detected
+
+- **Missing keys**: Translation keys used in code but missing from JSON files
+- **Unused keys**: Translation keys defined but never used
+- **Inconsistent keys**: Keys with different values across languages
+- **Interpolation errors**: Malformed translation placeholders
+
+### Using the translation debugger
+
+```bash
+# Start dev tools
+pnpm dev
+
+# Navigate to translations section
+# http://localhost:3010/translations
+```
+
+The debugger scans:
+- All translation JSON files in `apps/web/public/locales`
+- React components using `useTranslation` or `Trans`
+- Server components using translation utilities
+
+{% link href="/docs/next-supabase-turbo/dev-tools/translations" title="Translations" description="Debug and validate translation files across languages." /%}
+
+## Adding custom environment variables
+
+When you add new environment variables to your application, add them to the dev tool for validation.
+
+### Basic variable
+
+```typescript
+// apps/dev-tool/app/variables/lib/env-variables-model.ts
+{
+  name: 'NEXT_PUBLIC_FEATURE_FLAG',
+  description: 'Enables the new feature',
+  category: 'Features',
+  validate: ({ value }) => {
+    return z.coerce.boolean().optional().safeParse(value);
+  },
+}
+```
+
+### Variable with dependencies
+
+For variables that depend on other variables (e.g., API keys that are required when a feature is enabled):
+
+```typescript
+{
+  name: 'ANALYTICS_API_KEY',
+  description: 'API key for analytics service',
+  category: 'Analytics',
+  contextualValidation: {
+    dependencies: [{
+      variable: 'NEXT_PUBLIC_ANALYTICS_ENABLED',
+      condition: (value) => value === 'true',
+      message: 'API key required when analytics is enabled',
+    }],
+    validate: ({ value }) => {
+      return z.string().min(1).safeParse(value);
+    },
+  },
+}
+```
+
+## Troubleshooting common issues
+
+### Environment variable not recognized
+
+1. Verify the variable is defined in the correct `.env` file
+2. Check for typos in the variable name
+3. Restart the development server after changes
+4. For `NEXT_PUBLIC_` variables, ensure they start with that prefix
+
+### Translation not showing
+
+1. Check the translation key matches exactly
+2. Verify the JSON file is valid (no trailing commas)
+3. Ensure the language code matches your configuration
+4. Clear the Next.js cache: `rm -rf .next`
+
+### Configuration mismatch between environments
+
+1. Use the dev tool's "Production" mode to preview production values
+2. Export variables using the "Copy" button
+3. Compare with your hosting provider's settings
+4. Look for override warnings in the tool
+
+## Best practices
+
+### 1. Validate before deployment
+
+Always check the dev tools in "Production" mode before deploying:
+
+```bash
+# Start dev tools
+pnpm dev
+
+# Check Production mode at http://localhost:3010/variables
+# Resolve any warnings or errors
+```
+
+### 2. Document custom variables
+
+When adding new environment variables, include them in:
+- The dev tool configuration
+- Your project's README
+- The `.env.example` file
+
+### 3. Use contextual validation
+
+Group related variables with contextual validation to catch configuration errors early:
+
+```typescript
+// If Stripe is enabled, all Stripe variables must be set
+{
+  name: 'STRIPE_WEBHOOK_SECRET',
+  contextualValidation: {
+    dependencies: [{
+      variable: 'NEXT_PUBLIC_BILLING_PROVIDER',
+      condition: (value) => value === 'stripe',
+      message: 'Required when using Stripe',
+    }],
+    // ...
+  },
+}
+```
+
+## Developer tools documentation
+
+- [Environment Variables](/docs/next-supabase-turbo/dev-tools/environment-variables) — Debug and validate configuration
+- [Translations](/docs/next-supabase-turbo/dev-tools/translations) — Find missing translation keys
+
+## Related resources
+
+- [Configuration Overview](/docs/next-supabase-turbo/configuration) — Understanding Makerkit configuration
+- [Going to Production](/docs/next-supabase-turbo/going-to-production) — Pre-deployment checklist

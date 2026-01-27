@@ -1,28 +1,61 @@
 ---
 status: "published"
-label: "Account Navigation Configuration"
-title: "Setting your personal account navigation configuration | Next.js Supabase SaaS Kit"
-description: "Learn how to setup the personal account navigation of your Next.js Supabase application"
+label: "Personal Account Navigation"
+title: "Personal Account Navigation in Next.js Supabase"
+description: "Configure the personal account sidebar navigation, layout style, and menu structure in the Next.js Supabase SaaS Kit."
 order: 5
 ---
 
-{% sequence title="Personal Account Navigation Configuration" description="Learn how to setup the personal account navigation of your Next.js Supabase application" %}
+The personal account navigation at `apps/web/config/personal-account-navigation.config.tsx` defines the sidebar menu for personal workspaces. Add your own routes here to extend the dashboard navigation.
 
-[Configuration](#configuration)
+{% alert type="default" title="Where to Add Routes" %}
+This is the file you'll edit most often when building your product. Add dashboard pages, settings sections, and feature-specific navigation items here.
+{% /alert %}
 
-[Layout Style](#layout-style)
+## Layout Options
 
-{% /sequence %}
+| Variable | Options | Default | Description |
+|----------|---------|---------|-------------|
+| `NEXT_PUBLIC_USER_NAVIGATION_STYLE` | `sidebar`, `header` | `sidebar` | Navigation layout style |
+| `NEXT_PUBLIC_HOME_SIDEBAR_COLLAPSED` | `true`, `false` | `false` | Start with collapsed sidebar |
+| `NEXT_PUBLIC_SIDEBAR_COLLAPSIBLE_STYLE` | `offcanvas`, `icon`, `none` | `icon` | How sidebar collapses |
 
-The personal account navigation is set at `apps/web/config/personal-account-navigation.config.tsx`. We use this configuration to define the navigation menu of the personal account. By default, it has three routes: home page, settings, and billing (if enabled).
+### Sidebar Style (Default)
 
-We define it in one place so we can build different views at once (for example, the mobile menu).
+```bash
+NEXT_PUBLIC_USER_NAVIGATION_STYLE=sidebar
+```
 
-## Configuration
+Shows a vertical sidebar on the left with expandable sections.
 
-You define the personal workspace routing configuration at `apps/web/config/personal-account-navigation.config.tsx`:
+### Header Style
 
- ```tsx {% title="apps/web/config/personal-account-navigation.config.tsx" %}
+```bash
+NEXT_PUBLIC_USER_NAVIGATION_STYLE=header
+```
+
+Shows navigation in a horizontal header bar.
+
+### Collapse Behavior
+
+Control how the sidebar behaves when collapsed:
+
+```bash
+# Icon mode: Shows icons only when collapsed
+NEXT_PUBLIC_SIDEBAR_COLLAPSIBLE_STYLE=icon
+
+# Offcanvas mode: Slides in/out as an overlay
+NEXT_PUBLIC_SIDEBAR_COLLAPSIBLE_STYLE=offcanvas
+
+# None: Sidebar cannot be collapsed
+NEXT_PUBLIC_SIDEBAR_COLLAPSIBLE_STYLE=none
+```
+
+## Default Configuration
+
+The kit ships with these routes:
+
+```tsx
 import { CreditCard, Home, User } from 'lucide-react';
 import { z } from 'zod';
 
@@ -60,7 +93,7 @@ const routes = [
             Icon: <CreditCard className={iconClasses} />,
           }
         : undefined,
-    ].filter(route => !!route),
+    ].filter((route) => !!route),
   },
 ] satisfies z.infer<typeof NavigationConfigSchema>['routes'];
 
@@ -68,81 +101,191 @@ export const personalAccountNavigationConfig = NavigationConfigSchema.parse({
   routes,
   style: process.env.NEXT_PUBLIC_USER_NAVIGATION_STYLE,
   sidebarCollapsed: process.env.NEXT_PUBLIC_HOME_SIDEBAR_COLLAPSED,
+  sidebarCollapsedStyle: process.env.NEXT_PUBLIC_SIDEBAR_COLLAPSIBLE_STYLE,
 });
 ```
 
-The configuration allows you to define route groups. You can add a route's children by setting the `children` attribute (for simplicity, I don't use i18n strings):
+## Adding Custom Routes
 
- ```tsx {% title="apps/web/config/personal-account-navigation.config.tsx" %}
-const routes = [{
-  label: 'Your Store',
-  children: [
-    {
-      label: 'Dashboard',
-      path: '/dashboard',
-      Icon: <DashboardIcon className={iconClasses} />,
-      children: [
-        {
-          label: 'Orders',
-          path: '/orders',
-          Icon: <ShoppingCartIcon className={iconClasses} />,
-        },
-        {
-          label: 'Inventory',
-          path: '/inventory',
-          Icon: <InventoryIcon className={iconClasses} />,
-        },
-      ]
-    },
-  ]
-}];
-```
+### Simple Route
 
-### Layout Style
+Add a route to an existing section:
 
-You can choose the style of the navigation by setting the `NEXT_PUBLIC_USER_NAVIGATION_STYLE` environment variable. The default style is `sidebar`.
-
-```bash
-NEXT_PUBLIC_USER_NAVIGATION_STYLE=sidebar
-```
-
-Alternatively, you can set the style to `header`:
-
-```bash
-NEXT_PUBLIC_TEAM_NAVIGATION_STYLE=header
-```
-
-## Old Configuration
-
-If you're running an older version (e.g prior to 25 October 2024), you're running the older version which allowed flat routes:
-
- ```tsx {% title="apps/web/config/personal-account-navigation.config.tsx" %}
+```tsx
 const routes = [
   {
-    label: 'common:homeTabLabel',
-    path: pathsConfig.app.home,
-    Icon: <Home className={iconClasses} />,
-    end: true,
+    label: 'common:routes.application',
+    children: [
+      {
+        label: 'common:routes.home',
+        path: pathsConfig.app.home,
+        Icon: <Home className={iconClasses} />,
+        end: true,
+      },
+      {
+        label: 'Projects',
+        path: '/home/projects',
+        Icon: <Folder className={iconClasses} />,
+      },
+    ],
   },
-  {
-    label: 'account:accountTabLabel',
-    path: pathsConfig.app.personalAccountSettings,
-    Icon: <User className={iconClasses} />,
-  },
+  // ... rest of routes
 ];
-
-if (featureFlagsConfig.enablePersonalAccountBilling) {
-  routes.push({
-    label: 'common:billingTabLabel',
-    path: pathsConfig.app.personalAccountBilling,
-    Icon: <CreditCard className={iconClasses} />,
-  });
-}
-
-export const personalAccountSidebarConfig = SidebarConfigSchema.parse({
-  routes,
-  style: process.env.NEXT_PUBLIC_USER_NAVIGATION_STYLE,
-});
 ```
 
-NB: please update to the latest version to use the latest features and optimizations.
+### New Section
+
+Add a new collapsible section:
+
+```tsx
+const routes = [
+  // ... existing sections
+  {
+    label: 'Your Store',
+    children: [
+      {
+        label: 'Products',
+        path: '/home/products',
+        Icon: <Package className={iconClasses} />,
+      },
+      {
+        label: 'Orders',
+        path: '/home/orders',
+        Icon: <ShoppingCart className={iconClasses} />,
+      },
+      {
+        label: 'Analytics',
+        path: '/home/analytics',
+        Icon: <BarChart className={iconClasses} />,
+      },
+    ],
+  },
+];
+```
+
+### Nested Routes
+
+Create sub-menus within a section:
+
+```tsx
+const routes = [
+  {
+    label: 'Dashboard',
+    children: [
+      {
+        label: 'Overview',
+        path: '/home',
+        Icon: <LayoutDashboard className={iconClasses} />,
+        end: true,
+      },
+      {
+        label: 'Projects',
+        path: '/home/projects',
+        Icon: <Folder className={iconClasses} />,
+        children: [
+          {
+            label: 'Active',
+            path: '/home/projects/active',
+            Icon: <Play className={iconClasses} />,
+          },
+          {
+            label: 'Archived',
+            path: '/home/projects/archived',
+            Icon: <Archive className={iconClasses} />,
+          },
+        ],
+      },
+    ],
+  },
+];
+```
+
+### Conditional Routes
+
+Show routes based on feature flags or user state:
+
+```tsx
+const routes = [
+  {
+    label: 'common:routes.settings',
+    children: [
+      {
+        label: 'common:routes.profile',
+        path: pathsConfig.app.personalAccountSettings,
+        Icon: <User className={iconClasses} />,
+      },
+      // Only show billing if enabled
+      featureFlagsConfig.enablePersonalAccountBilling
+        ? {
+            label: 'common:routes.billing',
+            path: pathsConfig.app.personalAccountBilling,
+            Icon: <CreditCard className={iconClasses} />,
+          }
+        : undefined,
+    ].filter((route) => !!route),
+  },
+];
+```
+
+## Route Properties
+
+| Property | Type | Required | Description |
+|----------|------|----------|-------------|
+| `label` | `string` | Yes | Display text (supports i18n keys) |
+| `path` | `string` | Yes | Route path |
+| `Icon` | `ReactNode` | No | Lucide icon component |
+| `end` | `boolean` | No | Exact path matching (for index routes) |
+| `children` | `Route[]` | No | Nested routes for sub-menus |
+
+## Internationalization
+
+Route labels support i18n keys:
+
+```tsx
+{
+  label: 'common:routes.dashboard',  // Uses translation
+  path: '/home',
+  Icon: <Home className={iconClasses} />,
+}
+```
+
+Translation files are in `apps/web/public/locales/[locale]/common.json`:
+
+```json
+{
+  "routes": {
+    "dashboard": "Dashboard",
+    "settings": "Settings",
+    "profile": "Profile"
+  }
+}
+```
+
+For quick prototyping, use plain strings:
+
+```tsx
+{
+  label: 'My Projects',  // Plain string
+  path: '/home/projects',
+  Icon: <Folder className={iconClasses} />,
+}
+```
+
+## Best Practices
+
+1. **Use `pathsConfig`**: Import paths from the configuration instead of hardcoding strings.
+2. **Group logically**: Put related routes in the same section.
+3. **Use feature flags**: Conditionally show routes based on billing plans or user permissions.
+4. **Consistent icons**: Use icons from `lucide-react` for visual consistency.
+
+## Common Pitfalls
+
+1. **Missing `end` property**: The home route needs `end: true` to prevent it from matching all paths starting with `/home`.
+2. **Forgetting to filter undefined**: When using conditional routes, always filter out `undefined` values with `.filter((route) => !!route)`.
+3. **Wrong icon size**: Use `w-4` class for icons to match the navigation style.
+
+## Related Topics
+
+- [Team Account Navigation](/docs/next-supabase-turbo/configuration/team-account-sidebar-configuration) - Configure team navigation
+- [Paths Configuration](/docs/next-supabase-turbo/configuration/paths-configuration) - Centralized path management
+- [Adding Pages](/docs/next-supabase-turbo/development/marketing-pages) - Create new dashboard pages

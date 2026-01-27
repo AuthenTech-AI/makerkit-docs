@@ -1,0 +1,75 @@
+---
+status: "published"
+title: "Clone the Repository"
+label: "Clone Repository"
+order: 2
+description: "Clone the Next.js Drizzle SaaS Kit repository to your local machine and set up Git remotes."
+---
+
+Clone the repository using SSH, HTTPS, or GitHub CLI. Replace `<your-project-name>` with your project folder name (e.g., `my-saas-app`).
+
+This guide is part of the [Next.js Drizzle SaaS Kit installation](./overview).
+
+{% sequence title="Cloning the repository" description="Clone the Next.js [Drizzle](/drizzle) SaaS Kit repository to your local machine." %}
+[Option 1: Clone via SSH (Recommended)](#option-1-clone-via-ssh-recommended)
+
+[Option 2: Clone via HTTPS](#option-2-clone-via-https)
+
+[Option 3: GitHub CLI](#option-3-github-cli)
+{% /sequence %}
+
+## Option 1: Clone via SSH (Recommended)
+
+If you've set up SSH keys with GitHub:
+
+```bash
+git clone git@github.com:makerkit/next-drizzle-saas-kit-turbo.git <your-project-name>
+cd <your-project-name>
+```
+
+**Benefits of SSH:**
+- No need to enter credentials repeatedly
+- More secure than HTTPS
+- Required for some Git operations
+
+## Option 2: Clone via HTTPS
+
+If you haven't set up SSH or prefer HTTPS:
+
+```bash
+git clone https://github.com/makerkit/next-drizzle-saas-kit-turbo.git <your-project-name>
+cd <your-project-name>
+```
+
+**Note:** You may need to enter your GitHub username and a personal access token (not your password).
+
+## Option 3: GitHub CLI
+
+If you have the [GitHub CLI](https://cli.github.com/) installed:
+
+```bash
+gh repo clone makerkit/next-drizzle-saas-kit-turbo <your-project-name>
+cd <your-project-name>
+```
+
+## Common Pitfalls
+
+- **Repository access denied** - Ensure your GitHub account has access to the repository (requires an active MakerKit license)
+- **SSH key not added to GitHub** - If SSH clone fails with "Permission denied", add your SSH key to GitHub or use HTTPS instead
+- **Cloning into wrong directory** - Always `cd` into the cloned directory before running any commands; running `pnpm install` from the wrong directory will fail
+- **Folder name conflicts** - If a folder with your project name already exists, the clone will fail; choose a unique name or delete the existing folder
+- **Corporate firewall blocking SSH** - Some corporate networks block SSH (port 22); use HTTPS clone method instead
+
+## Verification
+
+Confirm you're in the correct directory:
+
+```bash
+ls package.json pnpm-workspace.yaml
+```
+
+Both files should exist. If not, you're in the wrong directory.
+
+---
+
+**Next:** [Setup Dependencies →](./setup-dependencies)

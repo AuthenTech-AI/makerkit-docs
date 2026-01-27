@@ -87,13 +87,13 @@ Your types might differ from those in the `upstream` repository, so you'll need 
 To do this, first you want to reset the DB to apply the latest changes from the `upstream` repository:
 
 ```bash
-npm run supabase:web:reset
+pnpm run supabase:web:reset
 ```
 
 Next, regenerate the types with the following command:
 
 ```bash
-npm run supabase:web:typegen
+pnpm run supabase:web:typegen
 ```
 
 Your types will now reflect the changes from both the `upstream` repository and your project. 🚀

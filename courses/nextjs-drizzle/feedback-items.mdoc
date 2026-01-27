@@ -1,0 +1,3054 @@
+---
+status: "published"
+title: "Feedback Items with Voting and Filtering"
+label: "Feedback Items"
+order: 4
+description: "Build feedback items with a voting system, status workflow, and filtering using Drizzle ORM relations, PostgreSQL enums, and URL-based query parameters."
+---
+
+With boards in place, it's time to build the feature that makes TeamPulse useful: **feedback items**. 
+
+Users will submit bugs, feature requests, and ideas, then vote on what matters most. Your team triages items through a status workflow - from "New" to "Done" - giving everyone visibility into what's being worked on.
+
+This module introduces several new patterns: **parent-child relationships** in Drizzle, **PostgreSQL enums** for type-safe values, **vote toggling with transactions**, and **URL-based filtering** that works with the browser's back button.
+
+**Time:** ~3-4 hours
+
+**What you'll accomplish:**
+- Design feedback items and votes schemas with proper relationships
+- Build CRUD operations with multi-tenant security
+- Implement voting with toggle logic and atomic transactions
+- Create a status workflow (New → Planned → In Progress → Done)
+- Add filtering and sorting via URL search parameters
+
+**Technologies used:**
+- [Drizzle ORM](https://orm.drizzle.team) - Database queries with relations
+- [next-safe-action](https://next-safe-action.dev) - Type-safe server actions
+- [React Hook Form](https://react-hook-form.com) - Form state management
+- [Zod](https://zod.dev) - Schema validation
+
+**Prerequisites:** Complete [Module 3: Data Model & First Feature](./data-model-and-first-feature) first. You need the boards feature working.
+
+---
+
+## What We're Building
+
+Feedback items are the heart of TeamPulse. Each item belongs to a board and tracks a bug report, feature request, or idea. Users vote on items to surface what matters most, and the team moves items through status stages to show progress.
+
+The `feedback_vote` table creates a many-to-many relationship between users and feedback items. We also store `voteCount` directly on the feedback item - this denormalization avoids counting votes on every page load, improving performance significantly for boards with many items.
+
+```
+feedback_item                    feedback_vote
+├── id                           ├── id
+├── boardId (FK)                 ├── feedbackItemId (FK)
+├── authorId (FK)                ├── userId (FK)
+├── title                        ├── createdAt
+├── description
+├── type (bug/feature/idea)
+├── status (new/planned/in_progress/done/closed)
+├── voteCount
+├── createdAt
+├── updatedAt
+```
+
+---
+
+## Step 1: Design the Schema
+
+This schema introduces PostgreSQL enums via `pgEnum`. Unlike string columns, enums are validated at the database level - you can't insert an invalid value. Drizzle generates TypeScript types from these enums, giving you type safety from database to UI.
+
+NB: if you are using other databases, such as MySQL or SqLite, the same may not apply. Please refer to the documentation for the specific database you are using to understand how to implement the same patterns.
+
+### Create the Feedback Items Table
+
+The feedback items table references both `boards` (which board it belongs to) and `users` (who authored it). We add indexes on the columns we'll filter and sort by: `status`, `type`, and `voteCount`.
+
+```typescript {% title="packages/database/src/schema/feedback-item.ts" %}
+import { relations } from 'drizzle-orm';
+import {
+  index,
+  integer,
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+} from 'drizzle-orm/pg-core';
+
+import { board } from './boards';
+import { user } from './core';
+
+// Enums for type-safe status and type values
+export const feedbackTypeEnum = pgEnum('feedback_type', [
+  'bug',
+  'feature',
+  'idea',
+]);
+
+export const feedbackStatusEnum = pgEnum('feedback_status', [
+  'new',
+  'planned',
+  'in_progress',
+  'done',
+  'closed',
+]);
+
+export const feedbackItem = pgTable(
+  'feedback_item',
+  {
+    id: text('id').primaryKey(),
+    boardId: text('board_id')
+      .notNull()
+      .references(() => board.id, { onDelete: 'cascade' }),
+    authorId: text('author_id')
+      .references(() => user.id, { onDelete: 'cascade' }),
+    title: text('title').notNull(),
+    description: text('description'),
+    type: feedbackTypeEnum('type').notNull().default('idea'),
+    status: feedbackStatusEnum('status').notNull().default('new'),
+    voteCount: integer('vote_count').notNull().default(0),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at')
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index('feedback_item_board_id_idx').on(table.boardId),
+    index('feedback_item_author_id_idx').on(table.authorId),
+    index('feedback_item_status_idx').on(table.status),
+    index('feedback_item_type_idx').on(table.type),
+    index('feedback_item_vote_count_idx').on(table.voteCount),
+  ],
+);
+
+export const feedbackItemRelations = relations(
+  feedbackItem,
+  ({ one, many }) => ({
+    board: one(board, {
+      fields: [feedbackItem.boardId],
+      references: [board.id],
+    }),
+    author: one(user, {
+      fields: [feedbackItem.authorId],
+      references: [user.id],
+    }),
+    votes: many(feedbackVote),
+  }),
+);
+```
+
+Don't worry if you see errors in the code editor. We'll fix them in the next steps as we add the remaining schema definitions.
+
+### Create the Votes Table
+
+The votes table tracks which users voted on which feedback items. The `unique` constraint on `(feedbackItemId, userId)` prevents double-voting at the database level - even if a race condition occurs in the application code, the database will reject duplicate votes.
+
+```typescript {% title="packages/database/src/schema/feedback-item.ts" %}
+export const feedbackVote = pgTable(
+  'feedback_vote',
+  {
+    id: text('id').primaryKey(),
+    feedbackItemId: text('feedback_item_id')
+      .notNull()
+      .references(() => feedbackItem.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => [
+    // Prevent double-voting
+    unique('feedback_vote_unique').on(table.feedbackItemId, table.userId),
+    index('feedback_vote_feedback_item_id_idx').on(table.feedbackItemId),
+    index('feedback_vote_user_id_idx').on(table.userId),
+  ],
+);
+
+export const feedbackVoteRelations = relations(feedbackVote, ({ one }) => ({
+  feedbackItem: one(feedbackItem, {
+    fields: [feedbackVote.feedbackItemId],
+    references: [feedbackItem.id],
+  }),
+  user: one(user, {
+    fields: [feedbackVote.userId],
+    references: [user.id],
+  }),
+}));
+```
+
+### Export the Schema
+
+Add the new schema file to the barrel export so it's available throughout the application:
+
+```typescript {% title="packages/database/src/schema/schema.ts" %}
+// Add this export alongside the existing ones
+export * from './feedback-item';
+```
+
+### Run the Migration
+
+Generate and apply the migration. This will create both the `feedback_item` and `feedback_vote` tables, plus the PostgreSQL enum types:
+
+```bash
+# Generate migration
+pnpm --filter @kit/database drizzle:generate
+```
+
+If the command is successful, you should see the following output:
+
+```
+> drizzle-kit generate --config drizzle.config.mjs
+
+
+13 tables
+account 13 columns 1 indexes 1 fks
+invitation 8 columns 2 indexes 2 fks
+member 5 columns 2 indexes 2 fks
+organization_role 6 columns 2 indexes 1 fks
+organization 6 columns 0 indexes 0 fks
+session 10 columns 1 indexes 1 fks
+subscription 12 columns 0 indexes 0 fks
+two_factor 4 columns 2 indexes 1 fks
+user 13 columns 0 indexes 0 fks
+verification 6 columns 1 indexes 0 fks
+board 7 columns 2 indexes 1 fks
+feedback_item 10 columns 5 indexes 2 fks
+feedback_vote 4 columns 2 indexes 2 fks
+
+[✓] Your SQL migration file ➜ ../../packages/database/src/schema/0002_puzzling_revanche.sql 🚀
+```
+
+Next, we need to apply the migration to the database:
+
+```bash
+# Apply migration
+pnpm --filter @kit/database drizzle:migrate
+```
+
+If the command is successful, you should see the following output:
+
+```
+[✓] migrations applied successfully! 
+```
+
+Next, we can verify that the migration was applied successfully by opening the Drizzle Studio (if you haven't already done so).
+
+```bash
+# Open Drizzle Studio
+pnpm --filter @kit/database drizzle:studio
+```
+
+If everything is working correctly, you should see the `feedback_item` and `feedback_vote` tables with all columns.
+
+---
+
+## Step 2: Create the Validation Schema
+
+Feedback items need multiple Zod schemas because each action has different input requirements: creating requires `boardId` and `title`, updating requires `id` and the editable fields, changing status requires only `id` and `status`, and voting requires just the `feedbackItemId`.
+
+```typescript {% title="apps/web/lib/feedback/feedback.schema.ts" %}
+import { z } from 'zod';
+
+// Enum values for validation
+export const feedbackTypes = ['bug', 'feature', 'idea'] as const;
+export const feedbackStatuses = [
+  'new',
+  'planned',
+  'in_progress',
+  'done',
+  'closed',
+] as const;
+
+export const createFeedbackSchema = z.object({
+  boardId: z.string().min(1, 'Board ID is required'),
+  title: z
+    .string()
+    .min(5, 'Title must be at least 5 characters')
+    .max(200, 'Title must be less than 200 characters')
+    .transform((val) => val.trim()),
+  description: z
+    .string()
+    .max(5000, 'Description must be less than 5000 characters')
+    .optional()
+    .transform((val) => val?.trim()),
+  type: z.enum(feedbackTypes).default('idea'),
+});
+
+export const updateFeedbackSchema = z.object({
+  id: z.string().min(1, 'Feedback ID is required'),
+  title: z
+    .string()
+    .min(5, 'Title must be at least 5 characters')
+    .max(200, 'Title must be less than 200 characters')
+    .transform((val) => val.trim()),
+  description: z
+    .string()
+    .max(5000, 'Description must be less than 5000 characters')
+    .optional()
+    .transform((val) => val?.trim()),
+  type: z.enum(feedbackTypes),
+});
+
+export const changeStatusSchema = z.object({
+  id: z.string().min(1, 'Feedback ID is required'),
+  status: z.enum(feedbackStatuses),
+});
+
+export const deleteFeedbackSchema = z.object({
+  id: z.string().min(1, 'Feedback ID is required'),
+});
+
+export const voteFeedbackSchema = z.object({
+  feedbackItemId: z.string().min(1, 'Feedback ID is required'),
+});
+
+export type CreateFeedbackInput = z.output<typeof createFeedbackSchema>;
+export type UpdateFeedbackInput = z.output<typeof updateFeedbackSchema>;
+export type ChangeStatusInput = z.output<typeof changeStatusSchema>;
+export type VoteFeedbackInput = z.output<typeof voteFeedbackSchema>;
+```
+
+---
+
+## Step 3: Create the Server Actions
+
+The server actions file is larger than boards because it handles more operations: create, update, delete, change status, and vote. 
+
+Two helper functions - `verifyBoardAccess` and `verifyFeedbackAccess` - encapsulate the multi-tenant security checks that every action needs.
+
+The voting action is the most interesting: it toggles votes on and off. If the user has already voted, clicking again removes their vote. Both operations happen in a **transaction** to keep the vote record and the denormalized `voteCount` in sync.
+
+```typescript {% title="apps/web/lib/feedback/feedback-server-actions.ts" %}
+'use server';
+
+import { revalidatePath } from 'next/cache';
+
+import { and, eq, sql } from 'drizzle-orm';
+
+import { authenticatedActionClient } from '@kit/action-middleware';
+import { getActiveOrganizationId } from '@kit/better-auth/context';
+import { board, db, feedbackItem, feedbackVote } from '@kit/database';
+import { getLogger } from '@kit/shared/logger';
+import { generateId } from '@kit/shared/utils';
+
+import {
+  changeStatusSchema,
+  createFeedbackSchema,
+  deleteFeedbackSchema,
+  updateFeedbackSchema,
+  voteFeedbackSchema,
+} from './feedback.schema';
+
+// Helper to verify board belongs to org
+async function verifyBoardAccess(boardId: string, organizationId: string) {
+  const [boardRecord] = await db
+    .select({ id: board.id })
+    .from(board)
+    .where(and(eq(board.id, boardId), eq(board.organizationId, organizationId)))
+    .limit(1);
+
+  return !!boardRecord;
+}
+
+// Helper to verify feedback belongs to board in org
+async function verifyFeedbackAccess(
+  feedbackId: string,
+  organizationId: string,
+) {
+  const [feedback] = await db
+    .select({
+      id: feedbackItem.id,
+      authorId: feedbackItem.authorId,
+      boardId: feedbackItem.boardId,
+    })
+    .from(feedbackItem)
+    .innerJoin(board, eq(feedbackItem.boardId, board.id))
+    .where(
+      and(
+        eq(feedbackItem.id, feedbackId),
+        eq(board.organizationId, organizationId),
+      ),
+    )
+    .limit(1);
+
+  return feedback;
+}
+
+export const createFeedbackAction = authenticatedActionClient
+  .inputSchema(createFeedbackSchema)
+  .action(async ({ parsedInput: data, ctx }) => {
+    const userId = ctx.user.id;
+    const organizationId = await getActiveOrganizationId();
+
+    if (!organizationId) {
+      throw new Error('No active organization');
+    }
+
+    // Verify board belongs to org
+    const hasAccess = await verifyBoardAccess(data.boardId, organizationId);
+
+    if (!hasAccess) {
+      throw new Error('Board not found');
+    }
+
+    const logger = (await getLogger()).child({
+      name: 'create-feedback',
+      userId,
+      boardId: data.boardId,
+      title: data.title,
+    });
+
+    logger.info('Creating feedback item...');
+
+    const [feedback] = await db
+      .insert(feedbackItem)
+      .values({
+        id: generateId(),
+        boardId: data.boardId,
+        authorId: userId,
+        title: data.title,
+        description: data.description ?? null,
+        type: data.type,
+        status: 'new',
+        voteCount: 0,
+      })
+      .returning();
+
+    logger.info(
+      { feedbackId: feedback.id },
+      'Feedback item created successfully',
+    );
+
+    revalidatePath(`/boards/${data.boardId}`, 'layout');
+
+    return { feedback };
+  });
+
+export const updateFeedbackAction = authenticatedActionClient
+  .inputSchema(updateFeedbackSchema)
+  .action(async ({ parsedInput: data, ctx }) => {
+    const userId = ctx.user.id;
+    const organizationId = await getActiveOrganizationId();
+
+    if (!organizationId) {
+      throw new Error('No active organization');
+    }
+
+    const existing = await verifyFeedbackAccess(data.id, organizationId);
+
+    if (!existing) {
+      throw new Error('Feedback not found');
+    }
+
+    // Only author can edit (admins handled in Module 5)
+    if (existing.authorId !== userId) {
+      throw new Error('Only the author can edit this feedback');
+    }
+
+    const logger = (await getLogger()).child({
+      name: 'update-feedback',
+      userId,
+      feedbackId: data.id,
+    });
+
+    logger.info('Updating feedback item...');
+
+    const [feedback] = await db
+      .update(feedbackItem)
+      .set({
+        title: data.title,
+        description: data.description ?? null,
+        type: data.type,
+      })
+      .where(eq(feedbackItem.id, data.id))
+      .returning();
+
+    logger.info('Feedback item updated successfully');
+
+    revalidatePath(`/boards/${existing.boardId}`, 'layout');
+
+    return { feedback };
+  });
+
+export const changeStatusAction = authenticatedActionClient
+  .inputSchema(changeStatusSchema)
+  .action(async ({ parsedInput: data, ctx }) => {
+    const userId = ctx.user.id;
+
+    const organizationId = await getActiveOrganizationId();
+    if (!organizationId) {
+      throw new Error('No active organization');
+    }
+
+    const existing = await verifyFeedbackAccess(data.id, organizationId);
+
+    if (!existing) {
+      throw new Error('Feedback not found');
+    }
+
+    const logger = (await getLogger()).child({
+      name: 'change-status',
+      userId,
+      feedbackId: data.id,
+      status: data.status,
+    });
+
+    // TODO: Check admin/owner role (implemented in Module 5)
+    // For now, any org member can change status
+
+    logger.info('Changing feedback status...');
+
+    const [feedback] = await db
+      .update(feedbackItem)
+      .set({ status: data.status })
+      .where(eq(feedbackItem.id, data.id))
+      .returning();
+
+    logger.info('Feedback status changed successfully');
+
+    revalidatePath(`/boards/${existing.boardId}`, 'layout');
+
+    return { feedback };
+  });
+
+export const deleteFeedbackAction = authenticatedActionClient
+  .inputSchema(deleteFeedbackSchema)
+  .action(async ({ parsedInput: data, ctx }) => {
+    const userId = ctx.user.id;
+
+    const organizationId = await getActiveOrganizationId();
+
+    if (!organizationId) {
+      throw new Error('No active organization');
+    }
+
+    const existing = await verifyFeedbackAccess(data.id, organizationId);
+    if (!existing) {
+      throw new Error('Feedback not found');
+    }
+
+    const logger = (await getLogger()).child({
+      name: 'delete-feedback',
+      userId,
+      feedbackId: data.id,
+    });
+
+    // Only author can delete (admins handled in Module 5)
+    if (existing.authorId !== userId) {
+      throw new Error('Only the author can delete this feedback');
+    }
+
+    logger.info('Deleting feedback item...');
+
+    await db.delete(feedbackItem).where(eq(feedbackItem.id, data.id));
+
+    logger.info('Feedback item deleted successfully');
+
+    revalidatePath(`/boards/${existing.boardId}`, 'layout');
+
+    return { success: true };
+  });
+
+export const voteFeedbackAction = authenticatedActionClient
+  .inputSchema(voteFeedbackSchema)
+  .action(async ({ parsedInput: data, ctx }) => {
+    const userId = ctx.user.id;
+    const organizationId = await getActiveOrganizationId();
+
+    if (!organizationId) {
+      throw new Error('No active organization');
+    }
+
+    const existing = await verifyFeedbackAccess(
+      data.feedbackItemId,
+      organizationId,
+    );
+
+    if (!existing) {
+      throw new Error('Feedback not found');
+    }
+
+    const logger = (await getLogger()).child({
+      name: 'vote-feedback',
+      userId,
+      feedbackItemId: data.feedbackItemId,
+    });
+
+    // Check if user already voted
+    const [existingVote] = await db
+      .select()
+      .from(feedbackVote)
+      .where(
+        and(
+          eq(feedbackVote.feedbackItemId, data.feedbackItemId),
+          eq(feedbackVote.userId, userId),
+        ),
+      )
+      .limit(1);
+
+    if (existingVote) {
+      // Remove vote (toggle off)
+      logger.info('User already voted. Removing vote...');
+
+      await db.transaction(async (tx) => {
+        await tx
+          .delete(feedbackVote)
+          .where(eq(feedbackVote.id, existingVote.id));
+
+        await tx
+          .update(feedbackItem)
+          .set({ voteCount: sql`${feedbackItem.voteCount} - 1` })
+          .where(eq(feedbackItem.id, data.feedbackItemId));
+      });
+
+      logger.info('Vote removed successfully');
+
+      revalidatePath(`/boards/${existing.boardId}`, 'layout');
+
+      return { voted: false };
+    } else {
+      // Add vote (toggle on)
+      logger.info('Adding vote...');
+
+      await db.transaction(async (tx) => {
+        await tx.insert(feedbackVote).values({
+          id: generateId(),
+          feedbackItemId: data.feedbackItemId,
+          userId,
+        });
+
+        await tx
+          .update(feedbackItem)
+          .set({ voteCount: sql`${feedbackItem.voteCount} + 1` })
+          .where(eq(feedbackItem.id, data.feedbackItemId));
+      });
+
+      logger.info('Vote added successfully');
+
+      revalidatePath(`/boards/${existing.boardId}`, 'layout');
+
+      return { voted: true };
+    }
+  });
+```
+
+**Key patterns:**
+- **Access verification helpers**: `verifyBoardAccess` and `verifyFeedbackAccess` check that the target resource belongs to the current organization. Every action calls one of these before proceeding.
+- **Vote toggle logic**: Instead of separate "upvote" and "remove vote" actions, a single action checks if a vote exists and toggles accordingly. This simplifies the UI - one button handles both states.
+- **Transactional consistency**: The vote insert/delete and the `voteCount` update happen in the same **transaction**. If either fails, both roll back, preventing the count from drifting out of sync.
+- **Path revalidation**: Each mutation calls `revalidatePath` with the board's URL to refresh the server component cache. This is a common pattern in Next.js applications to ensure that the data is always up to date.
+
+---
+
+## Step 4: Create the Data Loader
+
+The feedback loader is more complex than the boards loader because it supports filtering, sorting, and includes a subquery to check if the current user has voted on each item.
+
+ The `hasVoted` field lets the UI highlight which items the user has already upvoted.
+
+```typescript {% title="apps/web/lib/feedback/feedback-page.loader.ts" %}
+import 'server-only';
+
+import { cache } from 'react';
+
+import { and, count, desc, eq, ilike } from 'drizzle-orm';
+
+import { getActiveOrganizationId, getSession } from '@kit/better-auth/context';
+import { board, db, feedbackItem, feedbackVote, user } from '@kit/database';
+
+export type FeedbackFilters = {
+  type?: 'bug' | 'feature' | 'idea';
+  status?: 'new' | 'planned' | 'in_progress' | 'done' | 'closed';
+  sortBy?: 'newest' | 'votes' | 'updated';
+  page?: number;
+  pageSize?: number;
+  search?: string;
+};
+
+/**
+ * Escapes LIKE pattern special characters to prevent unintended matches
+ */
+function escapeLikePattern(value: string): string {
+  return value.replace(/[%_\\]/g, '\\$&');
+}
+
+export const loadFeedbackItems = cache(
+  async (boardId: string, filters?: FeedbackFilters) => {
+    const session = await getSession();
+    const organizationId = await getActiveOrganizationId();
+
+    if (!organizationId || !session?.user?.id) {
+      return {
+        items: [],
+        total: 0,
+        pageIndex: 1,
+        pageSize: 10,
+        pageCount: 0,
+      };
+    }
+
+    const userId = session.user.id;
+    const pageIndex = filters?.page ?? 1;
+    const pageSize = filters?.pageSize ?? 10;
+    const offset = (pageIndex - 1) * pageSize;
+
+    // Build order by clause
+    let orderBy;
+
+    switch (filters?.sortBy) {
+      case 'votes':
+        orderBy = desc(feedbackItem.voteCount);
+        break;
+      case 'updated':
+        orderBy = desc(feedbackItem.updatedAt);
+        break;
+      default:
+        orderBy = desc(feedbackItem.createdAt);
+    }
+
+    // Build where conditions with board ownership check
+    const conditions = [
+      eq(feedbackItem.boardId, boardId),
+      eq(board.organizationId, organizationId),
+    ];
+
+    if (filters?.type) {
+      conditions.push(eq(feedbackItem.type, filters.type));
+    }
+
+    if (filters?.status) {
+      conditions.push(eq(feedbackItem.status, filters.status));
+    }
+
+    if (filters?.search) {
+      const escapedSearch = escapeLikePattern(filters.search);
+      conditions.push(ilike(feedbackItem.title, `%${escapedSearch}%`));
+    }
+
+    const whereClause = and(...conditions);
+
+    const totalPromise = db
+      .select({ count: count() })
+      .from(feedbackItem)
+      .innerJoin(board, eq(feedbackItem.boardId, board.id))
+      .where(whereClause);
+
+    // Use LEFT JOIN for hasVoted
+    const itemsPromise = db
+      .select({
+        id: feedbackItem.id,
+        title: feedbackItem.title,
+        description: feedbackItem.description,
+        type: feedbackItem.type,
+        status: feedbackItem.status,
+        voteCount: feedbackItem.voteCount,
+        createdAt: feedbackItem.createdAt,
+        updatedAt: feedbackItem.updatedAt,
+        authorId: user.id,
+        authorName: user.name,
+        authorImage: user.image,
+        userVoteId: feedbackVote.id,
+      })
+      .from(feedbackItem)
+      .innerJoin(board, eq(feedbackItem.boardId, board.id))
+      .leftJoin(user, eq(feedbackItem.authorId, user.id))
+      .leftJoin(
+        feedbackVote,
+        and(
+          eq(feedbackVote.feedbackItemId, feedbackItem.id),
+          eq(feedbackVote.userId, userId),
+        ),
+      )
+      .where(whereClause)
+      .orderBy(orderBy)
+      .limit(pageSize)
+      .offset(offset);
+
+    const [total, items] = await Promise.all([totalPromise, itemsPromise]);
+
+    return {
+      items: items.map((item) => ({
+        id: item.id,
+        title: item.title,
+        description: item.description,
+        type: item.type,
+        status: item.status,
+        voteCount: item.voteCount,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+        author: {
+          id: item.authorId ?? 'anonymous',
+          name: item.authorName ?? 'Anonymous',
+          image: item.authorImage,
+        },
+        hasVoted: item.userVoteId !== null,
+      })),
+      total: total[0]?.count ?? 0,
+      pageIndex,
+      pageSize,
+      pageCount: Math.ceil((total[0]?.count ?? 0) / pageSize),
+    };
+  },
+);
+
+export const loadFeedbackItem = cache(async (feedbackId: string) => {
+  const session = await getSession();
+  const organizationId = await getActiveOrganizationId();
+
+  if (!organizationId || !session?.user?.id) {
+    return null;
+  }
+
+  const userId = session.user.id;
+
+  const [item] = await db
+    .select({
+      id: feedbackItem.id,
+      boardId: feedbackItem.boardId,
+      title: feedbackItem.title,
+      description: feedbackItem.description,
+      type: feedbackItem.type,
+      status: feedbackItem.status,
+      voteCount: feedbackItem.voteCount,
+      createdAt: feedbackItem.createdAt,
+      updatedAt: feedbackItem.updatedAt,
+      authorId: user.id,
+      authorName: user.name,
+      authorImage: user.image,
+      userVoteId: feedbackVote.id,
+    })
+    .from(feedbackItem)
+    .innerJoin(board, eq(feedbackItem.boardId, board.id))
+    .leftJoin(user, eq(feedbackItem.authorId, user.id))
+    .leftJoin(
+      feedbackVote,
+      and(
+        eq(feedbackVote.feedbackItemId, feedbackItem.id),
+        eq(feedbackVote.userId, userId),
+      ),
+    )
+    .where(
+      and(
+        eq(feedbackItem.id, feedbackId),
+        eq(board.organizationId, organizationId),
+      ),
+    )
+    .limit(1);
+
+  if (!item) {
+    return null;
+  }
+
+  return {
+    id: item.id,
+    boardId: item.boardId,
+    title: item.title,
+    description: item.description,
+    type: item.type,
+    status: item.status,
+    voteCount: item.voteCount,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+    author: {
+      id: item.authorId ?? 'anonymous',
+      name: item.authorName ?? 'Anonymous',
+      image: item.authorImage,
+    },
+    hasVoted: item.userVoteId !== null,
+  };
+});
+
+export type FeedbackItem = NonNullable<
+  Awaited<ReturnType<typeof loadFeedbackItem>>
+>;
+
+export type FeedbackItems = Awaited<ReturnType<typeof loadFeedbackItems>>;
+```
+
+**Key patterns:**
+- **`hasVoted` subquery**: A correlated subquery counts votes for the current user on each item. We compare against `> 0` to convert the count to a boolean.
+- **Dynamic filtering**: Conditions are pushed into an array, then spread into `and(...conditions)`. This pattern makes it easy to add filters without nested ternaries.
+- **Flexible sorting**: A switch statement maps sort keys to Drizzle's `desc()` calls. The default is `createdAt` (newest first).
+- **`cache()` deduplication**: React's cache wrapper ensures that if multiple components call the loader with the same arguments, the database is queried only once per request.
+- **Multi-tenancy filtering**: The loader filters the data by the current organization ID. This is a common pattern in multi-tenant applications to ensure that users only see data that belongs to them.
+
+We use a `leftJoin` to include feedback even if the author user doesn't exist. This is because we allow anonymous submissions for public boards, and we want to display the feedback items even if the author user doesn't exist.
+
+### Multi-tenancy Pattern
+
+In a multi-tenant application, data isolation is critical. Every query that touches tenant data must filter by `organizationId`. Forgetting this filter is a security vulnerability - users could see other organizations' data:
+
+```typescript
+const results = await db.select().from(feedbackItem);
+```
+
+For simple checks not involving permissions, you can use the provided `auth.org()` helper to filter by the current organization ID.
+
+```typescript
+const results = await db
+  .select()
+  .from(feedbackItem)
+  .where(auth.org(feedbackItem));
+```
+
+This adds a filter to the query making sure that the `organizationId` column is equal to the current organization ID.
+
+For more advanced permission checks, we will be discussing it in the next sections, so don't worry about it for now.
+
+---
+
+## Step 5: Create the Feedback List Components
+
+We'll display feedback items as cards with voting functionality. This pattern is common for feedback tools where users need to quickly scan items and vote.
+
+First, let's create a reusable `VoteButton` component:
+
+```tsx {% title="apps/web/app/[locale]/(internal)/boards/[boardId]/_components/vote-button.tsx" %}
+'use client';
+
+import { useTransition } from 'react';
+
+import { voteFeedbackAction } from '@lib/feedback/feedback-server-actions';
+import { ChevronDown, ChevronUp } from 'lucide-react';
+
+import { Button } from '@kit/ui/button';
+import { toast } from '@kit/ui/sonner';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@kit/ui/tooltip';
+
+interface VoteButtonProps {
+  feedbackItemId: string;
+  voteCount: number;
+  hasVoted: boolean;
+}
+
+export function VoteButton({
+  feedbackItemId,
+  voteCount,
+  hasVoted,
+}: VoteButtonProps) {
+  const [isPending, startTransition] = useTransition();
+
+  const handleVote = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+
+    startTransition(async () => {
+      const result = await voteFeedbackAction({ feedbackItemId });
+
+      if (result?.serverError || result?.validationErrors) {
+        toast.error(result.serverError ?? 'Vote failed');
+      }
+    });
+  };
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant={hasVoted ? 'default' : 'outline'}
+              size="sm"
+              className="flex gap-x-0.5 px-2"
+              onClick={handleVote}
+              disabled={isPending}
+              data-testid="vote-button"
+            >
+              <span className="text-xs">{voteCount}</span>
+
+              {hasVoted ? (
+                <ChevronDown className="size-4" />
+              ) : (
+                <ChevronUp className="size-4" />
+              )}
+            </Button>
+          }
+        />
+
+        <TooltipContent>
+          {hasVoted ? 'Remove vote' : 'Upvote this feedback'}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+```
+
+Now let's create the `FeedbackList` component that displays feedback items as cards:
+
+```tsx {% title="apps/web/app/[locale]/(internal)/boards/[boardId]/_components/feedback-list.tsx" %}
+'use client';
+
+import type { FeedbackItems } from '@lib/feedback/feedback-page.loader';
+import { formatDistanceToNow } from 'date-fns';
+import { Bug, Lightbulb, Sparkles } from 'lucide-react';
+
+import { Badge } from '@kit/ui/badge';
+import { Card, CardContent, CardHeader } from '@kit/ui/card';
+import { ProfileAvatar } from '@kit/ui/profile-avatar';
+
+import { VoteButton } from './vote-button';
+
+type FeedbackItemRow = FeedbackItems['items'][number];
+
+const typeConfig = {
+  bug: {
+    icon: Bug,
+    label: 'Bug',
+    variant: 'destructive' as const,
+  },
+  feature: {
+    icon: Sparkles,
+    label: 'Feature',
+    variant: 'default' as const,
+  },
+  idea: {
+    icon: Lightbulb,
+    label: 'Idea',
+    variant: 'warning' as const,
+  },
+};
+
+const statusConfig = {
+  new: {
+    label: 'New',
+    variant: 'secondary' as const,
+  },
+  planned: {
+    label: 'Planned',
+    variant: 'default' as const,
+  },
+  in_progress: {
+    label: 'In Progress',
+    variant: 'warning' as const,
+  },
+  done: {
+    label: 'Done',
+    variant: 'success' as const,
+  },
+  closed: {
+    label: 'Closed',
+    variant: 'outline' as const,
+  },
+};
+
+interface FeedbackListProps {
+  items: FeedbackItemRow[];
+}
+
+export function FeedbackList({ items }: FeedbackListProps) {
+  if (items.length === 0) {
+    return (
+      <div className="text-muted-foreground py-8 text-center">
+        No feedback items yet. Be the first to submit one!
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {items.map((item) => (
+        <FeedbackCard key={item.id} item={item} />
+      ))}
+    </div>
+  );
+}
+
+function FeedbackCard({ item }: { item: FeedbackItemRow }) {
+  const typeInfo = typeConfig[item.type];
+  const statusInfo = statusConfig[item.status];
+  const TypeIcon = typeInfo.icon;
+
+  return (
+    <Card className="transition-shadow hover:shadow-md">
+      <CardHeader className="pb-2">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1 space-y-1">
+            <div className="flex items-center gap-2">
+              <TypeIcon className="text-muted-foreground h-4 w-4" />
+              <h3 className="font-medium">{item.title}</h3>
+            </div>
+
+            {item.description && (
+              <p className="text-muted-foreground line-clamp-2 text-sm">
+                {item.description}
+              </p>
+            )}
+          </div>
+
+          <VoteButton
+            feedbackItemId={item.id}
+            voteCount={item.voteCount}
+            hasVoted={item.hasVoted}
+          />
+        </div>
+      </CardHeader>
+
+      <CardContent className="pt-0">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <ProfileAvatar
+              pictureUrl={item.author.image}
+              displayName={item.author.name}
+              className="size-6!"
+            />
+            <span className="text-muted-foreground text-xs">
+              {item.author.name}
+            </span>
+            <span className="text-muted-foreground text-xs">
+              {formatDistanceToNow(new Date(item.createdAt), {
+                addSuffix: true,
+              })}
+            </span>
+          </div>
+
+          <div className="flex gap-2">
+            <Badge variant={typeInfo.variant}>{typeInfo.label}</Badge>
+            <Badge variant={statusInfo.variant}>{statusInfo.label}</Badge>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+**Key patterns:**
+- **Configuration objects**: `typeConfig` and `statusConfig` map database values to UI properties (icons, labels, badge variants). This keeps the rendering logic clean.
+- **Component composition**: `FeedbackCard` handles individual items while `FeedbackList` manages the collection and empty state.
+- **Optimistic UI**: The `VoteButton` uses `useTransition` to keep the UI responsive during server action execution.
+
+---
+
+## Step 6: Create the Feedback Form
+
+The feedback form introduces a new UI element: a Select dropdown for choosing the feedback type. 
+
+The form structure follows the same pattern as boards - React Hook Form with Zod validation and next-safe-action for submission.
+
+```typescript {% title="apps/web/app/[locale]/(internal)/boards/[boardId]/_components/create-feedback-form.tsx" %}
+'use client';
+
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useAction } from 'next-safe-action/hooks';
+import { useForm } from 'react-hook-form';
+
+import { Button } from '@kit/ui/button';
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@kit/ui/form';
+import { Input } from '@kit/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@kit/ui/select';
+import { toast } from '@kit/ui/sonner';
+import { Textarea } from '@kit/ui/textarea';
+
+import { createFeedbackAction } from '@lib/feedback/feedback-server-actions';
+import {
+  type CreateFeedbackInput,
+  createFeedbackSchema,
+  feedbackTypes,
+} from '@lib/feedback/feedback.schema';
+
+interface CreateFeedbackFormProps {
+  boardId: string;
+  onSuccess?: () => void;
+}
+
+export function CreateFeedbackForm({
+  boardId,
+  onSuccess,
+}: CreateFeedbackFormProps) {
+  const { executeAsync, status } = useAction(createFeedbackAction);
+
+  const form = useForm({
+    resolver: zodResolver(createFeedbackSchema),
+    defaultValues: {
+      boardId,
+      title: '',
+      description: '',
+      type: 'idea',
+    },
+  });
+
+  const isPending = status === 'executing';
+
+  const onSubmit = async (data: CreateFeedbackInput) => {
+    const result = await executeAsync(data);
+
+    if (result?.serverError) {
+      toast.error(result.serverError);
+      return;
+    }
+
+    if (result?.validationErrors) {
+      toast.error('Please check your input');
+      return;
+    }
+
+    toast.success('Feedback submitted successfully');
+    form.reset();
+    onSuccess?.();
+  };
+
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <FormField
+          name="type"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Type</FormLabel>
+              <Select
+                onValueChange={field.onChange}
+                defaultValue={field.value}
+                disabled={isPending}
+              >
+                <FormControl
+                  render={
+                    <SelectTrigger data-testid="feedback-type-select">
+                      <SelectValue>
+                        {(value) => value || 'Choose Type'}
+                      </SelectValue>
+                    </SelectTrigger>
+                  }
+                />
+
+                <SelectContent>
+                  {feedbackTypes.map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {type.charAt(0).toUpperCase() + type.slice(1)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          name="title"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Title</FormLabel>
+              
+              <FormControl
+                render={
+                  <Input
+                    placeholder="Brief summary of your feedback"
+                    disabled={isPending}
+                    data-testid="feedback-title-input"
+                    {...field}
+                  />
+                }
+              />
+
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          name="description"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Description (optional)</FormLabel>
+
+              <FormControl
+                render={
+                  <Textarea
+                    placeholder="Provide more details..."
+                    disabled={isPending}
+                    rows={4}
+                    data-testid="feedback-description-input"
+                    {...field}
+                  />
+                }
+              />
+
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <Button
+          type="submit"
+          disabled={isPending}
+          data-testid="submit-feedback-button"
+        >
+          {isPending ? 'Submitting...' : 'Submit Feedback'}
+        </Button>
+      </form>
+    </Form>
+  );
+}
+```
+
+---
+
+## Step 7: Create the Feedback Dialog
+
+The dialog follows the same controlled-state pattern as the boards dialog. It receives `boardId` as a prop and passes it to the form.
+
+```tsx {% title="apps/web/app/[locale]/(internal)/boards/[boardId]/_components/create-feedback-dialog.tsx" %}
+'use client';
+
+import { useState } from 'react';
+
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@kit/ui/dialog';
+
+import { CreateFeedbackForm } from './create-feedback-form';
+
+interface CreateFeedbackDialogProps {
+  boardId: string;
+}
+
+export function CreateFeedbackDialog({
+  boardId,
+  children,
+}: React.PropsWithChildren<CreateFeedbackDialogProps>) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger
+        data-testid="create-feedback-button"
+        render={children as React.ReactElement}
+      />
+
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Submit Feedback</DialogTitle>
+          <DialogDescription>
+            Share a bug report, feature request, or idea.
+          </DialogDescription>
+        </DialogHeader>
+
+        <CreateFeedbackForm
+          boardId={boardId}
+          onSuccess={() => setOpen(false)}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
+```
+
+---
+
+## Step 8: Create the Filter Component
+
+URL-based filtering stores the current filter state in the URL's search parameters. 
+
+This approach has several benefits: users can bookmark filtered views, share links that preserve filters, and the browser's back button works as expected. The component reads current values from `useSearchParams` and updates them by navigating to a new URL.
+
+```typescript {% title="apps/web/app/[locale]/(internal)/boards/[boardId]/_components/feedback-filters.tsx" %}
+'use client';
+
+import { useRouter, useSearchParams } from 'next/navigation';
+
+import { feedbackStatuses, feedbackTypes } from '@lib/feedback/feedback.schema';
+
+import { Button } from '@kit/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@kit/ui/select';
+
+export function FeedbackFilters() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const currentType = searchParams.get('type') ?? 'all';
+  const currentStatus = searchParams.get('status') ?? 'all';
+  const currentSort = searchParams.get('sort') ?? 'newest';
+
+  const updateFilter = (key: string, value: string) => {
+    const params = new URLSearchParams(searchParams);
+
+    if (value === 'all') {
+      params.delete(key);
+    } else {
+      params.set(key, value);
+    }
+
+    router.push(`?${params.toString()}`);
+  };
+
+  const clearFilters = () => {
+    router.push('?');
+  };
+
+  const hasFilters =
+    currentType !== 'all' ||
+    currentStatus !== 'all' ||
+    currentSort !== 'newest';
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <Select
+        value={currentType}
+        onValueChange={(value) => value && updateFilter('type', value)}
+      >
+        <SelectTrigger className="h-8 w-[130px]" data-testid="filter-type">
+          <SelectValue>{(value) => value || 'Select Type'}</SelectValue>
+        </SelectTrigger>
+
+        <SelectContent>
+          <SelectItem value="all">All Types</SelectItem>
+
+          {feedbackTypes.map((type) => (
+            <SelectItem key={type} value={type}>
+              {type.charAt(0).toUpperCase() + type.slice(1)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <Select
+        value={currentStatus}
+        onValueChange={(value) => value && updateFilter('status', value)}
+      >
+        <SelectTrigger className="h-8 w-[140px]" data-testid="filter-status">
+          <SelectValue>{(value) => value || 'Select Status'}</SelectValue>
+        </SelectTrigger>
+
+        <SelectContent>
+          <SelectItem value="all">All Statuses</SelectItem>
+
+          {feedbackStatuses.map((status) => (
+            <SelectItem key={status} value={status}>
+              {status
+                .replace('_', ' ')
+                .replace(/\b\w/g, (l) => l.toUpperCase())}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+
+      <Select
+        value={currentSort}
+        onValueChange={(value) => value && updateFilter('sort', value)}
+      >
+        <SelectTrigger className="h-8 w-[130px]" data-testid="filter-sort">
+          <SelectValue>{(value) => value || 'Sort By'}</SelectValue>
+        </SelectTrigger>
+
+        <SelectContent>
+          <SelectItem value="newest">Newest</SelectItem>
+          <SelectItem value="votes">Most Votes</SelectItem>
+          <SelectItem value="updated">Recently Updated</SelectItem>
+        </SelectContent>
+      </Select>
+
+      {hasFilters && (
+        <Button variant="ghost" size="sm" onClick={clearFilters}>
+          Clear
+        </Button>
+      )}
+    </div>
+  );
+}
+```
+
+---
+
+## Step 9: Create the Status Dropdown
+
+The status dropdown lets team members move feedback through the workflow. For now, any organization member can change status - we'll add role-based restrictions in Module 5. 
+
+The dropdown shows all available statuses and disables the currently selected one.
+
+```tsx {% title="apps/web/app/[locale]/(internal)/boards/[boardId]/_components/status-dropdown.tsx" %}
+'use client';
+
+import { useAction } from 'next-safe-action/hooks';
+
+import { changeStatusAction } from '@lib/feedback/feedback-server-actions';
+import { feedbackStatuses } from '@lib/feedback/feedback.schema';
+import { useQueryClient } from '@tanstack/react-query';
+
+import { Button } from '@kit/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@kit/ui/dropdown-menu';
+import { toast } from '@kit/ui/sonner';
+
+const statusLabels: Record<string, string> = {
+  new: 'New',
+  planned: 'Planned',
+  in_progress: 'In Progress',
+  done: 'Done',
+  closed: 'Closed',
+};
+
+interface StatusDropdownProps {
+  feedbackId: string;
+  currentStatus: string;
+}
+
+export function StatusDropdown({
+  feedbackId,
+  currentStatus,
+}: StatusDropdownProps) {
+  const queryClient = useQueryClient();
+  const { executeAsync, status } = useAction(changeStatusAction);
+  const isPending = status === 'executing';
+
+  const handleChange = async (newStatus: string) => {
+    const result = await executeAsync({
+      id: feedbackId,
+      status: newStatus as (typeof feedbackStatuses)[number],
+    });
+
+    if (result?.serverError || result.validationErrors) {
+      toast.error(result.serverError);
+
+      return;
+    }
+
+    await queryClient.invalidateQueries({
+      queryKey: ['feedback-item', feedbackId],
+    });
+
+    toast.success(`Status changed to ${statusLabels[newStatus]}`);
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isPending}
+            data-testid="status-dropdown"
+          >
+            {statusLabels[currentStatus]}
+          </Button>
+        }
+      />
+
+      <DropdownMenuContent>
+        {feedbackStatuses.map((status) => (
+          <DropdownMenuItem
+            key={status}
+            onClick={() => handleChange(status)}
+            disabled={status === currentStatus}
+          >
+            {statusLabels[status]}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+```
+
+---
+
+## Step 10: Update the Board Detail Page
+
+Now integrate everything into the board detail page. This update adds the feedback list and the create dialog.
+
+```typescript {% title="apps/web/app/[locale]/(internal)/boards/[boardId]/page.tsx" %}
+import type { Metadata } from 'next';
+import { notFound } from 'next/navigation';
+
+import { loadBoard } from '@lib/boards/boards-page.loader';
+import { loadFeedbackItems } from '@lib/feedback/feedback-page.loader';
+import { Plus } from 'lucide-react';
+
+import { getActiveOrganization } from '@kit/better-auth/context';
+import { AppBreadcrumbs } from '@kit/ui/app-breadcrumbs';
+import { Button } from '@kit/ui/button';
+import { CopyToClipboard } from '@kit/ui/copy-to-clipboard';
+import { PageBody, PageHeader } from '@kit/ui/page';
+
+import { DeleteBoardDialog } from '../_components/delete-board-dialog';
+import { EditBoardDialog } from '../_components/edit-board-dialog';
+import { CreateFeedbackDialog } from './_components/create-feedback-dialog';
+import { FeedbackList } from './_components/feedback-list';
+
+interface BoardPageProps {
+  params: Promise<{ boardId: string }>;
+}
+
+export async function generateMetadata({
+  params,
+}: BoardPageProps): Promise<Metadata> {
+  const { boardId } = await params;
+  const board = await loadBoard(boardId);
+
+  return {
+    title: board?.name ?? 'Board Not Found',
+  };
+}
+
+export default async function BoardPage({ params }: BoardPageProps) {
+  const { boardId } = await params;
+  const [board, feedbackData, organization] = await Promise.all([
+    loadBoard(boardId),
+    loadFeedbackItems(boardId),
+    getActiveOrganization(),
+  ]);
+
+  if (!board) {
+    notFound();
+  }
+
+  const publicUrl = `${process.env.NEXT_PUBLIC_SITE_URL}/feedback/${organization?.slug}/${board.slug}`;
+
+  return (
+    <PageBody>
+      <PageHeader>
+        <div className="flex-1">
+          <AppBreadcrumbs
+            values={{
+              boards: 'Boards',
+              [board.id]: board.name,
+            }}
+          />
+        </div>
+
+        <div className="flex gap-2">
+          <CreateFeedbackDialog boardId={board.id}>
+            <Button size="sm">
+              <Plus className="mr-2 h-4 w-4" />
+              Add Feedback
+            </Button>
+          </CreateFeedbackDialog>
+
+          <EditBoardDialog board={board} />
+
+          <DeleteBoardDialog boardId={board.id} boardName={board.name} />
+        </div>
+      </PageHeader>
+
+      {board.isPublic && (
+        <div className="bg-muted/50 mt-4 flex items-center gap-2.5 rounded-lg p-2 text-sm">
+          <span className="text-muted-foreground">Public URL:</span>
+          <code className="bg-muted rounded px-2 py-1">
+            <CopyToClipboard value={publicUrl}>{publicUrl}</CopyToClipboard>
+          </code>
+        </div>
+      )}
+
+      <div className="mt-4">
+        <FeedbackList items={feedbackData.items} />
+      </div>
+    </PageBody>
+  );
+}
+```
+
+When we click on the "Add Feedback" button, we should see the create feedback dialog.
+
+Please go ahead and test the create feedback functionality and verify that the feedback is created and appears in the list.
+
+{% img src="/assets/courses/next-drizzle/teampulse-submit-feedback-dialog.webp" width="1000" height="1000" alt="Teampulse Create Feedback Dialog" /%}
+
+Some of the essential patterns you've learned here are:
+- Server actions
+- Loaders
+- Forms
+- Dialogs
+
+Let's take a small break and verify that everything works correctly.
+
+## Checkpoint: Verify It Works
+
+Before moving on, test each feature to ensure everything works correctly. Pay special attention to the vote toggle behavior:
+
+- [ ] Migration applied - `feedback_item` and `feedback_vote` tables exist
+- [ ] Navigate to a board detail page
+- [ ] Click "Add Feedback" and submit feedback with different types
+- [ ] Verify feedback appears in the list
+- [ ] Click the vote button - vote count increases
+- [ ] Click again - vote is removed (toggle)
+
+**Run quality checks:**
+
+```bash
+pnpm healthcheck
+```
+
+We can nnow move on to the next features: viewing a feedback item details, editing a feedback item, and deleting a feedback item.
+
+## Viewing a Feedback Item Details
+
+We can display the feedback item details in a sheet dialog. This is a common pattern in web applications, and we have already seen it in the previous modules.
+
+We will be using the `Sheet` component from the `@kit/ui/sheet` package, and fetch data using a GET route handler and [React Query](https://tanstack.com/query/latest/docs/framework/react/overview). React Query is the most popular library for data fetching in React applications - and we can leverage for fetching data in a client-side component.
+
+### When Should you fetch data in a client-side component with React Query?
+
+Here are some guidelines to help you decide when to fetch data in a client-side component with React Query: if you don't need the data during the initial render, and you only need it after a user interaction, then you should fetch data in a client-side component with React Query - like we will do in this case.
+
+### Creating an API Route Handler to fetch feedback item details
+
+To fetch feedback item details from the client, we need to create an API route handler. This route will accept a feedback ID as a parameter and return the feedback item details as JSON.
+
+The route handler reuses our existing `loadFeedbackItem` loader function, which handles the database query and authorization checks through RLS. We wrap the response in proper error handling to return appropriate HTTP status codes: 404 if the feedback item doesn't exist, 401 if the user isn't authorized to view it, and 500 for any unexpected errors.
+
+```typescript {% title="apps/web/app/api/feedback/[id]/route.ts" %}
+import { NextResponse } from 'next/server';
+
+import { AuthorizationError } from '@kit/database';
+
+import { loadFeedbackItem } from '@lib/feedback/feedback-page.loader';
+
+interface RouteParams {
+  params: Promise<{ id: string }>;
+}
+
+export async function GET(_request: Request, { params }: RouteParams) {
+  try {
+    const { id } = await params;
+
+    const feedbackItem = await loadFeedbackItem(id);
+
+    if (!feedbackItem) {
+      return NextResponse.json({ error: 'Feedback not found' }, { status: 404 });
+    }
+
+    return NextResponse.json(feedbackItem);
+  } catch (error) {
+    if (error instanceof AuthorizationError) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    console.error('Failed to load feedback item:', error);
+
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 },
+    );
+  }
+}
+```
+
+### Creating a React Hook to fetch feedback item details
+
+Now we need a custom hook to call our API route and manage the fetched data. This hook wraps React Query's `useQuery` to handle caching, loading states, and error handling automatically.
+
+The hook accepts a `feedbackId` parameter that can be `null` - this allows us to conditionally fetch data only when a feedback item is selected. The `enabled` option ensures the query only runs when we have a valid ID. We also set a `staleTime` of 30 seconds, meaning React Query will serve cached data without refetching if the same feedback item is requested again within that window.
+
+```tsx {% title="apps/web/app/[locale]/(internal)/boards/[boardId]/_lib/use-fetch-feedback-item.tsx" %}
+'use client';
+
+import { FeedbackItem } from '@lib/feedback/feedback-page.loader';
+import { useQuery } from '@tanstack/react-query';
+
+async function fetchFeedbackItem(id: string): Promise<FeedbackItem> {
+  const response = await fetch(`/api/feedback/${id}`);
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch feedback item');
+  }
+
+  return response.json() as Promise<FeedbackItem>;
+}
+
+export function useFetchFeedbackItem(feedbackId: string | null) {
+  return useQuery({
+    queryKey: ['feedback-item', feedbackId],
+    queryFn: () => fetchFeedbackItem(feedbackId!),
+    enabled: !!feedbackId,
+    staleTime: 30 * 1000,
+  });
+}
+```
+
+### Creating a Sheet component to display feedback item details
+
+With our data fetching hook ready, we can build the Sheet component that displays feedback details. The Sheet slides in from the right side of the screen, providing a focused view of the selected feedback item without navigating away from the table.
+
+The component uses our `useFetchFeedbackItem` hook to fetch data when a feedback ID is provided. While loading, we display skeleton placeholders to maintain the layout and provide visual feedback. The sheet displays the feedback title, description, type badge, status (with a dropdown for updates), author information, and timestamps.
+
+```tsx {% title="apps/web/app/[locale]/(internal)/boards/[boardId]/_components/feedback-detail-sheet.tsx" %}
+'use client';
+
+import { useState } from 'react';
+
+import { format } from 'date-fns';
+import { Bug, Lightbulb, Pencil, Sparkles, Trash2 } from 'lucide-react';
+
+import { Badge } from '@kit/ui/badge';
+import { Button } from '@kit/ui/button';
+import { ProfileAvatar } from '@kit/ui/profile-avatar';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@kit/ui/sheet';
+import { Skeleton } from '@kit/ui/skeleton';
+
+import { useFetchFeedbackItem } from '../_lib/use-fetch-feedback-item';
+import { DeleteFeedbackDialog } from './delete-feedback-dialog';
+import { EditFeedbackDialog } from './edit-feedback-dialog';
+import { StatusDropdown } from './status-dropdown';
+
+interface FeedbackDetailSheetProps {
+  feedbackId: string | null;
+  onOpenChange: (open: boolean) => void;
+}
+
+const typeConfig = {
+  bug: {
+    icon: Bug,
+    label: 'Bug',
+    variant: 'destructive' as const,
+  },
+  feature: {
+    icon: Sparkles,
+    label: 'Feature',
+    variant: 'default' as const,
+  },
+  idea: {
+    icon: Lightbulb,
+    label: 'Idea',
+    variant: 'warning' as const,
+  },
+};
+
+function LoadingSkeleton() {
+  return (
+    <div className="space-y-6 pt-4">
+      <div className="space-y-2">
+        <Skeleton className="h-4 w-20" />
+        <Skeleton className="h-6 w-full" />
+      </div>
+      <div className="space-y-2">
+        <Skeleton className="h-4 w-20" />
+        <Skeleton className="h-20 w-full" />
+      </div>
+      <div className="flex gap-4">
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-16" />
+          <Skeleton className="h-6 w-20" />
+        </div>
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-16" />
+          <Skeleton className="h-6 w-20" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FeedbackDetailContent({
+  feedbackId,
+  onClose,
+}: {
+  feedbackId: string;
+  onClose: () => void;
+}) {
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const { data: feedbackItem, isLoading } = useFetchFeedbackItem(feedbackId);
+
+  const type = feedbackItem?.type ?? 'idea';
+  const config = typeConfig[type];
+  const Icon = config.icon;
+
+  return (
+    <>
+      <SheetHeader className="pr-8">
+        <SheetTitle className="flex items-center gap-2">
+          {isLoading ? (
+            <Skeleton className="h-6 w-48" />
+          ) : (
+            <>
+              <Icon className="text-muted-foreground h-5 w-5 shrink-0" />
+              <span className="line-clamp-2">{feedbackItem?.title}</span>
+            </>
+          )}
+        </SheetTitle>
+
+        <SheetDescription>
+          {isLoading ? (
+            <Skeleton className="h-4 w-32" />
+          ) : feedbackItem ? (
+            <span>
+              Submitted {format(new Date(feedbackItem.createdAt), 'PPP')}
+            </span>
+          ) : null}
+        </SheetDescription>
+      </SheetHeader>
+
+      {feedbackItem && (
+        <>
+          <EditFeedbackDialog
+            feedbackItem={feedbackItem}
+            open={editDialogOpen}
+            onOpenChange={setEditDialogOpen}
+          />
+
+          <DeleteFeedbackDialog
+            feedbackId={feedbackItem.id}
+            feedbackTitle={feedbackItem.title}
+            open={deleteDialogOpen}
+            onOpenChange={setDeleteDialogOpen}
+            onSuccess={onClose}
+          />
+        </>
+      )}
+
+      {isLoading ? (
+        <LoadingSkeleton />
+      ) : feedbackItem ? (
+        <div className="space-y-6 pt-4">
+          <div className="flex items-center gap-3">
+            <ProfileAvatar
+              pictureUrl={feedbackItem.author.image}
+              displayName={feedbackItem.author.name}
+              className="m-0! size-10"
+            />
+
+            <div className="flex flex-col">
+              <span className="text-sm font-medium">
+                {feedbackItem.author.name}
+              </span>
+
+              <span className="text-muted-foreground text-xs">Author</span>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-muted-foreground text-sm font-medium">
+              Description
+            </label>
+
+            <p className="text-sm whitespace-pre-wrap">
+              {feedbackItem.description || 'No description provided.'}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-4">
+            <div className="space-y-2">
+              <label className="text-muted-foreground text-sm font-medium">
+                Type
+              </label>
+
+              <div>
+                <Badge variant={config.variant}>{config.label}</Badge>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-muted-foreground text-sm font-medium">
+                Status
+              </label>
+
+              <div>
+                <StatusDropdown
+                  feedbackId={feedbackItem.id}
+                  currentStatus={feedbackItem.status}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-muted-foreground text-sm font-medium">
+                Votes
+              </label>
+
+              <div>
+                <Badge variant="secondary">{feedbackItem.voteCount}</Badge>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-2 border-t pt-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setEditDialogOpen(true)}
+              data-testid="edit-feedback-button"
+            >
+              <Pencil className="mr-1.5 h-3.5 w-3.5" />
+              Edit
+            </Button>
+
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => setDeleteDialogOpen(true)}
+              data-testid="delete-feedback-button"
+            >
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+              Delete
+            </Button>
+          </div>
+
+          <div className="text-muted-foreground text-xs">
+            Last updated {format(new Date(feedbackItem.updatedAt), 'PPpp')}
+          </div>
+        </div>
+      ) : (
+        <div className="text-muted-foreground py-8 text-center text-sm">
+          Feedback not found
+        </div>
+      )}
+    </>
+  );
+}
+
+export function FeedbackDetailSheet({
+  feedbackId,
+  onOpenChange,
+}: FeedbackDetailSheetProps) {
+  return (
+    <Sheet open={!!feedbackId} onOpenChange={onOpenChange}>
+      <SheetContent className="sm:max-w-lg">
+        {feedbackId && (
+          <FeedbackDetailContent
+            feedbackId={feedbackId}
+            onClose={() => onOpenChange(false)}
+          />
+        )}
+      </SheetContent>
+    </Sheet>
+  );
+}
+```
+
+### Opening the Sheet component when the user clicks on a feedback row
+
+Finally, we need to wire up our data table to open the sheet when a user clicks on a row. We'll update the `FeedbackDataTable` component to track the selected feedback ID and pass it to our sheet component.
+
+The key changes are: we add a `selectedFeedbackId` state to track which feedback item is selected, a `handleRowClick` callback that captures the clicked row's ID, and a `handleSheetOpenChange` callback that clears the selection when the sheet closes. The `DataTable` component's `onClick` prop triggers our row click handler, and we render the `FeedbackDetailSheet` alongside the table.
+
+```tsx {% title="apps/web/app/[locale]/(internal)/boards/[boardId]/_components/feedback-data-table.tsx" %}
+'use client';
+
+import { useCallback, useMemo, useState, useTransition } from 'react';
+
+import { formatDistanceToNow } from 'date-fns';
+import { Bug, ChevronDown, ChevronUp, Lightbulb, Sparkles } from 'lucide-react';
+import { voteFeedbackAction } from '@lib/feedback/feedback-server-actions';
+
+import { Badge } from '@kit/ui/badge';
+import { Button } from '@kit/ui/button';
+import { ColumnDef, DataTable } from '@kit/ui/enhanced-data-table';
+import { ProfileAvatar } from '@kit/ui/profile-avatar';
+import { toast } from '@kit/ui/sonner';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@kit/ui/tooltip';
+
+import { useFetchFeedbackItem } from '../_lib/use-fetch-feedback-item';
+import { FeedbackDetailSheet } from './feedback-detail-sheet';
+
+type FeedbackItemRow = FeedbackItems['items'][number];
+
+interface FeedbackDataTableProps {
+  data: FeedbackItemRow[];
+  total: number;
+  pageIndex: number;
+  pageSize: number;
+  pageCount: number;
+}
+
+const typeConfig = {
+  bug: {
+    icon: Bug,
+    label: 'Bug',
+    variant: 'destructive' as const,
+  },
+  feature: {
+    icon: Sparkles,
+    label: 'Feature',
+    variant: 'default' as const,
+  },
+  idea: {
+    icon: Lightbulb,
+    label: 'Idea',
+    variant: 'warning' as const,
+  },
+};
+
+const statusConfig = {
+  new: {
+    label: 'New',
+    variant: 'outline' as const,
+  },
+  planned: {
+    label: 'Planned',
+    variant: 'info' as const,
+  },
+  in_progress: {
+    label: 'In Progress',
+    variant: 'warning' as const,
+  },
+  done: {
+    label: 'Done',
+    variant: 'success' as const,
+  },
+  closed: {
+    label: 'Closed',
+    variant: 'secondary' as const,
+  },
+};
+
+function VoteButton({
+  feedbackItemId,
+  voteCount,
+  hasVoted,
+}: {
+  feedbackItemId: string;
+  voteCount: number;
+  hasVoted: boolean;
+}) {
+  const [isPending, startTransition] = useTransition();
+
+  const handleVote = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+
+    startTransition(async () => {
+      const result = await voteFeedbackAction({ feedbackItemId });
+
+      if (result?.serverError || result.validationErrors) {
+        toast.error(result.serverError);
+      }
+    });
+  };
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={hasVoted ? 'default' : 'outline'}
+            size="sm"
+            className="flex gap-x-0.5 px-2"
+            onClick={handleVote}
+            disabled={isPending}
+            data-testid="vote-button"
+          >
+            <span className="text-xs">{voteCount}</span>
+
+            {hasVoted ? (
+              <ChevronDown className="size-4" />
+            ) : (
+              <ChevronUp className="size-4" />
+            )}
+          </Button>
+        </TooltipTrigger>
+
+        <TooltipContent>
+          {hasVoted ? 'Remove vote' : 'Upvote this feedback'}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
+export function FeedbackDataTable({
+  data,
+  pageIndex,
+  pageSize,
+  pageCount,
+}: FeedbackDataTableProps) {
+  const [selectedFeedbackId, setSelectedFeedbackId] = useState<string | null>(
+    null,
+  );
+
+  const handleRowClick = useCallback(
+    ({ row }: { row: { original: FeedbackItemRow } }) => {
+      setSelectedFeedbackId(row.original.id);
+    },
+    [],
+  );
+
+  const handleSheetOpenChange = useCallback((open: boolean) => {
+    if (!open) {
+      setSelectedFeedbackId(null);
+    }
+  }, []);
+
+  const columns = useMemo<ColumnDef<FeedbackItemRow>[]>(
+    () => [
+      {
+        accessorKey: 'author',
+        header: 'Author',
+        size: 150,
+        enableSorting: false,
+        cell: ({ row }: { row: { original: FeedbackItemRow } }) => {
+          const { author } = row.original;
+
+          return (
+            <div className="flex items-center justify-start gap-2.5">
+              <ProfileAvatar
+                pictureUrl={author.image}
+                displayName={author.name}
+                className="m-0! size-8!"
+              />
+
+              <span className="text-muted-foreground truncate text-sm">
+                {author.name}
+              </span>
+            </div>
+          );
+        },
+      },
+      {
+        id: 'votes',
+        header: 'Votes',
+        size: 80,
+        cell: ({ row }: { row: { original: FeedbackItemRow } }) => (
+          <VoteButton
+            feedbackItemId={row.original.id}
+            voteCount={row.original.voteCount}
+            hasVoted={row.original.hasVoted}
+          />
+        ),
+      },
+      {
+        accessorKey: 'title',
+        header: 'Title',
+        size: 250,
+        enableSorting: false,
+        cell: ({ row }: { row: { original: FeedbackItemRow } }) => {
+          const { type, title, description } = row.original;
+          const config = typeConfig[type];
+          const Icon = config.icon;
+
+          return (
+            <div className="flex flex-col gap-0">
+              <div className="flex items-center gap-2">
+                <Icon className="text-muted-foreground h-4 w-4 shrink-0" />
+                <span className="text-sm">{title}</span>
+              </div>
+
+              {description && (
+                <p className="text-muted-foreground line-clamp-1 text-xs">
+                  {description}
+                </p>
+              )}
+            </div>
+          );
+        },
+      },
+      {
+        accessorKey: 'type',
+        header: 'Type',
+        enableSorting: false,
+        size: 80,
+        cell: ({ row }: { row: { original: FeedbackItemRow } }) => {
+          const type = row.original.type;
+          const config = typeConfig[type];
+
+          return <Badge variant={config.variant}>{config.label}</Badge>;
+        },
+      },
+      {
+        accessorKey: 'status',
+        header: 'Status',
+        size: 80,
+        enableSorting: false,
+        cell: ({ row }: { row: { original: FeedbackItemRow } }) => {
+          const status = row.original.status;
+          const config = statusConfig[status];
+
+          return <Badge variant={config.variant}>{config.label}</Badge>;
+        },
+      },
+      {
+        accessorKey: 'createdAt',
+        header: 'Created',
+        size: 120,
+        cell: ({ row }: { row: { original: FeedbackItemRow } }) => (
+          <span className="text-muted-foreground text-xs">
+            {formatDistanceToNow(new Date(row.original.createdAt), {
+              addSuffix: true,
+            })}
+          </span>
+        ),
+      },
+    ],
+    [],
+  );
+
+  return (
+    <>
+      <DataTable
+        data={data}
+        columns={columns}
+        pageIndex={pageIndex - 1}
+        pageSize={pageSize}
+        pageCount={pageCount}
+        getRowId={(row) => row.id}
+        onClick={handleRowClick}
+      />
+
+      <FeedbackDetailSheet
+        feedbackId={selectedFeedbackId}
+        onOpenChange={handleSheetOpenChange}
+      />
+    </>
+  );
+}
+```
+
+{% img src="/assets/courses/next-drizzle/teampulse-feedback-item-sheet.webp" width="1000" height="1000" alt="Teampulse Feedback Item Sheet" /%}
+
+Now, we can test the feedback item details sheet by clicking on a feedback item in the table.
+
+As you can see, the feedback item details sheet is displayed correctly.
+
+The design is very simple and okay for the sake of the course. You can improve it by adding more details and a better design.
+
+## Editing a Feedback Item
+
+Now let's allow users to edit their feedback submissions. We'll create an edit form that pre-populates with the existing feedback data and submits changes through a server action.
+
+### Creating a Dialog component to edit feedback item details
+
+The edit form follows the same pattern we used for creating feedback: `react-hook-form` for form state management, Zod for validation, and `next-safe-action` for type-safe server action execution. The form is pre-populated with the feedback item's current values using `defaultValues`.
+
+We use the `useAction` hook from `next-safe-action` to execute our `updateFeedbackAction`. The hook provides an `executeAsync` function and a `status` field we can use to show loading states and disable the form during submission. On success, we display a toast notification and call the optional `onSuccess` callback to close the dialog.
+
+```tsx {% title="apps/web/app/[locale]/(internal)/boards/[boardId]/_components/edit-feedback-form.tsx" %}
+'use client';
+
+import { useAction } from 'next-safe-action/hooks';
+
+import type { FeedbackItem } from '@lib/feedback/feedback-page.loader';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useForm } from 'react-hook-form';
+import { updateFeedbackAction } from '@lib/feedback/feedback-server-actions';
+import {
+  type UpdateFeedbackInput,
+  feedbackTypes,
+  updateFeedbackSchema,
+} from '@lib/feedback/feedback.schema';
+
+import { Button } from '@kit/ui/button';
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@kit/ui/form';
+import { Input } from '@kit/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@kit/ui/select';
+import { toast } from '@kit/ui/sonner';
+import { Textarea } from '@kit/ui/textarea';
+
+interface EditFeedbackFormProps {
+  feedbackItem: FeedbackItem;
+  onSuccess?: () => void;
+}
+
+export function EditFeedbackForm({
+  feedbackItem,
+  onSuccess,
+}: EditFeedbackFormProps) {
+  const { executeAsync, status } = useAction(updateFeedbackAction);
+
+  const form = useForm({
+    resolver: zodResolver(updateFeedbackSchema),
+    defaultValues: {
+      id: feedbackItem.id,
+      title: feedbackItem.title,
+      description: feedbackItem.description ?? '',
+      type: feedbackItem.type,
+    },
+  });
+
+  const isPending = status === 'executing';
+
+  const onSubmit = async (data: UpdateFeedbackInput) => {
+    const result = await executeAsync(data);
+
+    if (result?.serverError) {
+      toast.error(result.serverError);
+      return;
+    }
+
+    if (result?.validationErrors) {
+      toast.error('Please check your input');
+      return;
+    }
+
+    toast.success('Feedback updated successfully');
+
+    onSuccess?.();
+  };
+
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+        <FormField
+          name="type"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Type</FormLabel>
+              <Select
+                onValueChange={field.onChange}
+                defaultValue={field.value}
+                disabled={isPending}
+              >
+                <FormControl
+                  render={
+                    <SelectTrigger data-testid="edit-feedback-type-select">
+                      <SelectValue>
+                        {(value) => value || 'Select type'}
+                      </SelectValue>
+                    </SelectTrigger>
+                  }
+                />
+
+                <SelectContent>
+                  {feedbackTypes.map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {type.charAt(0).toUpperCase() + type.slice(1)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          name="title"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Title</FormLabel>
+
+              <FormControl
+                render={
+                  <Input
+                    placeholder="Brief summary of your feedback"
+                    disabled={isPending}
+                    data-testid="edit-feedback-title-input"
+                    {...field}
+                  />
+                }
+              />
+
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          name="description"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Description (optional)</FormLabel>
+             
+              <FormControl
+                render={
+                  <Textarea
+                    placeholder="Provide more details..."
+                    disabled={isPending}
+                    rows={4}
+                    data-testid="edit-feedback-description-input"
+                    {...field}
+                  />
+                }
+              />
+
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
+        <Button
+          type="submit"
+          disabled={isPending}
+          data-testid="save-feedback-button"
+        >
+          {isPending ? 'Saving...' : 'Save Changes'}
+        </Button>
+      </form>
+    </Form>
+  );
+}
+```
+
+Now, we want to create a dialog component to edit feedback item details. 
+
+This dialog will be used to edit the feedback item details when the user clicks on the "Edit" button in the feedback item details sheet.
+
+```tsx {% title="apps/web/app/[locale]/(internal)/boards/[boardId]/_components/edit-feedback-dialog.tsx" %}
+'use client';
+
+import type { FeedbackItem } from '@lib/feedback/feedback-page.loader';
+
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@kit/ui/dialog';
+
+import { EditFeedbackForm } from './edit-feedback-form';
+
+interface EditFeedbackDialogProps {
+  feedbackItem: FeedbackItem;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+export function EditFeedbackDialog({
+  feedbackItem,
+  open,
+  onOpenChange,
+}: EditFeedbackDialogProps) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit Feedback</DialogTitle>
+
+          <DialogDescription>
+            Update your feedback details below.
+          </DialogDescription>
+        </DialogHeader>
+
+        <EditFeedbackForm
+          feedbackItem={feedbackItem}
+          onSuccess={() => onOpenChange(false)}
+        />
+      </DialogContent>
+    </Dialog>
+  );
+}
+```
+
+### Opening the Dialog component when the user clicks on the "Edit" button
+
+Let's update the `FeedbackDetailSheet` component to open the `EditFeedbackDialog` when the user clicks on the "Edit" button in the feedback item details sheet:
+
+```tsx {% title="apps/web/app/[locale]/(internal)/boards/[boardId]/_components/feedback-detail-sheet.tsx" %}
+import { EditFeedbackDialog } from './edit-feedback-dialog';
+
+{feedbackItem && (
+  <EditFeedbackDialog
+    feedbackItem={feedbackItem}
+    open={editDialogOpen}
+    onOpenChange={setEditDialogOpen}
+  />
+)}
+```
+
+In the above code, we import the `EditFeedbackDialog` component and render it conditionally when the `feedbackItem` is not null and the `editDialogOpen` state is true. 
+
+For the full source code, please wait until the end of this module, as we will also add a button to delete the feedback item.
+
+{% img src="/assets/courses/next-drizzle/teampulse-edit-feedback.webp" width="1000" height="1000" alt="Teampulse Edit Feedback Dialog" /%}
+
+Try it out and verify that the feedback item details are updated correctly.
+
+## Deleting a Feedback Item
+
+Finally, let's implement the ability to delete feedback items. Since deletion is a destructive action that cannot be undone, we'll use an `AlertDialog` component to ask for confirmation before proceeding.
+
+### Creating an Alert Dialog component to delete feedback item details
+
+The `AlertDialog` component provides a modal with a clear warning message and requires explicit user confirmation. We display the feedback title in the confirmation message so users know exactly which item they're about to delete.
+
+The delete form uses the same `useAction` pattern, but with a twist: we wrap the action in a `toast.promise` call to show loading, success, and error states automatically. On successful deletion, we close the dialog and call `onSuccess` to refresh the parent component's data.
+
+```tsx {% title="apps/web/app/[locale]/(internal)/boards/[boardId]/_components/delete-feedback-dialog.tsx" %}
+'use client';
+
+import { useAction } from 'next-safe-action/hooks';
+
+import { deleteFeedbackAction } from '@lib/feedback/feedback-server-actions';
+
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@kit/ui/alert-dialog';
+import { toast } from '@kit/ui/sonner';
+
+interface DeleteFeedbackDialogProps {
+  feedbackId: string;
+  feedbackTitle: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSuccess?: () => void;
+}
+
+export function DeleteFeedbackDialog({
+  feedbackId,
+  feedbackTitle,
+  open,
+  onOpenChange,
+  onSuccess,
+}: DeleteFeedbackDialogProps) {
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete Feedback</AlertDialogTitle>
+
+          <AlertDialogDescription>
+            Are you sure you want to delete &quot;{feedbackTitle}&quot;? This
+            action cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+
+        <DeleteFeedbackForm
+          feedbackId={feedbackId}
+          onSuccess={() => {
+            onOpenChange(false);
+            onSuccess?.();
+          }}
+        />
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
+function DeleteFeedbackForm({
+  feedbackId,
+  onSuccess,
+}: {
+  feedbackId: string;
+  onSuccess: () => void;
+}) {
+  const { executeAsync, status } = useAction(deleteFeedbackAction);
+  const isPending = status === 'executing';
+
+  const handleDelete = async () => {
+    const promise = executeAsync({ id: feedbackId }).then((result) => {
+      if (result?.serverError || result?.validationErrors) {
+        throw new Error(result.serverError);
+      }
+
+      return result;
+    });
+
+    await toast
+      .promise(promise, {
+        loading: 'Deleting feedback...',
+        success: 'Feedback deleted successfully',
+        error: 'Failed to delete feedback',
+      })
+      .unwrap();
+
+    onSuccess();
+  };
+
+  return (
+    <AlertDialogFooter>
+      <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
+
+      <AlertDialogAction
+        onClick={handleDelete}
+        disabled={isPending}
+        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+        data-testid="confirm-delete-feedback-button"
+      >
+        {isPending ? 'Deleting...' : 'Delete Feedback'}
+      </AlertDialogAction>
+    </AlertDialogFooter>
+  );
+}
+```
+
+### Opening the Alert Dialog component when the user clicks on the "Delete" button
+
+Now let's update the `FeedbackDetailSheet` component to include both the edit and delete functionality. We'll add state variables to control each dialog's visibility and render action buttons that trigger them.
+
+The updated component adds `editDialogOpen` and `deleteDialogOpen` state variables, along with Edit and Delete buttons in the sheet header. When the delete action succeeds, we also close the sheet itself since the feedback item no longer exists. Here's the complete updated component:
+
+```tsx {% title="apps/web/app/[locale]/(internal)/boards/[boardId]/_components/feedback-detail-sheet.tsx" %}
+'use client';
+
+import { useState } from 'react';
+
+import { format } from 'date-fns';
+import { Bug, Lightbulb, Pencil, Sparkles, Trash2 } from 'lucide-react';
+
+import { Badge } from '@kit/ui/badge';
+import { Button } from '@kit/ui/button';
+import { ProfileAvatar } from '@kit/ui/profile-avatar';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from '@kit/ui/sheet';
+import { Skeleton } from '@kit/ui/skeleton';
+
+import { useFetchFeedbackItem } from '../_lib/use-fetch-feedback-item';
+import { DeleteFeedbackDialog } from './delete-feedback-dialog';
+import { EditFeedbackDialog } from './edit-feedback-dialog';
+import { StatusDropdown } from './status-dropdown';
+
+interface FeedbackDetailSheetProps {
+  feedbackId: string | null;
+  onOpenChange: (open: boolean) => void;
+}
+
+const typeConfig = {
+  bug: {
+    icon: Bug,
+    label: 'Bug',
+    variant: 'destructive' as const,
+  },
+  feature: {
+    icon: Sparkles,
+    label: 'Feature',
+    variant: 'info' as const,
+  },
+  idea: {
+    icon: Lightbulb,
+    label: 'Idea',
+    variant: 'warning' as const,
+  },
+};
+
+function LoadingSkeleton() {
+  return (
+    <div className="space-y-6 pt-4">
+      <div className="space-y-2">
+        <Skeleton className="h-4 w-20" />
+        <Skeleton className="h-6 w-full" />
+      </div>
+      <div className="space-y-2">
+        <Skeleton className="h-4 w-20" />
+        <Skeleton className="h-20 w-full" />
+      </div>
+      <div className="flex gap-4">
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-16" />
+          <Skeleton className="h-6 w-20" />
+        </div>
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-16" />
+          <Skeleton className="h-6 w-20" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FeedbackDetailContent({
+  feedbackId,
+  onClose,
+}: {
+  feedbackId: string;
+  onClose: () => void;
+}) {
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const { data: feedbackItem, isLoading } = useFetchFeedbackItem(feedbackId);
+
+  const type = feedbackItem?.type ?? 'idea';
+  const config = typeConfig[type];
+  const Icon = config.icon;
+
+  return (
+    <>
+      <SheetHeader className="pr-8">
+        <SheetTitle className="flex items-center gap-2">
+          {isLoading ? (
+            <Skeleton className="h-6 w-48" />
+          ) : (
+            <>
+              <Icon className="text-muted-foreground h-5 w-5 shrink-0" />
+              <span className="line-clamp-2">{feedbackItem?.title}</span>
+            </>
+          )}
+        </SheetTitle>
+
+        <SheetDescription>
+          {isLoading ? (
+            <Skeleton className="h-4 w-32" />
+          ) : feedbackItem ? (
+            <span>
+              Submitted {format(new Date(feedbackItem.createdAt), 'PPP')}
+            </span>
+          ) : null}
+        </SheetDescription>
+      </SheetHeader>
+
+      {feedbackItem && (
+        <>
+          <EditFeedbackDialog
+            feedbackItem={feedbackItem}
+            open={editDialogOpen}
+            onOpenChange={setEditDialogOpen}
+          />
+
+          <DeleteFeedbackDialog
+            feedbackId={feedbackItem.id}
+            feedbackTitle={feedbackItem.title}
+            open={deleteDialogOpen}
+            onOpenChange={setDeleteDialogOpen}
+            onSuccess={onClose}
+          />
+        </>
+      )}
+
+      {isLoading ? (
+        <LoadingSkeleton />
+      ) : feedbackItem ? (
+        <div className="space-y-6 pt-4">
+          <div className="flex items-center gap-3">
+            <ProfileAvatar
+              pictureUrl={feedbackItem.author.image}
+              displayName={feedbackItem.author.name}
+              className="m-0! size-10"
+            />
+
+            <div className="flex flex-col">
+              <span className="text-sm font-medium">
+                {feedbackItem.author.name}
+              </span>
+
+              <span className="text-muted-foreground text-xs">Author</span>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-muted-foreground text-sm font-medium">
+              Description
+            </label>
+
+            <p className="text-sm whitespace-pre-wrap">
+              {feedbackItem.description || 'No description provided.'}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-4">
+            <div className="space-y-2">
+              <label className="text-muted-foreground text-sm font-medium">
+                Type
+              </label>
+
+              <div>
+                <Badge variant={config.variant}>{config.label}</Badge>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-muted-foreground text-sm font-medium">
+                Status
+              </label>
+
+              <div>
+                <StatusDropdown
+                  feedbackId={feedbackItem.id}
+                  currentStatus={feedbackItem.status}
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-muted-foreground text-sm font-medium">
+                Votes
+              </label>
+
+              <div>
+                <Badge variant="secondary">{feedbackItem.voteCount}</Badge>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-2 border-t pt-4">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setEditDialogOpen(true)}
+              data-testid="edit-feedback-button"
+            >
+              <Pencil className="mr-1.5 h-3.5 w-3.5" />
+              Edit
+            </Button>
+
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => setDeleteDialogOpen(true)}
+              data-testid="delete-feedback-button"
+            >
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+              Delete
+            </Button>
+          </div>
+
+          <div className="text-muted-foreground text-xs">
+            Last updated {format(new Date(feedbackItem.updatedAt), 'PPpp')}
+          </div>
+        </div>
+      ) : (
+        <div className="text-muted-foreground py-8 text-center text-sm">
+          Feedback not found
+        </div>
+      )}
+    </>
+  );
+}
+
+export function FeedbackDetailSheet({
+  feedbackId,
+  onOpenChange,
+}: FeedbackDetailSheetProps) {
+  return (
+    <Sheet open={!!feedbackId} onOpenChange={onOpenChange}>
+      <SheetContent className="sm:max-w-lg">
+        {feedbackId && <FeedbackDetailContent
+          feedbackId={feedbackId}
+          onClose={() => onOpenChange(false)}
+        />}
+      </SheetContent>
+    </Sheet>
+  );
+}
+```
+
+## Cache Invalidation
+
+If you tested the application, you will notice a small issue when updating a feedback item details. Because we fetch data from React Query, the data is not updated when using Server Actions; this is one of the gotchas about using two data fetching patterns that share different caching invalidation strategies:
+- **React Server Components** rely on specific `revalidatePath` calls to invalidate the cache of a specific page (or `revalidateTag` for a specific tag).
+- **React Query** relies on its queryKeys or manual invalidation
+
+In this case, the data of an individual feedback item is not updated when using Server Actions because the data is fetched from React Query. Therefore, we want to update the code to invalidate the cached item when the feedback item is updated:
+
+### Edit Feedback Form
+
+First, we import the `useQueryClient` from `@tanstack/react-query`.
+
+```tsx {% title="apps/web/app/[locale]/(internal)/boards/[boardId]/_components/edit-feedback-form.tsx" %}
+import { useQueryClient } from '@tanstack/react-query';
+```
+
+When the form is submitted, we invalidate the cached item by calling the `invalidateQueries` method with the `queryKey` of the feedback item.
+
+We need to instantiate the `useQueryClient` in the component at line 45:
+
+```tsx {% title="apps/web/app/[locale]/(internal)/boards/[boardId]/_components/edit-feedback-form.tsx" %}
+const queryClient = useQueryClient();
+```
+
+At line 73 in the `onSubmit` function, let's add the following code to invalidate the cached item:
+
+```tsx
+await queryClient.invalidateQueries({
+  queryKey: ['feedback-item', feedbackItem.id],
+});
+```
+
+### Delete Feedback Form
+
+When the delete form is submitted, we invalidate the cached item by calling the `invalidateQueries` method with the `queryKey` of the feedback item.
+
+```tsx {% title="apps/web/app/[locale]/(internal)/boards/[boardId]/_components/delete-feedback-dialog.tsx" %}
+import { useQueryClient } from '@tanstack/react-query';
+
+// line 66
+const queryClient = useQueryClient();
+
+// line 87
+queryClient.removeQueries({
+  queryKey: ['feedback-item', feedbackId],
+});
+```
+
+### Updating the Status of the feedback item
+
+When the status of the feedback item is updated, we invalidate the cached item by calling the `invalidateQueries` method with the `queryKey` of the feedback item.
+
+```tsx {% title="apps/web/app/[locale]/(internal)/boards/[boardId]/_components/status-dropdown.tsx" %}
+import { useQueryClient } from '@tanstack/react-query';
+
+// line 35
+const queryClient = useQueryClient();
+
+// line 51
+await queryClient.invalidateQueries({
+  queryKey: ['feedback-item', feedbackId],
+});
+```
+
+As you can see, the data is updated correctly when the feedback item is updated, deleted, or the status is updated.
+
+---
+
+## Module 4 Complete!
+
+You've built the core feature of TeamPulse. Users can now submit feedback, vote on what matters, and watch items move through the status workflow.
+
+The patterns you learned - vote toggling with transactions, URL-based filtering, and correlated subqueries - are techniques you'll use in many applications.
+
+You now have:
+- [x] Feedback items and votes schemas with proper relationships
+- [x] CRUD operations with multi-tenant security checks
+- [x] Vote toggle functionality using atomic transactions
+- [x] Status workflow with dropdown controls
+- [x] URL-based filtering by type and status
+- [x] Sorting options for newest, most voted, and recently updated
+- [x] Viewing a feedback item details
+- [x] Editing a feedback item
+- [x] Deleting a feedback item
+ 
+**Next:** In [Module 5: Public Boards](./public-boards), you'll create public-facing pages where external users can view boards and submit feedback without signing in - a common pattern for product feedback tools.
+
+---
+
+### Learn More
+
+- [Drizzle Transactions](https://orm.drizzle.team/docs/transactions) - Atomic operations
+- [Drizzle SQL Operators](https://orm.drizzle.team/docs/operators) - Increment/decrement
+- [Next.js Search Params](https://nextjs.org/docs/app/api-reference/file-conventions/page#searchparams-optional) - URL-based filtering

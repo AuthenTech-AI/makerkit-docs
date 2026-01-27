@@ -1,0 +1,130 @@
+---
+status: "published"
+title: "Using Keystatic"
+label: "Keystatic"
+description: "Keystatic is a file-based CMS that stores content in JSON files locally or syncs with GitHub. It's the default CMS in Makerkit."
+order: 1
+---
+
+Keystatic stores your content as JSON files - either locally on disk or synced to a GitHub repository. It's the default CMS in Makerkit because it requires zero external setup: content lives in your codebase, version-controlled alongside your code. For collaborative editing or edge deployments, switch to GitHub mode to enable remote content access.
+
+Keystatic is a file-based, Git-native CMS that stores content as JSON files and provides a built-in admin UI for editing.
+
+- **Use local mode when:** you're a solo developer, deploying to Node.js environments, and want the simplest setup with no external dependencies.
+- **Use GitHub mode when:** you need team collaboration, want content changes to trigger CI/CD pipelines, or are deploying to edge runtimes (Cloudflare, Vercel Edge).
+
+This page is part of the [CMS Integration](./cms) documentation.
+
+## Storage Modes
+
+| Mode | Content Location | Best For | Edge Compatible |
+|------|------------------|----------|-----------------|
+| `local` | Local filesystem | Solo development | No |
+| `github` | GitHub repository | Team editing, edge deploys | Yes |
+| `cloud` | Keystatic Cloud | Managed hosting | Yes |
+
+## Local Mode (Default)
+
+Local mode stores content in your project's filesystem. No external services required.
+
+```bash
+CMS_CLIENT=keystatic
+NEXT_PUBLIC_KEYSTATIC_STORAGE_KIND=local
+KEYSTATIC_PATH_PREFIX=apps/web
+NEXT_PUBLIC_KEYSTATIC_CONTENT_PATH=./content
+```
+
+Content is stored in the `content` directory and committed to your repository.
+
+## GitHub Mode
+
+GitHub mode syncs content to a GitHub repository, enabling team collaboration and edge runtime compatibility.
+
+```bash
+CMS_CLIENT=keystatic
+NEXT_PUBLIC_KEYSTATIC_STORAGE_KIND=github
+NEXT_PUBLIC_KEYSTATIC_STORAGE_REPO=your-org/your-repo
+KEYSTATIC_PATH_PREFIX=apps/web
+NEXT_PUBLIC_KEYSTATIC_CONTENT_PATH=./content
+KEYSTATIC_GITHUB_TOKEN=github_pat_xxxxxxxxxxxxxxxxxxxx
+```
+
+### GitHub Token
+
+Generate a personal access token from GitHub Developer Settings with `contents: read` permission on your repository.
+
+1. Go to GitHub → Settings → Developer settings → Personal access tokens
+2. Generate new token (fine-grained)
+3. Select your repository
+4. Grant `Contents: Read-only` permission
+5. Copy the token to `KEYSTATIC_GITHUB_TOKEN`
+
+### GitHub App for Admin UI
+
+The Keystatic admin UI in GitHub mode requires a GitHub App installation for authentication. See the [Keystatic GitHub Mode documentation](https://keystatic.com/docs/github-mode) for setup instructions.
+
+## Keystatic Cloud Mode
+
+For managed hosting without GitHub configuration:
+
+```bash
+CMS_CLIENT=keystatic
+NEXT_PUBLIC_KEYSTATIC_STORAGE_KIND=cloud
+KEYSTATIC_STORAGE_PROJECT=your-project-id
+```
+
+## Adding the Admin UI
+
+Run the generator to add the Keystatic admin routes to your app:
+
+```bash
+turbo gen keystatic
+```
+
+This creates a `/keystatic` route where editors can manage content.
+
+{% alert type="warning" title="Production Security" %}
+The Keystatic admin at `/keystatic` is publicly accessible by default. For production deployments, add authentication middleware or restrict access via your hosting provider's configuration.
+{% /alert %}
+
+## Cloudflare Workers Compatibility
+
+Cloudflare Workers doesn't send the `User-Agent` header that GitHub's API requires. Add this workaround to `packages/cms/keystatic/src/keystatic-client.ts`:
+
+```typescript
+// Cloudflare Workers User-Agent fix
+const originalFetch = globalThis.fetch;
+
+globalThis.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+  return originalFetch(input, {
+    ...init,
+    headers: {
+      ...init?.headers,
+      'User-Agent': 'Cloudflare-Workers',
+    },
+  });
+};
+```
+
+## Common Pitfalls
+
+- **Local mode on edge runtimes**: Cloudflare Workers and Vercel Edge Functions can't access the local filesystem. Use GitHub or Cloud mode for edge deployments.
+- **Missing GitHub token permissions**: The token needs `contents: read` on your repository. Without it, content fetching fails silently or returns empty results.
+- **Admin UI exposed in production**: The `/keystatic` route is public by default. Add authentication or remove the route in production if you don't need browser-based editing.
+- **KEYSTATIC_PATH_PREFIX mismatch**: If your content folder isn't at `apps/web/content`, update `KEYSTATIC_PATH_PREFIX` to match your monorepo structure.
+- **Forgetting to commit content changes**: In local mode, content changes are local files. Commit and push them to persist changes across deployments.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "How do I migrate from local to GitHub mode?", "answer": "Commit your content folder to GitHub, then update environment variables to use github storage kind. Your content structure remains the same."},
+     {"question": "Can I use Keystatic with Cloudflare Pages?", "answer": "Yes, but only in GitHub or Cloud mode. Add the User-Agent workaround for GitHub API compatibility."},
+     {"question": "Where is content stored in GitHub mode?", "answer": "Content is stored in the same path structure as local mode, but in your GitHub repository. Changes sync bidirectionally through the admin UI."},
+     {"question": "How do I add custom fields to content types?", "answer": "Edit the Keystatic configuration at packages/cms/keystatic/keystatic.config.ts. Define fields using Keystatic's schema API."},
+     {"question": "Can multiple editors work simultaneously?", "answer": "In GitHub mode, yes. Keystatic creates branches for changes and handles merging. In local mode, only one editor can work at a time."}
+   ]
+/%}
+
+---
+
+**Next:** [WordPress →](./wordpress)

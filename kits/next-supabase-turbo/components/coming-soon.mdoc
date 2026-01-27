@@ -75,7 +75,7 @@ import { withI18n } from '~/lib/i18n/with-i18n';
 import { AppLogo } from '~/components/app-logo';
 import appConfig from '~/config/app.config';
 
-function SiteLayout() {
+function SiteLayout(props: React.PropsWithChildren) {
   if (!appConfig.production) {
     return (
       <div className={'flex min-h-[100vh] flex-col'}>

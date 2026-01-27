@@ -1,205 +1,183 @@
 ---
 status: "published"
-title: "Permissions Templates"
-label: "Permissions Templates"
+title: "Permission Templates"
+label: "Permission Templates"
 order: 3
-description: "Using pre-defined templates in Supamode"
+description: "Get started quickly with pre-built permission templates. Choose from solo, small team, SaaS, or custom configurations based on your team size and needs."
 ---
 
-Supamode includes a set of **pre-defined seed templates** that cover the most common team and project setups, so you don't need to start from scratch. 
+Supamode includes pre-defined seed templates that set up roles, permissions, and your initial admin account. Pick a template that matches your team structure and customize from there.
 
-Each template ends with `-seed.ts` and can be used “as-is” or forked to suit your needs. 
+**Available templates:**
+- **solo-seed.ts** - Single user with full access (solopreneurs)
+- **small-team-seed.ts** - 3-10 people with role separation
+- **saas-seed.ts** - Full RBAC structure for larger teams
+- **custom-seed.ts** - Blank starting point for custom setups
 
-This page explains the differences between them and helps you choose the right one to get started quickly.
+## How Templates Work
 
-## What do the templates do?
+Templates generate SQL that:
+1. Creates roles with appropriate ranks
+2. Defines permissions (system and data)
+3. Bundles permissions into groups
+4. Creates your initial admin account
+5. Assigns the highest role to your account
 
-The templates are used to generate a seed file that can be used to set up the permissions for your Supabase project and assign your own account as the original admin account.
+After generating, you deploy the SQL as a Supabase migration.
 
-Once generated, you can copy the seed file to your own project's migrations directory and run it to deploy the seed to your Supabase project.
+## Choosing a Template
 
-## Templates
+| Template | Best For | Roles Created | MFA Default |
+|----------|----------|---------------|-------------|
+| **solo** | Single developer | Solopreneur (rank 100) | Disabled |
+| **small-team** | 3-10 people | Admin, Developer, Support | Disabled |
+| **saas** | 10+ people, enterprise | Root, Admin, Manager, Developer, Support, Read Only | Disabled |
+| **custom** | Unique requirements | None (you define) | You decide |
 
-Supamode provides 4 templates to get you started:
+## Generating a Seed
 
-- [solo-seed.ts](#1.-solo-seed.ts): ideal for solopreneurs and single-developer projects
-- [small-team-seed.ts](#2.-small-team-seed.ts): ideal for small teams (2-5 people)
-- [saas-seed.ts](#3.-saas-seed.ts): ideal for larger companies (5-100 people)
-- [custom-seed.ts](#4.-custom-seed.ts): use for fully bespoke setups that you want to customize
-
-## Generating a seed
-
-To generate a seed, you can use the command:
+Use the CLI to generate a seed file:
 
 ```bash
 pnpm run generate-schema --template <template-name> --root-account <supabase-user-id>
 ```
 
-For example, to generate the `saas-seed.ts` template for the user with the ID `123`, you can run:
+**Parameters:**
+- `--template`: Template name (`solo`, `small-team`, `saas`, or `custom`)
+- `--root-account`: Your Supabase Auth user UUID
 
+**Example:**
 ```bash
-pnpm run generate-schema --template saas --root-account 123
+pnpm run generate-schema --template saas --root-account 550e8400-e29b-41d4-a716-446655440000
 ```
 
-The `root-account` parameter is required to setup an initial account with the `highest` role in the seed. This will then allow the root account to create other accounts with the roles defined in the seed and set up the platform for the rest of the users.
+### Finding Your User ID
 
-#### Root Account
+Get your Supabase Auth user ID from:
+1. Supabase Dashboard > Authentication > Users
+2. Click your user row to see the UUID
+3. Or run: `select id from auth.users where email = 'your@email.com'`
 
-#### Setting up the seed for development
+### Development vs Production
 
-During development, pick the ID of your users that you use during your normal development flow for your application. This will allow you to use your existing users to test the seed and make sure it works as expected.
+**For development:** Use your local development user's ID. This lets you test the permission structure with your existing dev account.
 
-#### Setting up the seed for production
+**For production:** Use your production user's ID. The seed creates this account as the root admin with full system access.
 
-Once you're ready to deploy the seed to your production environment, you can use the `root-account` parameter to create an initial account with the `highest` role in the seed. This is the ID of your own user account in your Supabase project.
+## Deploying the Seed
 
-Once set up, the seed will use your account ID and set it up for admin access.
+After generating, deploy the seed as a Supabase migration:
 
-#### Deploying the seed
+1. Create a new migration file:
+    - Run the following command:
+    ```bash
+    pnpm run --filter app supabase migration new supamode-seed
+    ```
+2. Copy the generated SQL from `apps/app/supabase/seeds/` into the new migration file
+3. Test locally by resetting your database
+    - Run the following command:
+    ```bash
+    pnpm run --filter app supabase db reset
+    ```
 
-Once you're satisfied with the seed, you can copy it to your migrations directory and run it to deploy the seed to your Supabase project:
+Once tested, deploy to your remote Supabase project. See [Deploying Schema](../deployment/schema) for deployment instructions.
 
-To use the other seeds, you can run the following commands:
+## Template Details
 
-For the `solo-seed.ts` template, you can run the following command:
+### 1. solo-seed.ts
 
-```bash
-pnpm run generate-schema --template solo --root-account <supabase-user-id>
-```
+For solopreneurs and single-developer projects where one person needs complete access.
 
-For the `small-team-seed.ts` template, you can run the following command:
+**What it creates:**
 
-```bash
-pnpm run generate-schema --template small-team --root-account <supabase-user-id>
-```
+| Component | Details |
+|-----------|---------|
+| **Role** | Solopreneur (rank 100) |
+| **System Permissions** | Full access to accounts, roles, permissions, tables, logs, auth users, system settings |
+| **Data Permissions** | All CRUD on public.*, all storage buckets, read auth.users |
+| **Permission Group** | "Solopreneur Complete Access" with all permissions |
+| **MFA** | Disabled by default |
 
-For the `saas-seed.ts` template, you can run the following command:
+**Best for:**
+- Solo founders
+- Single-developer side projects
+- Co-founders who share equal access
 
-```bash
-pnpm run generate-schema --template saas --root-account <supabase-user-id>
-```
+### 2. small-team-seed.ts
 
-For the `custom-seed.ts` template, you can run the following command:
+For teams of 3-10 people with clear role separation between admin, developers, and support.
 
-```bash
-pnpm run generate-schema --template custom --root-account <supabase-user-id>
-```
+**What it creates:**
 
-The command will generate the seed file in the `apps/app/supabase/seeds` directory. 
+| Role | Rank | Capabilities |
+|------|------|--------------|
+| **Global Admin** | 100 | Full system and data access |
+| **Developer** | 80 | Schema/table management, data access, no system settings |
+| **Customer Support** | 60 | Read/update customer data, view logs, no system access |
 
-#### Using the seed in your application
+**Best for:**
+- Small startups
+- Teams needing basic role separation
+- Projects with developers and non-technical staff
 
-If you're satisfied with the seed, the next step is to copy it to your migrations directory and run it to deploy the seed to your Supabase project:
+### 3. saas-seed.ts
 
-```bash
-pnpm run --filter app supabase migration new supamode-seed
-```
+Full RBAC structure for larger teams and enterprise applications.
 
-The command above will generate a new migration file in the `apps/app/supabase/migrations` directory. Now, copy-paste the content of the seed file into the migration file.
+**What it creates:**
 
-Before deploying the seed, please test the seed to make sure it works as expected in your own application. Normally, you'd need to reset your database.
+| Role | Rank | Permission Group | Key Access |
+|------|------|------------------|------------|
+| **Root** | 100 | Super Admin | Everything |
+| **Admin** | 90 | Administrator | User/role management, all data |
+| **Developer** | 80 | Developer | Table config, all data, read system |
+| **Manager** | 70 | Manager | All data, read accounts/roles/logs |
+| **Support** | 60 | Customer Support | Read/update customer data, read logs |
+| **Read Only** | 50 | Read Only | View all data and system info |
 
-#### Deploying the seed to your Supabase project
+**Permission structure:**
+- System permissions separated from data permissions
+- Each role maps to one permission group
+- Clear escalation path through ranks
 
-This migration is now staged and can be deployed to your Supabase project. [Follow the instructions to deploy the migration](../deployment/schema.mdoc) to deploy the seed to your Supabase project.
+**Best for:**
+- SaaS products with multiple admin tiers
+- Companies with compliance requirements
+- Teams needing audit trails and role separation
 
-## Template Overview
+### 4. custom-seed.ts
 
-| Template               | Intended for…                            | Key Features                                                                                          |
-| ---------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| **solo-seed.ts**       | Solopreneurs & single-developer projects | • One user with **full admin** rights• All database, storage, audit-log & metadata permissions    |
-| **small-team-seed.ts** | Small teams (3–10 people)                | • **Global Admin**, **Developers**, **Customer Support** roles• Clear separation of duties        |
-| **saas-seed.ts**       | Multi-tenant SaaS products               | • System & data permissions• Role hierarchy & permission groups• Test accounts                |
-| **custom-seed.ts**     | Fully bespoke setups                     | • Boilerplate for Account.create, Permission.create, etc.• Build your own structures from scratch |
+A blank starting point when you need complete control over your permission structure.
 
----
+**What it creates:**
+- Empty seed file with imports
+- No predefined roles or permissions
+- You build everything from scratch
 
-## 1. solo-seed.ts
+**Start here if:**
+- Existing templates don't match your needs
+- You have unusual permission requirements
+- You want to learn the seed generator API
 
-The **solo-seed.ts** template is designed for a single-user setup, or users that have the same level of access (for example, two founders). It defines one overarching role:
+## Customizing Templates
 
-| Role                                                            | Description                     | Capabilities                          |
-| --------------------------------------------------------------- | ------------------------------- | ------------------------------------- |
-| Super Admin                                                     | Single super-admin user account | • Full system control across Supamode |
-| • Create, read, update, delete (CRUD) on all schemas and tables |                                 |                                       |
-| • Manage all storage buckets and files                          |                                 |                                       |
-| • View and export audit logs                                    |                                 |                                       |
-| • Configure metadata and system settings                        |                                 |                                       |
+After generating, you can modify the SQL or create a new seed file based on an existing template.
 
-💡 Use this template when you are a solopreneur or sole developer and need one account with unrestricted access.
+**Common customizations:**
+- Add new roles for specific departments
+- Create granular permissions for sensitive tables
+- Add time-limited roles for contractors
+- Define row-level conditions for data access
 
----
+See the [RBAC System](./rbac) documentation for complete examples of permission patterns.
 
-## 2. small-team-seed.ts
-
-The **small-team-seed.ts** template establishes a clear division of responsibilities for teams of 3–10 people:
-
-| Role                                            | Description                       | Capabilities                                                     |
-| ----------------------------------------------- | --------------------------------- | ---------------------------------------------------------------- |
-| Global Admin                                    | System owner with total control   | • All CRUD on schemas, tables, storage, settings                 |
-| • Manage user accounts and roles                |                                   |                                                                  |
-| • Full audit-log access                         |                                   |                                                                  |
-| Developer                                       | Engineering and maintenance       | • Create, read, update on database schemas and tables            |
-| • Deploy schema migrations and function updates |                                   |                                                                  |
-| • Limited storage management                    |                                   |                                                                  |
-| Customer Support                                | Support staff for user assistance | • Read and update on customer-related tables (tickets, profiles) |
-| • View audit logs for support troubleshooting   |                                   |                                                                  |
-| • No access to deployment or system settings    |                                   |                                                                  |
-
-💡 Start here if you have a small startup or team and want out-of-the-box role separation.
-
----
-
-## 3. saas-seed.ts
-
-The **saas-seed.ts** template caters to multi-tenant SaaS applications, defining six core roles alongside logical permission groups:
-
-| Role                                                     | Description                               | Permission Group | Key Capabilities                                                 |
-| -------------------------------------------------------- | ----------------------------------------- | ---------------- | ---------------------------------------------------------------- |
-| **Root**                                                 | Ultimate system administrator             | Super Admin      | • Full CRUD on all schemas, tables, storage, and system settings |
-| • Full access to audit logs and compliance configuration |                                           |                  |                                                                  |
-| **Admin**                                                | Administrative control over system        | Administrator    | • Manage user accounts, roles, and permissions                   |
-| • Configure global and tenant settings                   |                                           |                  |                                                                  |
-| **Manager**                                              | Content & basic admin functions           | Manager          | • Read system metadata (accounts, roles, logs)                   |
-| • CRUD on all tables and storage                         |                                           |                  |                                                                  |
-| • Moderate content workflows                             |                                           |                  |                                                                  |
-| **Developer**                                            | Technical & DevOps operations             | Developer        | • Read system objects (accounts, roles, permissions, logs)       |
-| • Manage table schemas and migrations                    |                                           |                  |                                                                  |
-| • Perform data migrations and exports                    |                                           |                  |                                                                  |
-| **Support**                                              | Customer support & user assistance        | Customer Support | • Read and update customer-facing tables (profiles, tickets)     |
-| • Read logs and auth user data                           |                                           |                  |                                                                  |
-| • No access to system configuration                      |                                           |                  |                                                                  |
-| **Read Only**                                            | View-only access for auditing & reporting | Read Only        | • Read-only access to system and data objects                    |
-| • Export logs and permissions for compliance             |                                           |                  |                                                                  |
-
-**Structure Highlights:**
-
-* **Permission Groups**: Bundles of related permissions for each role.
-* **Role Assignments**: Each role is linked to one group, enforcing consistent capabilities.
-* **Pre-seeded Accounts**: Example users (`rootAccount`, `adminAccount`, `managerAccount`, etc.) ready for immediate use.
-
-💡 This structure ensures strong isolation between tenants and clear system vs. data permissions.
-
----
-
-## 4. custom-seed.ts
-
-The **custom-seed.ts** template provides a blank canvas for fully bespoke permission schemes. There are no predefined roles or permissions; instead, you define exactly what your team needs.
-
-| Role                               | Description      | Capabilities                             |
-| ---------------------------------- | ---------------- | ---------------------------------------- |
-| *Your Roles*                       | *Defined by you* | *Define CRUD scopes, group assignments,* |
-| *and any custom actions as needed* |                  |                                          |
-
-💡 Pick this template when you require advanced, fine‑grained control or non‑standard team structures.
-
----
-
-## Choosing the Right Template
-
-1. **Solo developer?** → **solo-seed.ts**
-2. **Small team (3–10)?** → **small-team-seed.ts**
-3. **Full SaaS product?** → **saas-seed.ts**
-4. **Need advanced/custom roles?** → **custom-seed.ts**
-
-Feel free to start with one and **tweak** roles, permissions, or groups to match your organization. All templates live under `supamode/seeds/`—just copy, rename, and modify!
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Can I switch templates later?", "answer": "Yes, but you'll need to migrate carefully. Generate the new template, compare the SQL, and write a migration that adds new roles/permissions without disrupting existing users. Back up first."},
+     {"question": "Do templates include test accounts?", "answer": "The saas-seed template only creates the root account you specify. Add additional test accounts by modifying the seed file before deploying."},
+     {"question": "How do I add MFA enforcement?", "answer": "All templates disable MFA by default. After deploying, enable it via Settings > Authentication in the UI, or modify the seed to include: SystemSetting.create({ app, key: 'requires_mfa', value: 'true' })"},
+     {"question": "Can two users have the same role?", "answer": "Yes. Roles are reusable. Any number of accounts can share the same role. This is the expected pattern - create roles for job functions, not individuals."},
+     {"question": "What if I need a role that combines permissions from multiple templates?", "answer": "Use the custom template and manually add the permissions you need, or start with the closest template and add the missing permissions. Permission groups make this easier - you can create groups that combine capabilities."}
+   ]
+/%}

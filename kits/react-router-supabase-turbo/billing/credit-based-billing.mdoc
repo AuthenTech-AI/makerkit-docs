@@ -12,7 +12,7 @@ As you may know, this is extremely popular for AI SaaS products, where users may
 
 Makerkit doesn't have a built-in credit-based billing system, but you can easily implement it using the existing billing system.
 
-{% alert type="info" title="This example is for Stripe Subscriptions" %}
+{% alert type="default" title="This example is for Stripe Subscriptions" %}
 The example below is specific to Stripe Subscriptions.
 {% /alert %}
 
@@ -117,7 +117,7 @@ For example, when a user performs an action that consumes credits, you can call 
 
 NB: the `callOpenAIApi` is a placeholder for your API call to OpenAI. You should replace it with your actual API call.
 
-NB: we assume this is in a route handler, so we use the `getSupabaseRouteHandlerClient` client. If you're in a server action, you should use the `getSupabaseServerActionClient` client. [Learn more about the Supabase clients here](supabase-clients).
+NB: we assume this is in a route handler, so we use the `getSupabaseRouteHandlerClient` client. If you're in a server action, you should use the `getSupabaseServerActionClient` client. [Learn more about the Supabase clients here](../data-fetching/supabase-clients).
 
 ```tsx
 export function async consumeApi(accountId: string) {
@@ -269,3 +269,5 @@ We assume that we have a table named `plans` that stores the pricing information
 The `credits` table has a column named `tokens_quota` that stores the number of credits available to the user.
 
 In the `onInvoicePaid` event handler, we get the variant ID from the invoice line items and update the `credits` table with the new credits.
+
+Looking for a Drizzle-based kit? Check out the [Next.js Drizzle SaaS Kit](/drizzle) for a complete foundation.

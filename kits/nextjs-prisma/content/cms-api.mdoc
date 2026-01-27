@@ -1,0 +1,218 @@
+---
+status: "published"
+label: "CMS API"
+title: "CMS API Reference"
+description: "Complete API reference for fetching content from any CMS backend using Makerkit's unified content interface."
+order: 3
+---
+
+The CMS API provides a unified interface for fetching content regardless of your CMS backend. Call `createCmsClient()` to get a client configured for your environment, then use `getContentItems()` for lists or `getContentItemBySlug()` for single items. The same code works with Keystatic, WordPress, or custom implementations - swap backends by changing an environment variable.
+
+The CMS API is the programmatic interface for fetching, filtering, and paginating content from any configured CMS backend.
+
+This page is part of the [CMS Integration](./cms) documentation.
+
+## Creating a CMS Client
+
+The client is configured automatically based on the `CMS_CLIENT` environment variable:
+
+```typescript
+import { createCmsClient } from '@kit/cms';
+
+const client = await createCmsClient();
+```
+
+The returned client implements the `CmsClient` interface with methods for content, categories, and tags.
+
+## Fetching Content Lists
+
+Use `getContentItems()` to fetch paginated lists of content:
+
+```typescript
+import { cache } from 'react';
+import { createCmsClient } from '@kit/cms';
+
+const getPostsPage = cache(async (page: number, language?: string) => {
+  const client = await createCmsClient();
+  const limit = 10;
+  const offset = (page - 1) * limit;
+
+  const { items, total } = await client.getContentItems({
+    collection: 'posts',
+    limit,
+    offset,
+    language,
+    sortBy: 'publishedAt',
+    sortDirection: 'desc',
+  });
+
+  return {
+    posts: items,
+    totalPages: Math.ceil(total / limit),
+  };
+});
+```
+
+### getContentItems Options
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `collection` | `string` | Collection name: `posts`, `documentation`, `changelog`, or custom |
+| `limit` | `number` | Maximum items to return |
+| `offset` | `number` | Number of items to skip (for pagination) |
+| `language` | `string` | Filter by language code (`en`, `de`, etc.) |
+| `sortBy` | `string` | Field to sort by (`publishedAt`, `title`, etc.) |
+| `sortDirection` | `'asc' \| 'desc'` | Sort order |
+| `status` | `string` | Content status: `published`, `draft`, `pending`, `review` |
+| `content` | `boolean` | Whether to include full content (default: false for lists) |
+
+## Fetching Single Items
+
+Use `getContentItemBySlug()` to fetch a single content item:
+
+```typescript
+import { createCmsClient } from '@kit/cms';
+import { notFound } from 'next/navigation';
+
+async function BlogPostPage(props: { params: Promise<{ slug: string }> }) {
+  const { slug } = await props.params;
+  const client = await createCmsClient();
+
+  const post = await client.getContentItemBySlug({
+    slug,
+    collection: 'posts',
+  });
+
+  if (!post) {
+    notFound();
+  }
+
+  return (
+    <article>
+      <h1>{post.title}</h1>
+      <div>{post.content}</div>
+    </article>
+  );
+}
+```
+
+### getContentItemBySlug Options
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `slug` | `string` | URL slug of the content item |
+| `collection` | `string` | Collection name |
+| `status` | `string` | Content status (default: `published`) |
+
+## Content Item Structure
+
+Both methods return content items with this structure:
+
+```typescript
+interface ContentItem {
+  id: string;
+  slug: string;
+  title: string;
+  description?: string;
+  content: string;           // Rendered HTML or MDX
+  publishedAt: string;       // ISO date string
+  updatedAt?: string;
+  author?: {
+    name: string;
+    avatar?: string;
+  };
+  image?: string;            // Featured image URL
+  categories?: Category[];
+  tags?: Tag[];
+}
+```
+
+## Fetching Categories and Tags
+
+```typescript
+const client = await createCmsClient();
+
+// Get all categories
+const categories = await client.getCategories();
+
+// Get a specific category
+const category = await client.getCategoryBySlug('tutorials');
+
+// Get all tags
+const tags = await client.getTags();
+
+// Get a specific tag
+const tag = await client.getTagBySlug('nextjs');
+```
+
+## Caching with React Server Components
+
+Wrap CMS fetches with React's `cache()` to deduplicate requests within a single render:
+
+```typescript
+import { cache } from 'react';
+import { createCmsClient } from '@kit/cms';
+
+export const getPost = cache(async (slug: string) => {
+  const client = await createCmsClient();
+
+  return client.getContentItemBySlug({
+    slug,
+    collection: 'posts',
+  });
+});
+```
+
+For page-level caching, use Next.js ISR:
+
+```typescript
+// In your page component
+export const revalidate = 3600; // Revalidate every hour
+```
+
+## Error Handling
+
+```typescript
+import { createCmsClient } from '@kit/cms';
+
+async function fetchPosts() {
+  try {
+    const client = await createCmsClient();
+
+    const { items, total } = await client.getContentItems({
+      collection: 'posts',
+      limit: 10,
+    });
+
+    return { items, total };
+  } catch (error) {
+    console.error('Failed to fetch posts:', error);
+
+    // Return empty state or throw to error boundary
+    return { items: [], total: 0 };
+  }
+}
+```
+
+## Common Pitfalls
+
+- **Missing `cache()` wrapper**: Without `cache()`, the same content might be fetched multiple times in a single render. Wrap reusable fetch functions.
+- **Forgetting to check for null**: `getContentItemBySlug()` returns `undefined` if the item doesn't exist. Always check and handle the 404 case.
+- **Fetching content in client components**: The CMS client is server-only. Fetch content in Server Components or Server Actions, not in client components.
+- **Ignoring the `content` parameter**: When listing items, set `content: false` to skip fetching full content. This significantly improves performance for index pages.
+- **Not handling pagination**: `getContentItems()` returns `total` for building pagination. Don't fetch all items at once - use `limit` and `offset`.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "How do I fetch draft content for preview?", "answer": "Pass status: 'draft' to getContentItems() or getContentItemBySlug(). Protect preview routes with authentication."},
+     {"question": "Can I filter by multiple categories?", "answer": "The base API supports single category filtering. For multiple categories, fetch by each category and merge results, or implement custom filtering in your CMS client."},
+     {"question": "How do I get related posts?", "answer": "Fetch posts with matching categories or tags using getContentItems() with appropriate filters. The API doesn't have a built-in 'related' method."},
+     {"question": "Is content automatically cached?", "answer": "No. Use React's cache() for request-level deduplication and Next.js revalidate for page-level caching."},
+     {"question": "How do I search content?", "answer": "The CMS API doesn't include search. Implement search using your CMS's native search API or a third-party service like Algolia."}
+   ]
+/%}
+
+---
+
+**Next:** [Custom CMS Client →](./creating-your-own-cms-client)

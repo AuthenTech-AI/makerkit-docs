@@ -1,0 +1,416 @@
+---
+status: "published"
+title: "Landing Page"
+label: "Landing Page"
+order: 1
+description: "Create an effective landing page for your SaaS product with Hero, Features, and CTA components."
+---
+
+Build high-converting landing pages using Makerkit's marketing components. The landing page at `apps/web/app/[locale]/(public)/page.tsx` serves as your product's main entry point, combining Hero sections, feature grids, testimonials, and pricing tables into a cohesive sales page. All components are responsive, dark-mode compatible with Next.js 16 and Tailwind CSS 4.
+
+The landing page is the primary marketing page that introduces your product, communicates value propositions, and drives visitors toward signup or purchase.
+
+## Component Selection Guide
+
+**Use Hero when:** you need a full-width opening section with title, subtitle, CTA buttons, and an optional product screenshot. This is your above-the-fold content.
+
+**Use SecondaryHero when:** introducing a new section mid-page (pricing, testimonials, features) with smaller typography and optional pill badge.
+
+**Use FeatureGrid when:** displaying 3-6 features as scannable cards. Works best for quick feature overviews.
+
+**Use FeatureShowcase when:** explaining features in detail with an accompanying image or screenshot. Better for complex features that need visual context.
+
+**Use EcosystemShowcase when:** you need a side-by-side layout with text on one side and an image/content on the other.
+
+## File Location
+
+The landing page is located at `apps/web/app/[locale]/(public)/page.tsx`.
+
+This page is wrapped by the public layout at `apps/web/app/[locale]/(public)/layout.tsx`, which provides the site header and footer.
+
+## Marketing Layout
+
+The public layout provides the structure for all marketing pages:
+
+```tsx
+import { getSession } from '@kit/better-auth/context';
+
+import { SiteFooter } from './_components/site-footer';
+import { SiteHeader } from './_components/site-header';
+
+async function SiteLayout(props: React.PropsWithChildren) {
+  const session = await getSession();
+
+  return (
+    <div className={'flex min-h-[100vh] flex-col'}>
+      <SiteHeader user={session?.user ?? null} />
+      {props.children}
+      <SiteFooter />
+    </div>
+  );
+}
+```
+
+The layout includes:
+- **SiteHeader**: Sticky navigation with logo, navigation links, and account actions
+- **SiteFooter**: Footer with logo, description, and link sections
+
+## Marketing Components
+
+All marketing components are exported from `@kit/ui/marketing`:
+
+```tsx
+import {
+  Hero,
+  HeroTitle,
+  Pill,
+  PillActionButton,
+  CtaButton,
+  Header,
+  Footer,
+  FeatureShowcase,
+  FeatureShowcaseIconContainer,
+  FeatureGrid,
+  FeatureCard,
+  SecondaryHero,
+  GradientText,
+  GradientSecondaryText,
+  EcosystemShowcase,
+  NewsletterSignup,
+} from '@kit/ui/marketing';
+```
+
+For detailed component API documentation, see [Marketing UI Components](../ui-components/marketing).
+
+### Hero
+
+The main hero section with optional pill, title, subtitle, CTA, and image:
+
+```tsx
+<Hero
+  pill={
+    <Pill label={'New'}>
+      <span>The SaaS Starter Kit for ambitious developers</span>
+      <PillActionButton asChild>
+        <Link href={'/auth/sign-up'}>
+          <ArrowRightIcon className={'h-4 w-4'} />
+        </Link>
+      </PillActionButton>
+    </Pill>
+  }
+  title={
+    <span className="text-secondary-foreground">
+      Ship a SaaS faster than ever.
+    </span>
+  }
+  subtitle={
+    <span>
+      Makerkit gives you a production-ready boilerplate to build your
+      SaaS faster than ever before.
+    </span>
+  }
+  cta={<MainCallToActionButton />}
+  image={
+    <Image
+      priority
+      className="w-full rounded-lg border border-gray-200"
+      width={3558}
+      height={2222}
+      src="/images/dashboard.webp"
+      alt="App Image"
+    />
+  }
+/>
+```
+
+**Props:**
+- `pill`: Optional announcement pill above the title
+- `title`: Main heading (ReactNode)
+- `subtitle`: Subheading text
+- `cta`: Call-to-action buttons
+- `image`: Hero image below the content
+- `animate`: Enable entrance animations (default: true)
+
+### Pill
+
+An announcement badge with optional label and action button:
+
+```tsx
+<Pill label="New">
+  <span>Check out our latest features</span>
+  <PillActionButton asChild>
+    <Link href="/features">
+      <ArrowRightIcon className="h-4 w-4" />
+    </Link>
+  </PillActionButton>
+</Pill>
+```
+
+### CtaButton
+
+A styled button for call-to-action links:
+
+```tsx
+<CtaButton className="h-10 text-sm">
+  <Link href="/auth/sign-up">
+    <span className="flex items-center space-x-0.5">
+      <span>Get Started</span>
+      <ArrowRightIcon className="h-4" />
+    </span>
+  </Link>
+</CtaButton>
+
+<CtaButton variant="link" className="h-10 text-sm">
+  <Link href="/pricing">View Pricing</Link>
+</CtaButton>
+```
+
+### Header
+
+The site header component with logo, navigation, and actions:
+
+```tsx
+<Header
+  logo={<AppLogo />}
+  navigation={<SiteNavigation />}
+  actions={<SiteHeaderAccountSection user={user} />}
+/>
+```
+
+### Footer
+
+The site footer with logo, description, copyright, and link sections:
+
+```tsx
+<Footer
+  logo={<AppLogo />}
+  description="Your app description here"
+  copyright={`© ${new Date().getFullYear()} Your Company`}
+  sections={[
+    {
+      heading: 'About',
+      links: [
+        { href: '/blog', label: 'Blog' },
+        { href: '/contact', label: 'Contact' },
+      ],
+    },
+    {
+      heading: 'Legal',
+      links: [
+        { href: '/terms-of-service', label: 'Terms of Service' },
+        { href: '/privacy-policy', label: 'Privacy Policy' },
+      ],
+    },
+  ]}
+/>
+```
+
+### FeatureShowcase
+
+Display a feature section with a heading, icon, and grid of feature cards:
+
+```tsx
+<FeatureShowcase
+  heading={
+    <>
+      <b className="font-medium tracking-tight dark:text-white">
+        The ultimate SaaS Starter Kit
+      </b>.{' '}
+      <span className="text-secondary-foreground/70 block font-normal">
+        Unleash your creativity and build your SaaS faster.
+      </span>
+    </>
+  }
+  icon={
+    <FeatureShowcaseIconContainer>
+      <LayoutDashboard className="h-4 w-4" />
+      <span>All-in-one solution</span>
+    </FeatureShowcaseIconContainer>
+  }
+>
+  <FeatureGrid>
+    <FeatureCard
+      label="Beautiful Dashboard"
+      description="Makerkit provides a beautiful dashboard to manage your SaaS."
+    />
+    <FeatureCard
+      label="Authentication"
+      description="Multiple providers to allow your users to sign in."
+    />
+    <FeatureCard
+      label="Billing"
+      description="Support for multiple payment gateways."
+    />
+  </FeatureGrid>
+</FeatureShowcase>
+```
+
+### FeatureGrid
+
+A responsive grid layout for feature cards (3 columns on desktop):
+
+```tsx
+<FeatureGrid>
+  {features.map((feature) => (
+    <FeatureCard
+      key={feature.label}
+      label={feature.label}
+      description={feature.description}
+    />
+  ))}
+</FeatureGrid>
+```
+
+### FeatureCard
+
+Individual feature cards with label and description:
+
+```tsx
+<FeatureCard
+  className="relative col-span-1 overflow-hidden"
+  label="Authentication"
+  description="Makerkit provides a variety of providers to allow your users to sign in."
+/>
+```
+
+### SecondaryHero
+
+A secondary hero section for additional content sections:
+
+```tsx
+<SecondaryHero
+  pill={<Pill label="Start for free">No credit card required.</Pill>}
+  heading="Fair pricing for all types of businesses"
+  subheading="Get started on our free plan and upgrade when you are ready."
+/>
+```
+
+### EcosystemShowcase
+
+A split layout with text and image/content:
+
+```tsx
+<EcosystemShowcase
+  heading="The ultimate SaaS Starter Kit for founders."
+  description="Unleash your creativity and build your SaaS faster than ever."
+  textPosition="left" // or "right"
+>
+  <Image
+    src="/images/sign-in.webp"
+    alt="Sign in"
+    width={1000}
+    height={1000}
+  />
+</EcosystemShowcase>
+```
+
+### GradientText
+
+Apply a gradient effect to text:
+
+```tsx
+<GradientText className="from-primary to-secondary">
+  Gradient styled text
+</GradientText>
+```
+
+### NewsletterSignup
+
+A newsletter signup form component:
+
+```tsx
+<NewsletterSignup
+  onSignup={(data) => handleSubscribe(data.email)}
+  buttonText="Subscribe"
+  placeholder="Enter your email"
+/>
+```
+
+## Example Landing Page Structure
+
+A typical landing page follows this structure:
+
+```tsx
+function Home() {
+  return (
+    <div className="mt-4 flex flex-col space-y-24 py-14">
+      {/* Hero Section */}
+      <div className="mx-auto">
+        <Hero
+          pill={<Pill label="New">...</Pill>}
+          title={...}
+          subtitle={...}
+          cta={<MainCallToActionButton />}
+          image={<Image ... />}
+        />
+      </div>
+
+      {/* Features Section */}
+      <div className="container mx-auto">
+        <FeatureShowcase heading={...} icon={...}>
+          <FeatureGrid>
+            <FeatureCard ... />
+            <FeatureCard ... />
+          </FeatureGrid>
+        </FeatureShowcase>
+      </div>
+
+      {/* Ecosystem Showcase */}
+      <div className="container mx-auto">
+        <EcosystemShowcase heading="..." description="...">
+          <Image ... />
+        </EcosystemShowcase>
+      </div>
+
+      {/* Pricing Section */}
+      <div className="container mx-auto">
+        <SecondaryHero
+          pill={<Pill .../>}
+          heading="..."
+          subheading="..."
+        />
+        <PricingTable config={billingConfig} ... />
+      </div>
+    </div>
+  );
+}
+```
+
+## Customizing Header and Footer
+
+The site header and footer are defined in:
+- `apps/web/app/[locale]/(public)/_components/site-header.tsx`
+- `apps/web/app/[locale]/(public)/_components/site-footer.tsx`
+
+Modify these files to customize navigation links, footer sections, and account actions.
+
+## Common Pitfalls
+
+- **Hero without proper spacing**: Hero needs vertical padding. If content feels cramped, add `className="py-20"` or adjust container styles.
+- **FeatureGrid with uneven cards**: FeatureGrid uses CSS grid. Ensure all FeatureCards have similar content length to prevent uneven heights.
+- **GradientText not visible**: Gradient requires sufficient text size to be visible. Works best on headings, not body text.
+- **Footer columns overflow on mobile**: Too many columns or links cause overflow. Test responsive behavior and limit to 3-4 columns.
+- **NewsletterSignup without backend**: The component handles UI only. You must implement the form submission logic to your email service.
+- **CtaButton without navigation**: CtaButton is styled but needs a `Link` component inside for actual navigation.
+- **Missing image priority**: For hero images above the fold, always add `priority` prop to Next.js Image to prevent layout shift.
+- **Forgetting dark mode testing**: All components support dark mode, but custom styles may need `dark:` variants in Tailwind.
+
+## Related Documentation
+
+- [Marketing UI Components](../ui-components/marketing) - Complete component API reference
+- [Branding](../branding/overview) - Customize colors, fonts, and logo
+- [Tailwind CSS](../branding/tailwind-css) - Theme customization
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "How do I make the header sticky?", "answer": "The Header component is sticky by default."},
+     {"question": "Can I add testimonials to the landing page?", "answer": "Yes. Create a testimonials section using FeatureGrid with custom cards, or build a dedicated TestimonialSection component."},
+     {"question": "How do I change the hero image?", "answer": "Replace the image source in the Hero component's image prop. Use WebP format for best performance and add priority for above-the-fold images."},
+     {"question": "Is the landing page SEO optimized?", "answer": "Yes. The page is server-rendered with proper meta tags. Add generateMetadata export to customize title and description. The copy is part of your SaaS and must be written by you."}
+   ]
+/%}
+
+---
+
+**Next:** [Blog System →](./blog-system)

@@ -1,0 +1,313 @@
+---
+status: "published"
+title: "Database Migrations"
+label: "Migrations"
+order: 4
+description: "Manage database schema changes with Drizzle Kit migrations: generating, applying, and troubleshooting migrations."
+---
+
+Migrations track and apply schema changes to your database in a controlled, version-controlled manner. [Drizzle](/drizzle) Kit generates SQL migration files by comparing your TypeScript schema with the last known state, giving you full visibility into what changes before they hit the database.
+
+## Migration Workflow
+
+The typical workflow is:
+
+1. Edit schema in `packages/database/src/schema/schema.ts`
+2. Generate migration: `pnpm --filter @kit/database drizzle:generate`
+3. Review the generated SQL file
+4. Apply migration: `pnpm --filter @kit/database drizzle:migrate`
+
+{% callout type="default" title="Always review generated migrations" %}
+Drizzle generates SQL based on schema differences. Review the generated file before applying, especially for destructive changes like dropping columns or changing types.
+{% /callout %}
+
+## Adding a New Table
+
+Add the table definition to `packages/database/src/schema/schema.ts`:
+
+```typescript {% title="packages/database/src/schema/schema.ts" %}
+import { sql } from 'drizzle-orm';
+import { index, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
+
+import { organization } from './core';
+
+export * from './core';
+
+export const projects = pgTable(
+  'projects',
+  {
+    id: text('id')
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    name: text('name').notNull(),
+    organizationId: text('organization_id')
+      .notNull()
+      .references(() => organization.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [index('projects_organizationId_idx').on(table.organizationId)],
+);
+```
+
+Generate the migration:
+
+```bash
+pnpm --filter @kit/database drizzle:generate
+```
+
+This creates a SQL file in `packages/database/src/schema/`:
+
+```sql
+CREATE TABLE "projects" (
+  "id" text PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+  "name" text NOT NULL,
+  "organization_id" text NOT NULL,
+  "created_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE INDEX "projects_organizationId_idx" ON "projects" USING btree ("organization_id");
+--> statement-breakpoint
+ALTER TABLE "projects" ADD CONSTRAINT "projects_organization_id_organization_id_fk"
+  FOREIGN KEY ("organization_id") REFERENCES "public"."organization"("id")
+  ON DELETE cascade ON UPDATE no action;
+```
+
+Apply the migration:
+
+```bash
+pnpm --filter @kit/database drizzle:migrate
+```
+
+## Adding a Column
+
+Add the new column to your existing table:
+
+```typescript
+export const projects = pgTable('projects', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description'), // New nullable column
+  organizationId: text('organization_id').notNull(),
+});
+```
+
+Generate and apply:
+
+```bash
+pnpm --filter @kit/database drizzle:generate
+pnpm --filter @kit/database drizzle:migrate
+```
+
+The generated SQL:
+
+```sql
+ALTER TABLE "projects" ADD COLUMN "description" text;
+```
+
+{% callout type="warning" title="Adding NOT NULL columns" %}
+If you add a column with `notNull()` to an existing table with data, the migration will fail. Either add a `.default()` value, or add the column as nullable first, backfill data, then alter to NOT NULL.
+{% /callout %}
+
+## Renaming a Column
+
+Drizzle Kit detects renames when using `strict` mode in config. When you rename a column, it will prompt you:
+
+```
+? Is projects.description renamed from projects.summary?
+```
+
+The generated SQL uses `ALTER TABLE ... RENAME COLUMN`:
+
+```sql
+ALTER TABLE "projects" RENAME COLUMN "summary" TO "description";
+```
+
+## Adding an Index
+
+Add the index to your table definition:
+
+```typescript
+export const projects = pgTable(
+  'projects',
+  {
+    // columns
+  },
+  (table) => [
+    index('projects_org_created_idx').on(
+      table.organizationId,
+      table.createdAt,
+    ),
+  ],
+);
+```
+
+## Changing Column Types
+
+Be careful with type changes. Some are safe, some are not:
+
+**Safe changes:**
+- `text` to `varchar(n)` where existing data fits
+- `integer` to `bigint`
+- Making a column nullable
+
+**Unsafe changes (may fail or lose data):**
+- `text` to `integer`
+- Making a column NOT NULL (if NULLs exist)
+- Reducing varchar length
+
+For unsafe changes, write a custom migration:
+
+```sql
+-- Add new column
+ALTER TABLE "projects" ADD COLUMN "status_new" text;
+
+-- Migrate data
+UPDATE "projects" SET "status_new" = "status"::text;
+
+-- Drop old, rename new
+ALTER TABLE "projects" DROP COLUMN "status";
+ALTER TABLE "projects" RENAME COLUMN "status_new" TO "status";
+```
+
+## Migration Files
+
+Migrations are stored in `packages/database/src/schema/`:
+
+```
+packages/database/src/schema/
+├── 0000_initial.sql
+├── 0001_add_projects.sql
+├── 0002_add_description.sql
+├── meta/
+│   ├── _journal.json      # Migration history
+│   └── 0000_snapshot.json # Schema snapshots
+├── core.ts
+└── schema.ts
+```
+
+The `meta/_journal.json` tracks which migrations have been applied. The snapshots in `meta/` store the schema state at each migration point.
+
+## Production Deployments
+
+Run migrations as part of your deployment process:
+
+```bash
+# In your deployment script or CI/CD pipeline
+pnpm --filter @kit/database drizzle:migrate
+```
+
+The migration command is idempotent. It checks `meta/_journal.json` and only applies migrations that haven't run yet.
+
+### Deployment Best Practices
+
+1. **Test migrations on staging first**: Always run migrations against a staging database before production
+2. **Backup before migrating**: Take a database backup before applying migrations to production
+3. **Run migrations before deploying code**: The new code may depend on schema changes
+4. **Keep migrations small**: Smaller migrations are easier to debug and roll back
+
+### Continuous Integration
+
+Add migration drift detection to CI:
+
+```yaml {% title=".github/workflows/ci.yml" %}
+- name: Check for migration drift
+  run: |
+    pnpm --filter @kit/database drizzle:generate
+    if [ -n "$(git status --porcelain packages/database/src/schema)" ]; then
+      echo "Schema changed but no migration generated"
+      exit 1
+    fi
+```
+
+This catches cases where someone modified the schema but forgot to generate a migration.
+
+## Common Mistakes to Avoid
+
+**Running drizzle:push in production**: `drizzle:push` applies schema changes directly without generating migration files. This is fine for rapid prototyping, but breaks the migration history. Always use `drizzle:generate` + `drizzle:migrate` for production databases.
+
+**Editing core.ts and expecting migrations**: The `core.ts` file is auto-generated by Better Auth. If you need to add auth-related columns, modify your Better Auth config and regenerate the schema. Custom tables go in `schema.ts`.
+
+**Deleting migration files**: Once a migration has been applied to any database (including staging), don't delete the file. Drizzle tracks applied migrations by filename.
+
+**Forgetting to commit migrations**: Migration files should be committed to version control. They're the source of truth for your database schema history.
+
+## Troubleshooting
+
+### "Column already exists"
+
+The database is ahead of your migrations. This can happen if:
+- You ran `drizzle:push` instead of proper migrations
+- Someone manually modified the database
+
+**Fix:** Reset the migration state or sync manually:
+
+```bash
+# Option 1: Drop and recreate (development only)
+psql -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+pnpm --filter @kit/database drizzle:migrate
+
+# Option 2: Mark migration as applied without running
+# Edit meta/_journal.json to add the migration entry
+```
+
+### "Relation does not exist"
+
+Migrations are running out of order or a dependency is missing.
+
+**Fix:** Check `meta/_journal.json` for the correct order. Migrations run in filename order (`0000_`, `0001_`, etc.).
+
+### Stuck Migration
+
+If a migration partially applied and failed:
+
+```bash
+# Check what was applied
+psql -c "SELECT * FROM drizzle.__drizzle_migrations"
+
+# Manually complete or rollback, then update the journal
+```
+
+### Migration Generated Unexpected Changes
+
+If `drizzle:generate` produces changes you didn't expect:
+
+1. Check if you have uncommitted schema changes
+2. Verify your `DATABASE_URL` points to the correct database
+3. Run `drizzle:generate` with `--verbose` for more details
+
+## Common Mistakes to Avoid
+
+**Running migrations without reviewing the SQL**: Always check the generated SQL before applying. Drizzle Kit sometimes interprets schema changes in unexpected ways (e.g., treating a rename as drop + add).
+
+**Forgetting to commit migration files**: Migration files in `src/schema/` and `meta/` must be committed to version control. If different developers have different migration states, you'll get conflicts.
+
+**Using drizzle:push in production**: `drizzle:push` applies schema changes directly without generating migration files. Use it for rapid prototyping only. In production, always use proper migrations.
+
+**Making breaking changes without data migration**: Changing a column from nullable to NOT NULL fails if NULLs exist. Always write a data migration first, then change the constraint.
+
+**Not testing on staging**: A migration that works locally may fail in production due to different data, constraints, or PostgreSQL versions. Always test on a staging environment with production-like data.
+
+## Rolling Back
+
+Drizzle Kit doesn't have built-in rollback. For rollbacks:
+
+1. Write a reverse migration manually
+2. Or restore from a database backup
+3. Or use your database provider's point-in-time recovery
+
+For important changes, test migrations on a staging database first.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "What is the difference between drizzle:generate and drizzle:migrate?", "answer": "drizzle:generate compares your TypeScript schema to the last snapshot and creates SQL migration files for the differences. drizzle:migrate applies pending migrations to your database. Always generate first, review the SQL, then migrate."},
+     {"question": "How do I roll back a migration?", "answer": "Drizzle Kit does not have built-in rollback. You need to either write a reverse migration manually, restore from a database backup, or use your provider's point-in-time recovery feature. Always test migrations on staging first."},
+     {"question": "Why did my migration fail with 'column already exists'?", "answer": "Your database is ahead of the migration state, often from using drizzle:push during development or manual database changes. For development, you can reset with DROP SCHEMA public CASCADE. For production, manually sync the meta/_journal.json."},
+     {"question": "Can I edit generated migration SQL files?", "answer": "Yes, you can edit migration files before running drizzle:migrate. This is useful for data migrations, adding custom indexes, or handling edge cases that Drizzle Kit cannot auto-generate correctly."},
+     {"question": "Should I use drizzle:push or drizzle:generate?", "answer": "Use drizzle:push only for rapid prototyping in development. For any database you care about (staging, production), always use drizzle:generate to create migration files, then drizzle:migrate to apply them. This gives you version control over schema changes."}
+   ]
+/%}
+
+---
+
+**Next:** [Client](./client)

@@ -1,0 +1,294 @@
+---
+status: "published"
+title: "Internationalization"
+label: "Overview"
+order: 0
+description: "Multi-language support architecture using next-intl in your SaaS application."
+---
+
+This guide is part of the [Drizzle](/drizzle) stack docs.
+
+MakerKit uses [next-intl](https://next-intl.dev/) for internationalization with full App Router support. The system provides server-side rendering, namespace-based code splitting, automatic locale detection, and type-safe translations.
+
+By default, only English is enabled. Adding additional languages requires uncommenting locale codes and creating translation files for each language.
+
+## How It Works
+
+The i18n flow in MakerKit:
+
+1. **Middleware** detects locale from URL, cookies, or browser headers
+2. **Dynamic route** `[locale]` captures the locale parameter
+3. **Layout** validates the locale and loads messages
+4. **Provider** makes translations available to all components
+5. **Components** access translations via hooks or the Trans component
+
+## Architecture
+
+The i18n system is split between shared infrastructure and app-specific configuration:
+
+```
+packages/i18n/                    # Shared i18n package
+├── src/
+│   ├── routing.ts                # Routing configuration
+│   ├── navigation.ts             # Locale-aware Link, redirect, useRouter
+│   ├── locales.tsx               # Supported locales array
+│   ├── default-locale.ts         # Default locale from env
+│   └── client-provider.tsx       # NextIntlClientProvider wrapper
+
+apps/web/
+├── proxy.ts                      # Middleware with i18n routing
+├── app/[locale]/layout.tsx       # Root layout with locale validation
+└── i18n/
+    ├── request.ts                # Namespace definitions and loading
+    └── messages/
+        └── en/                   # English translations
+            ├── common.json
+            ├── auth.json
+            ├── account.json
+            ├── organizations.json
+            ├── billing.json
+            ├── marketing.json
+            ├── settings.json
+            ├── goodbye.json
+            └── errors.json
+```
+
+## Middleware Configuration
+
+The middleware in `apps/web/proxy.ts` handles i18n routing:
+
+```typescript
+import createNextIntlMiddleware from 'next-intl/middleware';
+import { routing } from '@kit/i18n/routing';
+
+async function proxy(request: NextRequest) {
+  const handleI18nRouting = createNextIntlMiddleware(routing);
+  const response = handleI18nRouting(request);
+  // ... additional middleware logic
+  return response;
+}
+```
+
+The middleware:
+- Detects locale from URL path, cookies, or Accept-Language header
+- Redirects to the appropriate locale URL when needed
+- Sets locale cookies for persistence
+
+## Locale Configuration
+
+Locales are configured in `packages/i18n/src/locales.tsx`:
+
+```typescript
+import { defaultLocale } from './default-locale';
+
+export const locales: string[] = [
+  defaultLocale,
+  // Uncomment to enable additional locales:
+  // 'es', // Spanish
+  // 'fr', // French
+];
+```
+
+The default locale is read from an environment variable in `packages/i18n/src/default-locale.ts`:
+
+```typescript
+export const defaultLocale = process.env.NEXT_PUBLIC_DEFAULT_LOCALE ?? 'en';
+```
+
+## Routing Configuration
+
+The routing is defined in `packages/i18n/src/routing.ts`:
+
+```typescript
+import { defineRouting } from 'next-intl/routing';
+
+export const routing = defineRouting({
+  locales,
+  defaultLocale,
+  localePrefix: 'as-needed',
+  localeDetection: true,
+});
+
+export type Locale = (typeof routing.locales)[number];
+```
+
+**Settings explained:**
+
+| Setting | Value | Effect |
+|---------|-------|--------|
+| `localePrefix` | `'as-needed'` | Default locale has no URL prefix, others do |
+| `localeDetection` | `true` | Auto-detect from browser headers/cookies |
+
+### URL Structure
+
+With `localePrefix: 'as-needed'`:
+
+| URL | Locale | Notes |
+|-----|--------|-------|
+| `/about` | English (default) | No prefix needed |
+| `/es/about` | Spanish | Prefix required |
+| `/fr/about` | French | Prefix required |
+
+## Root Layout
+
+The locale layout at `apps/web/app/[locale]/layout.tsx` validates the locale and loads messages. Here's a simplified view of the key i18n parts:
+
+```typescript
+import { hasLocale } from 'next-intl';
+import { getMessages } from 'next-intl/server';
+import { notFound } from 'next/navigation';
+import { routing } from '@kit/i18n/routing';
+
+export default async function LocaleLayout({ children, params }) {
+  const { locale } = await params;
+
+  // Validate locale is supported
+  if (!hasLocale(routing.locales, locale)) {
+    notFound();
+  }
+
+  // Load all translation messages for this locale
+  const messages = await getMessages({ locale });
+
+  return (
+    <html lang={locale}>
+      <body>
+        <RootProviders locale={locale} messages={messages}>
+          {children}
+        </RootProviders>
+      </body>
+    </html>
+  );
+}
+```
+
+The actual implementation includes additional features like theme handling, CSP nonce management, and font configuration. The pattern above shows the essential i18n setup.
+
+## Client Provider
+
+The `RootProviders` component wraps the app with `I18nClientProvider`:
+
+```typescript
+import { I18nClientProvider } from '@kit/i18n/provider';
+
+export function RootProviders({ locale, messages, children }) {
+  return (
+    <I18nClientProvider locale={locale} messages={messages}>
+      {children}
+    </I18nClientProvider>
+  );
+}
+```
+
+This makes translations available to all client components via hooks.
+
+## Package Exports
+
+The `@kit/i18n` package provides these entry points:
+
+### `@kit/i18n/routing`
+
+Locale configuration and routing:
+
+```typescript
+import {
+  routing,
+  locales,
+  defaultLocale,
+  type Locale
+} from '@kit/i18n/routing';
+```
+
+### `@kit/i18n/navigation`
+
+Locale-aware navigation utilities that automatically handle locale prefixes:
+
+```typescript
+import {
+  Link,
+  redirect,
+  permanentRedirect,
+  useRouter,
+  usePathname
+} from '@kit/i18n/navigation';
+```
+
+These work like their Next.js counterparts but automatically prepend the current locale to paths.
+
+### `@kit/i18n/provider`
+
+Client-side provider for components:
+
+```typescript
+import { I18nClientProvider } from '@kit/i18n/provider';
+```
+
+## Namespaces
+
+Translation files are organized by namespace. Each namespace corresponds to a JSON file in `apps/web/i18n/messages/{locale}/`.
+
+Namespaces are defined in `apps/web/i18n/request.ts`:
+
+```typescript
+const namespaces = [
+  'common',
+  'auth',
+  'account',
+  'organizations',
+  'billing',
+  'marketing',
+  'settings',
+  'goodbye',
+  'errors',
+] as const;
+```
+
+| Namespace | Purpose |
+|-----------|---------|
+| `common` | Shared UI labels, routes, roles, OTP, cookie banner, doc search |
+| `auth` | Sign up, sign in, password reset, MFA flows |
+| `account` | Profile updates, email/password management |
+| `organizations` | Team management, invitations, member actions |
+| `billing` | Subscriptions, plans, billing portal |
+| `marketing` | Landing page, blog, FAQ, contact forms |
+| `settings` | Personal and organization settings pages |
+| `goodbye` | Account deletion confirmation |
+| `errors` | Error messages and status codes |
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `NEXT_PUBLIC_DEFAULT_LOCALE` | `'en'` | Default language code |
+
+## Error Handling
+
+Missing translations are handled gracefully:
+
+- In development: warnings are logged to the console
+- In production: errors are silently ignored
+- Fallback: the translation key is returned as-is
+
+This is configured in `apps/web/i18n/request.ts`:
+
+```typescript
+export default getRequestConfig(async ({ requestLocale }) => {
+  return {
+    locale,
+    messages,
+    timeZone: 'UTC',
+    onError(error) {
+      if (isDevelopment) {
+        console.warn(`[Dev Only] i18n error: ${error.message}`);
+      }
+    },
+    getMessageFallback(info) {
+      return info.key; // Return key as fallback
+    },
+  };
+});
+```
+
+---
+
+**Next:** [Using Translations →](./using-translations)

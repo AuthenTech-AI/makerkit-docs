@@ -1,0 +1,1873 @@
+---
+title: "Next.js Course: Authentication with Supabase Auth"
+label: "Authentication"
+description: "Let's implement authentication for our SaaS using Supabase Auth."
+order: 3
+---
+
+If you have followed the previous lessons, by now you have both Next.js and Supabase set up and running. In this lesson, **we will implement authentication for our SaaS using Supabase Auth**.
+
+Supabase Auth is built on top of GoTrue, an auth library open-sourced by Netlify. Supabase has adopted GoTrue and added some additional features to it, improving its functionality and making it easier to use using server-side applications.
+
+## Supabase Authentication
+
+Before we start, let's take a look at the authentication features that Supabase Auth provides. Supabase Auth allows you to build an authentication system that uses several methods of authentication, such as:
+
+1. Email/Password
+2. Magic Link
+3. oAuth providers, such as Google, Facebook, Twitter, and GitHub (and many others!)
+
+---
+
+By default, **we will be using Email/Password authentication**, but feel free to use any other authentication method that you prefer. We will be implementing all of them in this course.
+
+---
+
+Supabase Auth stores users in a **private table in your database**. As such, to append more data to a user, **we will create an additional public table in our database** that references the user's UUID named `public.users`.
+
+You don't have to worry about this now, as **we will be covering this in the next lesson where we build the database schema**, but it's good to know.
+
+## Creating a Supabase Client
+
+Our first step is to create a Supabase client. We will use this client to interact with all the Supabase's services.
+
+Since our code will be running on various environments (browser, edge) we will need to create a client for each environment.
+
+We will be adding our clients to the folder `lib/supabase`.
+
+**This code has been recently migrated from the Auth Helpers package to the SSR package, which is the new maintained version of the Auth Helpers package.**
+
+Unlike the Auth Helpers package, the SSR package is framework-agnostic, which means that we can use it with any framework, including Next.js. But this also means we need to write our own
+cookie implementation, which we will do in the next section.
+
+### Browser Client
+
+First, let's create a Supabase browser client, which we use to interact with Supabase Auth from the browser.
+
+```ts {% title="lib/supabase/browser-client.ts" %}
+import { createBrowserClient } from '@supabase/ssr';
+import { Database } from '@/database.types';
+
+let client: ReturnType<typeof createBrowserClient<Database>>;
+
+/**
+ * @name getSupabaseBrowserClient
+ * @description Get a Supabase client for use in the Browser
+ */
+function getSupabaseBrowserClient() {
+  if (client) {
+    return client;
+  }
+
+  const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    throw new Error('Supabase URL and Anon Key not provided');
+  }
+
+  client = createBrowserClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  return client;
+}
+
+export default getSupabaseBrowserClient;
+```
+
+### Server Components Client
+
+Since we're here, let's also create the Supabase Server Component client, which we use to **interact with Supabase from Next.js Server Components**.
+
+NB: do not use this client in Client Components or Browser Components, as it will not work. This client can only work within Server Components.
+
+#### Supabase Keys
+
+Before proceeding, let's write a shared utility to retrieve the Client keys which we use across different Clients:
+
+```tsx {% title="lib/supabase/get-supabase-client-keys.ts" %}
+/**
+ * Returns the Supabase client keys.
+ *
+ * @returns {Object} An object containing the Supabase URL and anonymous key.
+ *
+ * @throws {Error} Throws an error if the Supabase URL or anonymous key is not provided in the environment variables.
+ */
+export default function getSupabaseClientKeys() {
+  const env = process.env;
+
+  if (!env.NEXT_PUBLIC_SUPABASE_URL) {
+    throw new Error(`Supabase URL not provided`);
+  }
+
+  if (!env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    throw new Error(`Supabase Anon Key not provided`);
+  }
+
+  return {
+    url: env.NEXT_PUBLIC_SUPABASE_URL,
+    anonKey: env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+  };
+}
+```
+
+#### The Server Component Client code
+
+Now, we can proceed and create the Server Component Client using the `createServerClient` function from the `@supabase/ssr` package and the function `getSupabaseClientKeys` that we just wrote.
+
+```ts {% title="lib/supabase/server-component-client.ts" %}
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
+import { cache } from 'react';
+import getSupabaseClientKeys from './get-supabase-client-keys';
+import { Database } from '@/database.types';
+
+/**
+ * @name getSupabaseServerComponentClient
+ * @description Get a Supabase client for use in the Server Components
+ * @param params
+ */
+const getSupabaseServerComponentClient = cache(
+  (
+    params = {
+      admin: false,
+    },
+  ) => {
+    const keys = getSupabaseClientKeys();
+
+    if (params.admin) {
+      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+      if (!serviceRoleKey) {
+        throw new Error('Supabase Service Role Key not provided');
+      }
+
+      return createServerClient<Database>(keys.url, serviceRoleKey, {
+        auth: {
+          persistSession: false,
+        },
+        cookies: {},
+      });
+    }
+
+    return createServerClient<Database>(keys.url, keys.anonKey, {
+      cookies: getCookiesStrategy(),
+    });
+  },
+);
+
+export default getSupabaseServerComponentClient;
+
+function getCookiesStrategy() {
+  const cookieStore = cookies();
+
+  return {
+    get: (name: string) => {
+      return cookieStore.get(name)?.value;
+    },
+  };
+}
+```
+
+#### Using the Server Client with Admin Privileges
+
+NB: you can also pass the parameter `admin` to the `getSupabaseServerComponentClient`
+function to get a Supabase client with admin privileges, **which will allow you to perform actions that require admin privileges**. It requires you to set the environment variable `SUPABASE_SERVICE_ROLE_KEY` to the service role key of your Supabase project.
+
+```tsx
+const client = getSupabaseServerComponentClient({ admin: true });
+```
+
+I recommend doing so **only when strictly needed**.
+
+### Server Actions Client
+
+We will also create a Supabase Server Actions client, which we use to **interact with Supabase from Next.js Server Actions**.
+
+```tsx {% title="lib/supabase/action-client.ts" %}
+import { cache } from 'react';
+import { cookies } from 'next/headers';
+
+import { createServerClient } from '@supabase/ssr';
+import { Database } from '@/database.types';
+
+import getSupabaseClientKeys from './get-supabase-client-keys';
+
+const createServerSupabaseClient = cache(() => {
+  const keys = getSupabaseClientKeys();
+
+  return createServerClient<Database>(keys.url, keys.anonKey, {
+    cookies: getCookiesStrategy(),
+  });
+});
+
+const getSupabaseServerActionClient = cache(
+  (
+    params = {
+      admin: false,
+    },
+  ) => {
+    const keys = getSupabaseClientKeys();
+
+    if (params.admin) {
+      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+      if (!serviceRoleKey) {
+        throw new Error('Supabase Service Role Key not provided');
+      }
+
+      return createServerClient<Database>(keys.url, serviceRoleKey, {
+        auth: {
+          persistSession: false,
+        },
+        cookies: {},
+      });
+    }
+
+    return createServerSupabaseClient();
+  },
+);
+
+function getCookiesStrategy() {
+  const cookieStore = cookies();
+
+  return {
+    get: (name: string) => {
+      return cookieStore.get(name)?.value;
+    },
+    set: (name: string, value: string, options: any) => {
+      cookieStore.set({ name, value, ...options });
+    },
+    remove: (name: string, options: any) => {
+      cookieStore.set({
+        name,
+        value: '',
+        ...options,
+      });
+    },
+  };
+}
+
+export default getSupabaseServerActionClient;
+```
+
+As you can imagine, we will use the client `getSupabaseServerActionClient` exclusively in Server Actions.
+
+### Route Handler Client
+
+We will also create a Supabase Route Handler client, which we use to **interact with Supabase from Next.js API Routes**.
+
+```tsx {% title="lib/supabase/route-handler-client.ts" %}
+import { CookieOptions, createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
+import { cache } from 'react';
+import { Database } from '@/database.types';
+
+import getSupabaseClientKeys from './get-supabase-client-keys';
+
+/**
+ * @name getSupabaseRouteHandlerClient
+ * @description Get a Supabase client for use in the Route Handler Routes
+ * @param params
+ */
+const getSupabaseRouteHandlerClient = cache(
+  (
+    params = {
+      admin: false,
+    },
+  ) => {
+    const keys = getSupabaseClientKeys();
+
+    if (params.admin) {
+      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+      if (!serviceRoleKey) {
+        throw new Error('Supabase Service Role Key not provided');
+      }
+
+      return createServerClient<Database>(keys.url, serviceRoleKey, {
+        auth: {
+          persistSession: false,
+        },
+        cookies: {},
+      });
+    }
+
+    return createServerClient<Database>(keys.url, keys.anonKey, {
+      cookies: getCookiesStrategy(),
+    });
+  },
+);
+
+export default getSupabaseRouteHandlerClient;
+
+function getCookiesStrategy() {
+  const cookieStore = cookies();
+
+  return {
+    set: (name: string, value: string, options: CookieOptions) => {
+      cookieStore.set({ name, value, ...options });
+    },
+    get: (name: string) => {
+      return cookieStore.get(name)?.value;
+    },
+    remove: (name: string, options: CookieOptions) => {
+      cookieStore.set({ name, value: '', ...options });
+    },
+  };
+}
+```
+
+### Middleware Client
+
+Finally, we will create a Supabase Middleware client, which we use to **interact with Supabase from Next.js Middleware**.
+
+```tsx {% title="lib/supabase/middleware-client.ts" %}
+import { createServerClient, type CookieOptions } from '@supabase/ssr';
+import { NextResponse, type NextRequest } from 'next/server';
+import getSupabaseClientKeys from './get-supabase-client-keys';
+import { Database } from '@/database.types';
+
+export default function createMiddlewareClient(
+  request: NextRequest,
+  response: NextResponse,
+) {
+  const keys = getSupabaseClientKeys();
+
+  return createServerClient<Database>(keys.url, keys.anonKey, {
+    cookies: getCookieStrategy(request, response),
+  });
+}
+
+function getCookieStrategy(request: NextRequest, response: NextResponse) {
+  return {
+    set: (name: string, value: string, options: CookieOptions) => {
+      request.cookies.set({ name, value, ...options });
+
+      response = NextResponse.next({
+        request: {
+          headers: request.headers,
+        },
+      });
+
+      response.cookies.set({
+        name,
+        value,
+        ...options,
+      });
+    },
+    get: (name: string) => {
+      return request.cookies.get(name)?.value;
+    },
+    remove: (name: string, options: CookieOptions) => {
+      request.cookies.set({
+        name,
+        value: '',
+        ...options,
+      });
+
+      response = NextResponse.next({
+        request: {
+          headers: request.headers,
+        },
+      });
+
+      response.cookies.set({
+        name,
+        value: '',
+        ...options,
+      });
+    },
+  };
+}
+```
+
+### Supabase Client React Hook
+
+We can now write a React Hook to get access to the browser client at `lib/supabase/use-supabase.ts`:
+
+```tsx {% title="lib/supabase/use-supabase.ts" %}
+import { useMemo } from 'react';
+import getSupabaseBrowserClient from './browser-client';
+
+function useSupabase() {
+  return useMemo(getSupabaseBrowserClient, []);
+}
+
+export default useSupabase;
+```
+
+We will be using this in various situations, such as:
+
+1. Retrieving the user session client-side
+2. Querying and mutating data from the client
+
+The custom hook `useSupabase` needs to only be used **within client components** and only if you need to access the Supabase client in the browser from a React component.
+
+```tsx
+'use client';
+
+function MyComponent() {
+  const client = useSupabase();
+
+  // ...
+}
+```
+
+As you may have guessed - we will not be using the `useSupabase` hook in our server components - instead, **we will use the server client directly**.
+
+## Middleware for Authentication
+
+When using the Supabase client on a server, **we want to check and update a cookie that tracks the user's session**.
+
+When using Next.js Server Components, you can look at a cookie's value, but we cannot update its value.
+
+Therefore, we use a Next.js Middleware to both check and change cookie values. To do so, let's add a middleware at `app/middleware.ts`.
+
+```tsx {% title="app/middleware.ts" %}
+import 'server-only';
+
+import { NextRequest, NextResponse } from 'next/server';
+import createMiddlewareClient from '@/lib/supabase/middleware-client';
+
+export async function middleware(req: NextRequest) {
+  const res = NextResponse.next();
+  const supabase = createMiddlewareClient(req, res);
+
+  await supabase.auth.getUser();
+
+  return res;
+}
+```
+
+**The Next.js middleware runs on every request**, which means that we can use it to check and update the user's session.
+
+Perfect! Now we have a Supabase client for both the browser and the server, and we have a middleware that we can use to check and update the user's session.
+
+## Authentication Layout
+
+It's time to build our authentication system. We will start by implementing the signup functionality, followed by the login functionality.
+
+We place the authentication pages under the folder `app/auth`. By placing them in a separate folder, we can now add a new layout to our application that will be used for all authentication pages.
+
+As you may have guessed, we will add a new layout under the folder `app/auth/layout.tsx`.
+
+```tsx {% title="app/auth/layout.tsx" %}
+function AuthLayout({ children }: React.PropsWithChildren) {
+  return (
+    <div>
+      {children}
+    </div>
+  );
+}
+
+export default AuthLayout;
+```
+
+The above is bare-bones, but we will make it pretty using Tailwind CSS.
+
+### Preventing logged in from accessing the authentication pages
+
+We want to prevent logged-in users from accessing the authentication pages. We can do this by redirecting users to the home page if we find a valid session.
+
+To do so, we create a function named `assertUserIsSignedOut`, which will throw a `redirect` error when it finds an active session.
+
+The `redirect` function from `next/navigation` is a side-effect, as in, it throws a `NEXT_REDIRECT` error that Next.js handles for us. As such, it's typed as `never`, which means we do not need to return it for it to work.
+
+```tsx {% title="app/auth/layout.tsx" %} {14}
+import getSupabaseServerComponentClient from '@/lib/supabase/server-component-client';
+import { redirect } from 'next/navigation';
+
+async function assertUserIsSignedOut() {
+  const client = getSupabaseServerComponentClient();
+
+  const {
+    data: { user },
+  } = await client.auth.getUser();
+
+  // If "user" is not null, the user is logged in
+  // `redirect` will throw an error that will be handled by Next.js
+  if (user) {
+    redirect('/dashboard');
+  }
+}
+```
+
+At line 14, the `redirect` function will ensure the user is redirected away from the current page.
+
+#### A quick heads up about the "redirect" function
+
+The `redirect` function throws a `NEXT_REDIRECT` error: you will be using this quite a lot.
+
+What we need to be careful with is catching errors that may throw this error. If we catch a block that throws this error - **and we do not rethrow it** - this error will be swallowed and the user will not be redirected.
+
+At the same time, this also means we do not need to return the `redirect` function, as it will throw an error. Typescript knows about it since it's typed as `never`.
+
+#### The Auth layout pages will now share this layout
+
+By adding the above guard to the `auth` layout, we are now able to guard all the authentication pages, which ensures that only logged-out users can access them.
+
+### Full Source code of the Auth Layout
+
+Let's write full source code, including the Tailwind styles to make it pretty:
+
+```tsx title="app/auth/layout.tsx" {5, 16}
+import getSupabaseServerComponentClient from '@/lib/supabase/server-component-client';
+import { permanentRedirect } from 'next/navigation';
+
+async function AuthLayout({ children }: React.PropsWithChildren) {
+  await assertUserIsSignedOut();
+
+  return (
+    <div
+      className={
+        'flex h-screen flex-col items-center justify-center space-y-4 md:space-y-8'
+      }
+    >
+      <div
+        className={`flex w-full dark:border-slate-800 max-w-sm flex-col items-center space-y-4 rounded-xl border-transparent px-2 py-1 dark:shadow-[0_0_1200px_0] dark:shadow-slate-400/30 md:w-8/12 md:border md:px-8 md:py-6 md:shadow-xl lg:w-5/12 lg:px-6 xl:w-4/12 2xl:w-3/12`}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+export default AuthLayout;
+
+async function assertUserIsSignedOut() {
+  const client = getSupabaseServerComponentClient();
+
+  const {
+    data: { user },
+  } = await client.auth.getUser();
+
+  // If user is not null, the user is logged in
+  // `redirect` will throw an error that will be handled by Next.js
+  if (user) {
+    permanentRedirect('/dashboard');
+  }
+}
+```
+
+Before we continue, I want you to focus on the two lines highlighted:
+1. At line 5, we call `assertUserIsSignedOut`. This assertion ensures the user gets redirected away when they are signed in
+2. At line 16, the `children` property will render the page components and their children
+
+## Email/Password Authentication
+
+Let's start by implementing the sign-up functionality. We will create a page that allows the user to sign up for our SaaS.
+
+### Installing new packages: UI Components and React Query
+
+Before we continue, we need to install some new packages. We will be using [React Query](https://react-query.tanstack.com/) to manage our data fetching and caching, and some components from ShadcnUI to build our Authentication forms, such as Button and Input.
+
+#### Installing React Query
+
+First, we install React Query. We will be using React Query for all our data fetching and caching needs. While not strictly needed, I recommend using it to make it easy to manage asynchronous data fetching and caching with React hooks.
+
+Install it by running the following command:
+
+```bash
+npm i @tanstack/react-query
+```
+
+#### Installing ShadcnUI Components
+Now, we add the following components by running the following command:
+
+```
+npx shadcn-ui@latest add input label alert
+```
+
+The CLI will insert the components at `components/ui`.
+
+#### Setting up React Query
+
+To use React Query, we need to add the provider to the root layout as a client component.
+
+To add our root providers, add the following component at `components/Providers.tsx`:
+
+```tsx title="components/Providers.tsx"
+'use client'
+
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { useState } from 'react'
+
+export default function Providers({ children }: React.PropsWithChildren) {
+  const [queryClient] = useState(() => new QueryClient())
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      {children}
+    </QueryClientProvider>
+  );
+}
+```
+
+Next, we update the root layout to wrap the application with the `Providers` component, which makes the provider available to the client components in the application:
+
+```tsx title="app/layout.tsx" {1, 11}
+import Providers from "@/components/Providers";
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <html lang="en">
+      <body className={`${inter.className} min-h-screen bg-background`}>
+        <Providers>{children}</Providers>
+      </body>
+    </html>
+  );
+}
+```
+
+##### Adding your own providers to Providers.tsx
+
+The `Providers` component is a good place to add all providers that we will be using in our application. **Since you will likely be adding more providers, do feel free to add them here**.
+
+We used `use client` because we use the `Context API`, and as such **we cannot do so in a server component**.
+
+### Adding the hook to sign users up with React Query
+
+We will be wrapping the Supabase SDK using React Query to facilitate asynchronous data fetching and caching using React hooks.
+
+Below, we create a React Hook that uses the Supabase SDK to sign users up. We will be using this hook on the sign-up page.
+
+```tsx title="app/auth/hooks/use-sign-up.ts"
+import { SignUpWithPasswordCredentials } from '@supabase/supabase-js';
+import { useMutation } from '@tanstack/react-query';
+import useSupabase from '@/lib/supabase/use-supabase';
+
+function useSignUp() {
+  const client = useSupabase();
+
+  const mutationFn = async (credentials: SignUpWithPasswordCredentials) => {
+    const emailRedirectTo = [window.location.origin, '/auth/callback'].join('');
+
+    const options = {
+      emailRedirectTo,
+      ...(credentials.options ?? {}),
+    };
+
+    const response = await client.auth.signUp({
+      ...credentials,
+      options,
+    });
+
+    if (response.error) {
+      throw response.error.message;
+    }
+
+    return response.data;
+  };
+
+  return useMutation({
+    mutationFn,
+  });
+}
+
+export default useSignUp;
+```
+
+### Signing Up with Email/Password
+
+Since we will be using Browser APIs for our form, such as clicks and events,
+we will be building a client component named `EmailPasswordSignUpForm.tsx`
+at `app/auth/sign-up/components/EmailPasswordSignUpForm.tsx`, which we
+import into the sign-up page at `app/auth/sign-up/page.tsx`.
+
+Let's build the Email Password form component.
+
+```tsx title="app/auth/sign-up/components/EmailPasswordSignUpForm.tsx"
+'use client';
+
+import { CheckIcon, AlertTriangleIcon } from "lucide-react";
+
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+
+import useSignUp from "../../hooks/use-sign-up";
+
+function EmailPasswordSignUpForm() {
+  const { isPending, isSuccess, isError, mutateAsync } = useSignUp();
+
+  const handleSubmit: React.FormEventHandler<HTMLFormElement> = async (event) => {
+    event.preventDefault();
+
+    // we collect the form data using the FormData API
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    const email = data.get('email') as string;
+    const password = data.get('password') as string;
+
+    // we use the `mutateAsync` function from React Query
+    // to sign the user up
+    await mutateAsync({
+      email,
+      password,
+    });
+  };
+
+  // if the user has successfully signed up, we show a success message
+  if (isSuccess) {
+    return <SuccessAlert />;
+  }
+
+  // otherwise, we show the sign-up form
+  return (
+    <form className='w-full' onSubmit={handleSubmit}>
+      <div className='flex flex-col space-y-4'>
+        <h1 className='text-lg text-center font-semibold'>
+          Create an account
+        </h1>
+
+        <Label className='flex flex-col space-y-1.5'>
+          <span>Email</span>
+          <Input required type='email' name='email' />
+        </Label>
+
+        <Label className='flex flex-col space-y-1.5'>
+          <span>Password</span>
+          <Input required type='password' name='password' />
+        </Label>
+
+        {
+          isError ? <ErrorAlert /> : null
+        }
+
+        <Button disabled={isPending}>
+          {isPending ? 'Signing up...' : 'Sign Up'}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+export default EmailPasswordSignUpForm;
+
+function ErrorAlert() {
+  return (
+    <Alert variant="destructive">
+      <AlertTriangleIcon className="h-4 w-4" />
+      <AlertTitle>Error</AlertTitle>
+      <AlertDescription>
+        We were not able to sign you up. Please try again.
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+function SuccessAlert() {
+  return (
+    <Alert variant="default">
+      <CheckIcon className="h-4 w-4 !text-green-500" />
+      <AlertTitle className='text-green-500'>Confirm your Email</AlertTitle>
+      <AlertDescription>
+        Awesome, you&apos;re almost there! We&apos;ve sent you an email to confirm your email address. Please click the link in the email to complete your sign-up.
+      </AlertDescription>
+    </Alert>
+  );
+}
+```
+
+Now that the form is ready, we can import it into the sign-up page:
+
+```tsx title="app/auth/sign-up/page.tsx"
+import Link from 'next/link';
+import EmailPasswordSignUpForm from './components/EmailPasswordSignUpForm';
+
+export const metadata = {
+  title: 'Sign Up',
+};
+
+function SignUpPage() {
+  return (
+    <div className='flex flex-col space-y-4 w-full'>
+      <EmailPasswordSignUpForm />
+
+      <div className='text-sm'>
+        <span>Already have an account?</span> <Link className='underline' href='/auth/sign-in'>Sign In</Link>
+      </div>
+    </div>
+  );
+}
+
+export default SignUpPage;
+```
+
+🎉 **We now have a sign-up page** that allows users to sign up using their email and password! Yay!
+
+If everything went well, you should be able to sign up using your email and password. The page should look like this:
+
+{% img src="/assets/courses/nextjs-course-sign-up.webp" width="2578" height="1822" alt="Next.js Supabase Sign Up" /%}
+
+### Confirm email using the Supabase development environment
+
+If you are using the Supabase development environment, you can use **Inbucket**, which is automatically running when you run `supabase start` and is available at [http://localhost:54324](http://localhost:54324).
+
+**Hold on, this won't work yet!** To make it work, we have to add the **callback route** that will sign users in when being redirected from the email.
+
+### Auth Callback
+
+Clicking on the link will redirect the user to the callback route. Now we need to implement the callback route that handles authentication coming from the email (or magic link and oAuth).
+
+Let's add the following `GET` API handler at `app/auth/callback/route.tsx`:
+
+```tsx title="app/auth/callback/route.tsx"
+import type { NextRequest } from 'next/server';
+import { redirect } from 'next/navigation';
+import getSupabaseRouteHandlerClient from '@/lib/supabase/route-handler-client';
+
+export async function GET(request: NextRequest) {
+  const requestUrl = new URL(request.url);
+  const code = requestUrl.searchParams.get('code');
+
+  if (code) {
+    const client = getSupabaseRouteHandlerClient();
+
+    await client.auth.exchangeCodeForSession(code);
+  }
+
+  return redirect('/dashboard');
+}
+```
+
+The function above is an **API Route Handler** responding to a `GET` request at the route `/auth/callback`. It will exchange the code for a session, and then redirect the user to the home page (for now).
+
+The Next.js Auth Helpers from Supabase use the Next.js Middleware to refresh the user's session before loading Server Component routes.
+
+{% alert %}
+As you can see, we are redirecting the user to `/dashboard` if the user is logged in. We will implement the user
+dashboard in the next lesson - so for the time being the snippet above is not going to work. Let's continue with the
+sign-in functionality.
+{% /alert %}
+
+##### Use the same browser client for the callback route
+
+When clicking on an email link, the user will be redirected to the callback route. Due to how PKCE works, **we need to ensure that the user is redirected to the same browser client that they used to sign up**. Otherwise, the authentication will fail.
+
+## Signing In with Email/Password
+
+With signing up working, we can now implement the sign-in functionality. We will be using the same approach as we did with signing up, so we will be using React Query to manage our data fetching and caching, and we will be using the same UI components.
+
+### Adding the hook to sign users in with React Query
+
+Just like we did for sign-ups, we will be wrapping the Supabase SDK using React Query to facilitate asynchronous data fetching and caching using React hooks.
+
+```tsx title="app/auth/hooks/use-sign-in-with-password.ts"
+import { SignInWithPasswordCredentials } from '@supabase/supabase-js';
+import { useMutation } from '@tanstack/react-query';
+import useSupabase from '@/lib/supabase/use-supabase';
+
+function useSignInWithPassword() {
+  const client = useSupabase();
+
+  const mutationFn = async (credentials: SignInWithPasswordCredentials) => {
+    const response = await client.auth.signInWithPassword(credentials);
+
+    if (response.error) {
+      throw response.error.message;
+    }
+
+    return response.data;
+  };
+
+  return useMutation({ mutationFn });
+}
+
+export default useSignInWithPassword;
+```
+
+### Creating the Sign In Form
+
+We will be building a client component named `EmailPasswordSignInForm.tsx`,
+which we import into the sign-in page at `app/auth/sign-in/page.tsx`.
+
+Let's build the Email Password form component. While we could reuse a lot of code from the sign-up form, we will be building it from scratch to make it easier to follow. Feel free to reuse the code from the sign-up form.
+
+```tsx title="app/auth/sign-in/components/EmailPasswordSignInForm.tsx"
+'use client';
+
+import { useRouter } from 'next/navigation';
+import { AlertTriangleIcon } from "lucide-react";
+
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import useSignInWithPassword from '@/app/auth/hooks/use-sign-in-with-password';
+
+function EmailPasswordSignInForm() {
+  const { isPending, isError, mutateAsync } = useSignInWithPassword();
+  const router = useRouter();
+
+  const handleSubmit: React.FormEventHandler<HTMLFormElement>
+    = async (event) => {
+      event.preventDefault();
+
+      // we collect the form data using the FormData API
+      const form = event.currentTarget;
+      const data = new FormData(form);
+      const email = data.get('email') as string;
+      const password = data.get('password') as string;
+
+      // we use the `mutateAsync` function from React Query
+      // to sign the user in
+      await mutateAsync({
+        email,
+        password,
+      });
+
+      // we redirect the user to the dashboard on success
+      router.replace('/dashboard');
+    };
+
+  return (
+    <form className='w-full' onSubmit={handleSubmit}>
+      <div className='flex flex-col space-y-4'>
+        <h1 className='text-lg text-center font-semibold'>
+          Sign In
+        </h1>
+
+        <Label className='flex flex-col space-y-1.5'>
+          <span>Email</span>
+          <Input required type='email' name='email' />
+        </Label>
+
+        <Label className='flex flex-col space-y-1.5'>
+          <span>Password</span>
+          <Input required type='password' name='password' />
+        </Label>
+
+        {
+          isError ? <ErrorAlert /> : null
+        }
+
+        <Button disabled={isPending}>
+          {isPending ? 'Signing in...' : 'Sign In'}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+export default EmailPasswordSignInForm;
+
+function ErrorAlert() {
+  return (
+    <Alert variant="destructive">
+      <AlertTriangleIcon className="h-4 w-4" />
+      <AlertTitle>Error</AlertTitle>
+      <AlertDescription>
+        We were not able to sign you in. Please try again.
+      </AlertDescription>
+    </Alert>
+  );
+}
+```
+
+Now that the form is ready, we can import it into the sign-in page:
+
+```tsx title="app/auth/sign-in/page.tsx"
+import Link from 'next/link';
+import EmailPasswordSignInForm from './components/EmailPasswordSignInForm';
+
+export const metadata = {
+  title: 'Sign In',
+};
+
+function SignInPage() {
+  return (
+    <div className='flex flex-col space-y-4 w-full'>
+      <EmailPasswordSignInForm />
+
+      <div className='text-sm'>
+        <span>Don&apos;t have an account yet?</span> <Link className='underline' href='/auth/sign-up'>Sign Up</Link>
+      </div>
+    </div>
+  );
+}
+
+export default SignInPage;
+```
+
+Et voila! We now have a sign-in page that allows users to sign in using their email and password.
+
+{% img src="/assets/courses/nextjs-course-sign-in.webp" width="2612" height="1836" alt="Next.js Supabase Sign In" /%}
+
+### Testing the Authentication flow
+
+You can now test the authentication flow by signing up and signing in. You should be able to sign up and sign in using your email and password.
+
+1. Sign up using your email and password
+2. Confirm your email using [InBucket](http://localhost:54324)
+3. Sign in using your email and password
+
+### Familiarize yourself with the Supabase Dashboard
+
+Better yet, navigate to the Supabase Dashboard and familiarize yourself with the UI. You will find the Supabase Dashboard at [http://localhost:54323/projects](http://localhost:54323/projects).
+
+From there, select your project, and then select the "Authentication" tab. Here you will see the users that have signed up and that have confirmed their email.
+
+{% img alt="Supabase Auth" src="/assets/courses/supabase-auth-dashboard.webp" width="2728" height="2002" /%}
+
+## Creating a Protected Layout
+
+Now that we can sign up and sign in, **we need to create a layout that is only accessible to logged-in users**. We will be using this layout for all pages that require the user to be logged in.
+
+### Introducing Pathless Layouts
+
+**Pathless layouts** are new in Next.js 14 App Router: they allow us to
+**create layouts that do not have a path**, which means that they will be used for all pages that are children of this layout, but without adding a URL segment.
+
+To do so, we create a pathless layout called `(app)`. By adding a pathless layout, we can ensure that all pages that are children of this layout will be wrapped in this layout, all while not having to use a particular URL path for this layout.
+
+This can allow us to create pages such as `/dashboard` and `/settings` that are only accessible to logged-in users - without needing a prefix such as `/app`. If this is your preference, do feel free to use a prefix such as `/app` for your authenticated pages - in that case, you just omit the parenthesis in the layout name.
+
+### Creating the "(app)" layout
+
+The `(app)` layout will be used for all pages that require the user to be logged in. We will be using this layout for the dashboard and settings pages.
+
+#### Loading a User Session with the Supabase Server Client
+
+Since we want to know if a user is logged in or not, we need to load the user session. We will be using the Supabase Server Client to load the user session.
+
+As we may need this function in various layouts or pages, the best practice is to use the React `cache` helper to cache the result of the function on a per-request basis (eg. it will not persist for multiple requests). This ensures that we only load the user session once per page load, no matter on which layout or pages we call this function.
+
+We will export this function from `lib/load-session.ts`:
+
+```tsx title="lib/load-session.ts"
+import getSupabaseServerComponentClient from "@/lib/supabase/server-component-client";
+import { cache } from "react";
+
+const loadSession = cache(async () => {
+  const client = getSupabaseServerComponentClient();
+  const { data } = await client.auth.getUser();
+
+  return data.user ?? undefined;
+});
+
+export default loadSession;
+```
+
+#### Creating the Layout
+
+Now, we can create the layout at `app/(app)/layout.tsx` and use the resulting session to determine if the user is logged in or not.
+
+```tsx title="app/(app)/layout.tsx" {8, 24}
+import { redirect } from 'next/navigation';
+import loadSession from "@/lib/load-session";
+import UserSessionProvider from '@/components/UserSessionProvider';
+
+async function AppLayout(
+  props: React.PropsWithChildren
+) {
+  const session = await loadSession();
+
+  // if the user is not logged in, we redirect them to the sign-in page
+  if (!session) {
+    redirect('/auth/sign-in');
+  }
+
+  return (
+    <UserSessionProvider session={session}>
+      <div>
+        {props.children}
+      </div>
+    </UserSessionProvider>
+  );
+}
+
+export default AppLayout;
+```
+
+We also add the `<UserSessionProvider session={session}>` component to make sure to set the correct session when navigating from outside this layout - without needing a refresh.
+
+### Listening to Auth Changes
+
+This is not yet the end: in fact, we need to **listen to auth changes to ensure that the user is redirected to the sign-in page** when they sign out or when their session expires.
+
+The component below will initialize a listener that updates us with the current authentication state:
+- If the user is logged in but the access token has changed, we refresh the page to get a new access token
+- If the user is logged out, we redirect the user to the path passed as the `redirectTo` parameter
+
+---
+
+To do so, we create a client component named `AuthChangeListener.tsx` at `components/AuthChangeListener.tsx`:
+
+```tsx title="components/AuthChangeListener.tsx"
+'use client';
+
+import { useCallback, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { User } from '@supabase/supabase-js';
+import useSupabase from '../lib/supabase/use-supabase';
+
+function AuthRedirectListener({
+  children,
+  user,
+  redirectTo,
+  privatePages,
+}: React.PropsWithChildren<{
+  user: User | undefined;
+  redirectTo?: string;
+  privatePages: string[];
+}>) {
+  const client = useSupabase();
+  const router = useRouter();
+  const redirectUserAway = useRedirectUserAway(privatePages);
+
+  useEffect(() => {
+    // keep this running for the whole session
+    // unless the component was unmounted, for example, on log-outs
+    const listener = client.auth.onAuthStateChange((state, user) => {
+      // log user out if user is falsy
+      if (!user && redirectTo) {
+        return redirectUserAway(redirectTo);
+      }
+    });
+
+    // destroy listener on un-mounts
+    return () => listener.data.subscription.unsubscribe();
+  }, [user, client.auth, redirectUserAway, redirectTo, router]);
+
+  return children;
+}
+
+export default function AuthChangeListener({
+  children,
+  user,
+  redirectTo,
+  privatePages = [`/dashboard`, `/new`, `/subscription`],
+}: React.PropsWithChildren<{
+  user: User | undefined;
+  redirectTo?: string;
+  privatePages?: string[];
+}>) {
+  const shouldActivateListener = typeof window !== 'undefined';
+
+  // we only activate the listener if
+  // we are rendering in the browser
+  if (!shouldActivateListener) {
+    return <>{children}</>;
+  }
+
+  return (
+    <AuthRedirectListener
+      privatePages={privatePages}
+      user={user}
+      redirectTo={redirectTo}
+    >
+      {children}
+    </AuthRedirectListener>
+  );
+}
+
+function useRedirectUserAway(privatePages: string[] = []) {
+  return useCallback(
+    (path: string) => {
+      const currentPath = window.location.pathname;
+
+      // redirect user away from private pages
+      if (privatePages.includes(currentPath)) {
+        window.location.assign(path);
+      }
+    },
+    [privatePages],
+  );
+}
+```
+
+In the above, we make several checks:
+1. We check if we are rendering in the browser. If we are not, **we do not activate the listener**
+2. We **check if the user is logged in**. If they are not, and the user provided a redirect path, **then we redirect them to that path**
+3. We **compare the access token** of the user with the access token in the session. If they **are out of sync**, we **refresh the page** to ensure that we send an up-to-date access token to the Supabase API
+
+### Adding a User Provider
+
+In addition, we will add a new provider that we can use to access the user session.
+
+To do so, we create a new provider at `components/UserSessionContext.tsx`:
+
+```tsx title="components/UserSessionContext.tsx"
+import { createContext } from "react";
+import { User } from "@supabase/supabase-js";
+
+const UserSessionContext = createContext<{
+  user: User | undefined;
+  setUser: React.Dispatch<React.SetStateAction<User | undefined>>;
+}>({
+  user: undefined,
+  setUser: (_) => _,
+});
+
+export default UserSessionContext;
+```
+
+Then, we add a function to provide the `UserSessionContext` component as a client component at `components/UserSessionProvider.tsx`:
+
+```tsx title="components/UserSessionProvider.tsx"
+'use client';
+
+import { useState, useEffect } from 'react';
+import { User } from '@supabase/supabase-js';
+import UserSessionContext from './UserSessionContext';
+
+function UserSessionProvider(props: React.PropsWithChildren<{
+  user: User | undefined;
+}>) {
+  const [user, setUser] = useState<User | undefined>(props.user);
+
+  useEffect(() => {
+    setUser(props.user);
+  }, [props.user]);
+
+  return (
+    <UserSessionContext.Provider value={{ user, setUser }}>
+      {props.children}
+    </UserSessionContext.Provider>
+  );
+}
+
+export default UserSessionProvider;
+```
+
+NB: **it's a client component** because we are using React hooks and the Context API.
+
+Additionally, we create a hook to easily access the user session:
+
+```tsx title="lib/hooks/use-user-session.ts"
+import { useContext } from "react";
+import UserSessionContext from "@/components/UserSessionContext";
+
+function useUserSession() {
+  const { user } = useContext(UserSessionContext);
+
+  return user;
+}
+
+export default useUserSession;
+```
+
+This hook allows us to easily access the user session from any component in our application. Of course, only **client components**.
+
+```tsx {6, 10}
+'use client';
+
+import { useUserSession } from "@/lib/hooks/use-user-session";
+
+function MyComponent() {
+  const session = useUserSession();
+
+  return (
+    <div>
+      <span>Email:</span> <span>{session?.user?.email}</span>
+    </div>
+  );
+}
+```
+
+### Adding the AuthChangeListener and UserSessionProvider to the root layout
+
+Now, we import the components `AuthChangeListener` and `UserSessionProvider` into the **root layout**, so that we can listen to auth changes on every page of the app and provide the user session to the rest of the application.
+
+Below is the updated root layout:
+
+```tsx title="app/layout.tsx" {2, 14, 30, 35-36, 40-41, 6-8}
+import './globals.css'
+import { use } from 'react';
+
+import { Inter } from 'next/font/google'
+import Providers from '@/components/Providers'
+import AuthChangeListener from '@/components/AuthChangeListener';
+import UserSessionProvider from "@/components/UserSessionProvider";
+import loadSession from "@/lib/load-session";
+
+const inter = Inter({ subsets: ['latin'] })
+
+export const runtime = 'edge'; // comment out this line if you want to use Node.js
+
+export const dynamic = 'force-dynamic';
+
+export const metadata = {
+  title: 'Smart Blogging Assistant - Your powerful content assistant',
+  description: 'Smart Blogging Assistant is a tool that helps you write better content, faster. Use AI to generate blog post outlines, write blog posts, and more. Start for free, upgrade when you\'re ready.',
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "white" },
+    { media: "(prefers-color-scheme: dark)", color: "black" },
+  ],
+}
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  const session = use(loadSession());
+
+  return (
+    <html lang="en">
+      <body className={`${inter.className} min-h-screen bg-background`}>
+        <AuthChangeListener session={session}>
+          <UserSessionProvider session={session}>
+            <Providers>
+              {children}
+            </Providers>
+          </UserSessionProvider>
+        </AuthChangeListener>
+      </body>
+    </html>
+  )
+}
+```
+
+The changes above are:
+1. We export the constant `dynamic` and we set it to `force-dynamic`: sometimes Next.js isn't able to infer that a component is dynamic (eg. needs server-side rendering) and we need to force it to be dynamic. Not sure if this is a bug or not, but this is a workaround.
+2. We import the `AuthChangeListener` component from `@/components/AuthChangeListener`
+2. We import the `UserSessionProvider` component from `@/components/UserSessionProvider`
+3. We wrap the `Providers` component with the `AuthChangeListener` and `UserSessionProvider` components
+4. We pass the user session to the `AuthChangeListener` and `UserSessionProvider` components
+
+## Creating the Dashboard Page
+
+Now that we can protect our pages using the `(app)` layout, we can create the dashboard page. We will be using the `(app)` layout to protect the dashboard page, which means that only logged-in users can access it.
+
+To do so, we create the following page at `app/(app)/dashboard/page.tsx`:
+
+```tsx title="app/(app)/dashboard/page.tsx"
+function DashboardPage() {
+  return (
+    <div>
+      <h1>Dashboard</h1>
+    </div>
+  );
+}
+
+export default DashboardPage;
+```
+
+It's time to try it out!
+1. If you are logged in, **you should be able to access the dashboard page**
+2. If you are not logged in, **you should be redirected to the sign-in page**.
+
+---
+
+**This is still bare-bones**, but don't worry - we will be adding more functionality to the dashboard page in the next lesson.
+
+## Adding a Header to the (app) layout
+
+To finish this lesson, we want to add a header above the `(app)` layout, so we can display the user information and let the user sign out if they want to.
+
+### Signing out
+
+To sign out, we will be using the `signOut` function from the Supabase SDK. We can wrap the `signOut` function in a React hook to make it easier to use:
+
+```tsx title="lib/hooks/use-sign-out.ts"
+import { useCallback } from "react";
+import useSupabase from "@/lib/supabase/use-supabase";
+
+function useSignOut() {
+  const client = useSupabase();
+
+  return useCallback(async () => {
+    await client.auth.signOut();
+  }, [client.auth]);
+}
+
+export default useSignOut;
+```
+
+#### Redirecting the user away from the dashboard on sign out
+
+When we call the `client.auth.signOut()` function, the Supabase listener we created earlier `AuthChangeListener` will catch the change and redirect the user to the sign-in page using the hook `useRedirectUserAway`. This is why we don't need to redirect the user ourselves - the listener will do it for us.
+
+### User Dropdown
+
+To allow the user to sign out, we want to create a dropdown that allows the user to sign out. We will be using some new components from Shadcn UI to create the dropdown.
+
+First, we install the required components:
+
+```
+npx shadcn-ui@latest add dropdown-menu avatar
+```
+
+Once installed, we create the component `ProfileDropdown.tsx` at `components/ProfileDropdown.tsx`:
+
+```tsx title="components/ProfileDropdown.tsx"
+"use client";
+
+import { useMemo } from 'react';
+import Link from 'next/link';
+import { User } from '@supabase/supabase-js';
+import { LogOut, LayoutDashboard, UserIcon } from 'lucide-react';
+
+import { Avatar, AvatarFallback } from './ui/avatar';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
+
+import useUserSession from '../lib/hooks/use-user-session';
+import useSignOut from '../lib/hooks/use-sign-out';
+
+function ProfileDropdown() {
+  const user = useUserSession();
+  const signOut = useSignOut();
+  const displayName = useDisplayName(user);
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger>
+        <Avatar>
+          <AvatarFallback>{displayName}</AvatarFallback>
+        </Avatar>
+      </DropdownMenuTrigger>
+
+      <DropdownMenuContent className="w-56">
+        <DropdownMenuLabel>My Account</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <DropdownMenuGroup>
+          <Link href={'/dashboard'}>
+            <DropdownMenuItem>
+              <LayoutDashboard className="mr-2 h-4 w-4" />
+              <span>Dashboard</span>
+            </DropdownMenuItem>
+          </Link>
+        </DropdownMenuGroup>
+        <DropdownMenuItem onClick={signOut}>
+          <LogOut className="mr-2 h-4 w-4" />
+          <span>Log out</span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+export default ProfileDropdown;
+
+function useDisplayName(user: User | undefined) {
+  return useMemo(() => {
+    if (!user) {
+      return null;
+    }
+
+    const { email, user_metadata } = user;
+
+    if (user_metadata?.full_name) {
+      return user_metadata.full_name.substring(0, 2).toUpperCase();
+    }
+
+    if (email) {
+      return email.substring(0, 2).toUpperCase();
+    }
+
+    return <UserIcon className="h-4" />;
+  }, [session]);
+}
+```
+
+#### Displaying the user's name or email
+
+In the above, we are using the `useDisplayName` hook to display the user's name or email obtained using the `useUserSession` hook, which receives data from the `session` injected from the `(app)` layout.
+
+If the user has a full name, we display the first two letters of their name. If they do not, we display the first two letters of their email. If they do not have an email, we display a user icon.
+
+#### Signing out
+
+Then, we use the `useSignOut` hook to sign the user out when they click on the "Log out" button.
+
+NB: the above is a client component because we are using React hooks.
+
+### Creating the Header component
+
+To do so, we create a component called `AppHeader` at `components/AppHeader.tsx` - and we add the following code:
+
+```tsx title="components/AppHeader.tsx" {2, 11}
+import Link from 'next/link';
+import ProfileDropdown from '@/components/ProfileDropdown';
+
+function AppHeader() {
+  return (
+    <div className='p-4 border-b border-gray-40 dark:border-slate-800 flex justify-between items-center'>
+      <Link href='/dashboard'>
+        <b>Smart Blog Writer</b>
+      </Link>
+
+      <ProfileDropdown />
+    </div>
+  )
+}
+
+export default AppHeader;
+```
+
+This component is still bare-bones, but we will be adding more functionality to it in the next lesson. Feel free to change the name of the app to your liking - or add a logo.
+
+Finally, we update the `(app)` layout to use the `AppHeader` component:
+
+```tsx title="app/(app)/layout.tsx"
+import AppHeader from "@/components/AppHeader";
+
+async function AppLayout(props: React.PropsWithChildren) {
+  return (
+    <div className="flex flex-col flex-1 space-y-4">
+      <AppHeader />
+
+      {props.children}
+    </div>
+  );
+}
+
+export default AppLayout;
+```
+
+## Authenticating using Magic Links (Optional)
+
+{% Alert type="info" %}
+This section is optional. Feel free to skip it if you do not want to use magic links.
+{% /Alert %}
+
+In this lesson, we learned how to sign up and sign in using email/password authentication. Now we will learn how to sign up and sign in using magic links. This is optional, so feel free to skip this section if you do not want to use magic links.
+
+Magic links are a great way to sign up and sign in users without requiring them to enter a password. This is great for users who do not want to create a password, or who do not want to remember a password - and are becoming increasingly popular. Thankfully, Supabase makes it a breeze to implement magic links.
+
+### Creating a Magic Link Hook using the Supabase SDK
+
+The first thing we want to do is to create a React Hook to request the magic link using the Supabase SDK using the method `auth.signInWithOtp`.
+
+We can add it at `app/auth/hooks/use-sign-in-with-otp.ts`:
+
+```tsx title="app/auth/hooks/use-sign-in-with-otp.ts"
+import { useMutation } from '@tanstack/react-query';
+import type { SignInWithPasswordlessCredentials } from '@supabase/gotrue-js';
+import useSupabase from '@/lib/supabase/use-supabase';
+
+function useSignInWithOtp() {
+  const client = useSupabase();
+
+  const mutationFn = async (credentials: SignInWithPasswordlessCredentials) => {
+    const result = await client.auth.signInWithOtp(credentials);
+
+    if (result.error) {
+      throw result.error.message;
+    }
+
+    return result.data;
+  };
+
+  return useMutation({ mutationFn });
+}
+
+export default useSignInWithOtp;
+```
+
+Now, we need to create a form to allow the user to sign in using a magic link. Let's create a component named `MagicLinkSignInForm` at `app/auth/components/MagicLinkSignInForm.tsx`.
+
+How does it work? We use the `useSignInWithOtp` hook to sign the user in using the `signInWithOtp` function from the Supabase SDK.
+
+Supabase will send an email to the user with a link that they can click to sign in. When the user clicks on the link, they will be redirected to the URL specified in the `emailRedirectTo` option. In our case, we will be redirecting the user to the `/auth/callback` page, which will be responsible for signing the user in.
+
+```tsx title="app/auth/components/MagicLinkSignInForm.tsx"
+'use client';
+
+import type { FormEventHandler } from 'react';
+import { useCallback } from 'react';
+import { AlertTriangleIcon, CheckIcon } from 'lucide-react';
+
+import useSignInWithOtp from '@/app/auth/hooks/use-sign-in-with-otp';
+
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Button } from '@/components/ui/button';
+
+const MagicLinkSignInForm: React.FC = () => {
+  const signInWithOtpMutation = useSignInWithOtp();
+
+  const onSubmit: FormEventHandler<HTMLFormElement> = useCallback(
+    async (event) => {
+      event.preventDefault();
+
+      const target = event.currentTarget;
+      const data = new FormData(target);
+      const email = data.get('email') as string;
+
+      const origin = window.location.origin;
+      const redirectUrl = [origin, '/auth/callback'].join('');
+
+      await signInWithOtpMutation.mutateAsync({
+        email,
+        options: {
+          emailRedirectTo: redirectUrl,
+        },
+      });
+    },
+    [signInWithOtpMutation],
+  );
+
+  if (signInWithOtpMutation.data) {
+    return <SuccessAlert />;
+  }
+
+  return (
+    <form className={'w-full'} onSubmit={onSubmit}>
+      <div className={'flex flex-col space-y-4'}>
+        <Label className={'flex flex-col space-y-1.5'}>
+          <span>Email</span>
+          <Input
+            required
+            type="email"
+            placeholder={'your@email.com'}
+            name={'email'}
+          />
+        </Label>
+
+        <Button disabled={signInWithOtpMutation.isPending}>
+          {signInWithOtpMutation.isPending
+            ? 'Sending email link...'
+            : 'Send email link'}
+        </Button>
+      </div>
+
+      {signInWithOtpMutation.isError ? <ErrorAlert /> : null}
+    </form>
+  );
+};
+
+export default MagicLinkSignInForm;
+
+function SuccessAlert() {
+  return (
+    <Alert variant="default">
+      <CheckIcon className="h-4 w-4 !text-green-500" />
+      <AlertTitle className="text-green-500">
+        Click on the link in your Email
+      </AlertTitle>
+      <AlertDescription>
+        We sent you a link to your email! Follow the link to sign in.
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+function ErrorAlert() {
+  return (
+    <Alert variant="destructive">
+      <AlertTriangleIcon className="h-4 w-4" />
+      <AlertTitle>Error</AlertTitle>
+      <AlertDescription>
+        We were not able to sign you up. Please try again.
+      </AlertDescription>
+    </Alert>
+  );
+}
+```
+
+If you now want to use the magic link sign-in form, you can import it into the sign-in page at `app/auth/sign-in/page.tsx`:
+
+```tsx title="app/auth/sign-in/page.tsx" {2, 11}
+import Link from 'next/link';
+import MagicLinkSignInForm from '@/app/auth/components/MagicLinkSignInForm';
+
+export const metadata = {
+  title: 'Sign In',
+};
+
+function SignInPage() {
+  return (
+    <div className="flex flex-col space-y-4 w-full">
+      <MagicLinkSignInForm />
+
+      <div className="text-sm">
+        <span>Don&apos;t have an account yet?</span>{' '}
+        <Link className="underline" href="/auth/sign-up">
+          Sign Up
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+export default SignInPage;
+```
+
+NB: we removed the Email/Password sign-in form. If you want, you can tweak the layout to allow the user to choose between the two sign-in methods.
+
+## Authenticating using Social Logins (Optional)
+
+Signing in with oAuth providers is another great way to allow users to sign in. Just like magic links, Supabase makes it very simple.
+
+First, we want to write a React Hook to sign in with a social provider. We will be using the `auth.signInWithOAuth` function from the Supabase SDK to sign in with a social provider.
+
+```tsx title="app/auth/hooks/use-sign-in-with-oauth.ts"
+import { SignInWithOAuthCredentials } from '@supabase/supabase-js';
+import { useMutation } from '@tanstack/react-query';
+import useSupabase from '@/lib/supabase/use-supabase';
+
+function useSignInWithOAuth() {
+  const client = useSupabase();
+
+  const mutationFn = async (credentials: SignInWithOAuthCredentials) => {
+    const response = await client.auth.signInWithOAuth(credentials);
+
+    if (response.error) {
+      throw response.error.message;
+    }
+
+    return response.data;
+  };
+
+  return useMutation({
+    mutationFn
+  });
+}
+
+export default useSignInWithOAuth;
+```
+
+We can now write a component to allow the user to sign in with a social provider. We will be using the `useSignInWithOAuth` hook to sign the user in.
+
+```tsx title="app/auth/components/OAuthSignInProviders.tsx"
+'use client';
+
+import Image from 'next/image';
+
+import { Provider } from '@supabase/gotrue-js';
+import { Button } from '@/components/ui/button';
+import useSignInWithOAuth from '@/app/auth/hooks/use-sign-in-with-oauth';
+
+const OAUTH_PROVIDERS: Provider[] = ['google'];
+
+function OAuthSignInProviders() {
+  const { mutateAsync } = useSignInWithOAuth();
+
+  return (
+    <div className={'flex flex-col space-y-2'}>
+      {OAUTH_PROVIDERS.map((provider) => {
+        return (
+          <OAuthProviderButton
+            key={provider}
+            onClick={async () => {
+              return mutateAsync({ provider });
+            }}
+          >
+            <Image
+              className={'rounded-full absolute left-2'}
+              src={`/${provider}.png`}
+              alt={`${provider} Logo`}
+              width={21}
+              height={21}
+            />
+
+            <span>
+              Sign in with{' '}
+              <span className={'capitalize ml-0.5'}>{provider}</span>
+            </span>
+          </OAuthProviderButton>
+        );
+      })}
+    </div>
+  );
+}
+
+export default OAuthSignInProviders;
+
+function OAuthProviderButton(
+  props: React.PropsWithChildren<{
+    onClick: () => void;
+  }>,
+) {
+  return (
+    <Button
+      className={'flex space-x-2 relative'}
+      variant={'outline'}
+      onClick={props.onClick}
+    >
+      {props.children}
+    </Button>
+  );
+}
+```
+
+NB: we placed an image of the provider logo in the `public` folder. You can find the logos for the providers in the `public` folder of the repository.
+
+To use more providers, you can add them to the `OAUTH_PROVIDERS` array - and the relative icon in the `public` folder using the name of the provider as the filename.
+
+---
+
+Finally, we will add the `OAuthSignInProviders` component to the sign-in page at `app/auth/sign-in/page.tsx`:
+
+```tsx title="app/auth/sign-in/page.tsx" {3, 13-17}
+import Link from 'next/link';
+import EmailPasswordSignInForm from './components/EmailPasswordSignInForm';
+import OAuthSignInProviders from '@/app/auth/components/OAuthSignInProviders';
+
+export const metadata = {
+  title: 'Sign In',
+};
+
+function SignInPage() {
+  return (
+    <div className="flex flex-col space-y-4 w-full">
+      <EmailPasswordSignInForm />
+
+      <hr />
+
+      <OAuthSignInProviders />
+
+      <div className="text-sm">
+        <span>Don&apos;t have an account yet?</span>{' '}
+        <Link className="underline" href="/auth/sign-up">
+          Sign Up
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+export default SignInPage;
+```
+
+The result should look like this:
+
+{% img src="/assets/courses/oauth-login.webp" width="2858" height="1972" /%}
+
+If you want, you can repeat the same process for the sign-up page.
+
+### Enabling Social Logins in Supabase
+
+Setting up Social Logins can take a bit due to the configuration required on the provider's side. As such, I recommend setting this up only when you are ready to deploy your application and finish the course.
+
+Thankfully, [Supabase has a great guide on how to set up Social Logins for each provider](https://supabase.com/docs/guides/auth/social-login/auth-google).
+
+## Demo
+
+Below is a demo of the sign-up, sign-in and sign-out functionality:
+
+{% Video src="/assets/courses/course-auth.mp4" /%}
+
+## Conclusion
+
+Let's summarize what we have learned in this lesson:
+
+1. We learned how to sign up and sign in using email/password authentication
+2. We learned how to use React Query to manage our data fetching and caching
+3. We learned how to use pathless layouts to protect our pages
+4. We learned how to use the `onAuthStateChange` listener to redirect the user to the sign-in page when they sign out
+5. We learned how to use the `useUserSession` hook to access the user session
+6. We learned how to use the `useSignOut` hook to sign the user out
+7. We learned how to use the `ProfileDropdown` component to display the user's name or email and to allow the user to sign out
+
+## What's Next?
+
+Now that we can sign up, sign in and sign out users, we can start building the dashboard page. We will be using the dashboard page to allow the user to interact with the Open AI API, insert records into the database, and retrieve/display data from the database.

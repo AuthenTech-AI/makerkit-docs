@@ -1,0 +1,294 @@
+---
+status: published
+title: Unit Testing with Vitest
+label: Unit Testing
+order: 2
+description: "Run and write unit tests with Vitest. Covers test execution, package-level testing, mocking patterns, and writing effective unit tests."
+---
+
+Unit tests use Vitest and live alongside packages in `packages/**`. They test business logic in isolation without browser or database dependencies.
+
+Vitest runs fast, isolated tests that execute in milliseconds. Use unit tests for pure functions, validators, RBAC rules, and service logic. For testing complete user flows, use [E2E tests with Playwright](./e2e) instead.
+
+## Running Tests
+
+### All Unit Tests
+
+Run every unit test across the monorepo:
+
+```bash
+pnpm test:unit
+```
+
+### Single Package
+
+Test a specific package during development:
+
+```bash
+pnpm --filter @kit/rbac test:unit
+pnpm --filter @kit/organization-core test:unit
+pnpm --filter @kit/billing-ui test:unit
+```
+
+### Watch Mode
+
+Automatically re-run tests when files change:
+
+```bash
+pnpm --filter @kit/rbac test:unit:watch
+```
+
+### Coverage Report
+
+Generate a coverage report for a package:
+
+```bash
+pnpm --filter @kit/rbac test:unit:coverage
+```
+
+## Test Location
+
+Tests live in `__tests__` directories next to the code they test:
+
+```
+packages/rbac/
+├── src/
+│   ├── core/
+│   │   ├── factory.ts
+│   │   └── __tests__/
+│   │       └── factory.test.ts
+│   └── index.ts
+├── vitest.config.ts
+└── package.json
+```
+
+## Writing Tests
+
+### Basic Test Structure
+
+```typescript title="packages/rbac/src/core/__tests__/factory.test.ts"
+import { describe, expect, it } from 'vitest';
+import { defineRBACConfig } from '../factory';
+
+describe('defineRBACConfig', () => {
+  it('should return default resources when no config provided', () => {
+    const config = defineRBACConfig({});
+
+    expect(config.resources).toEqual({
+      ORGANIZATION: 'organization',
+      MEMBER: 'member',
+      INVITATION: 'invitation',
+      BILLING: 'billing',
+      AC: 'ac',
+    });
+  });
+
+  it('should merge custom resources with defaults', () => {
+    const config = defineRBACConfig({
+      resources: {
+        PROJECT: 'project',
+      },
+    });
+
+    expect(config.resources.ORGANIZATION).toBe('organization');
+    expect(config.resources.PROJECT).toBe('project');
+  });
+});
+```
+
+### Testing Error Cases
+
+```typescript
+import { describe, expect, it } from 'vitest';
+import { defineRBACConfig } from '../factory';
+import { RBACConfigError } from '../validator';
+
+describe('validation', () => {
+  it('should throw error for duplicate resource values', () => {
+    expect(() =>
+      defineRBACConfig({
+        resources: {
+          PROJECT: 'organization', // Duplicate
+        },
+      }),
+    ).toThrow(RBACConfigError);
+  });
+});
+```
+
+### Testing Async Code
+
+```typescript
+import { describe, expect, it } from 'vitest';
+import { createInvitation } from '../invitations.service';
+
+describe('createInvitation', () => {
+  it('should create invitation with valid email', async () => {
+    const result = await createInvitation({
+      email: 'test@example.com',
+      organizationId: 'org-123',
+      role: 'member',
+    });
+
+    expect(result.email).toBe('test@example.com');
+    expect(result.status).toBe('pending');
+  });
+});
+```
+
+## Mocking
+
+### Mock Dependencies
+
+```typescript
+import { describe, expect, it, vi } from 'vitest';
+
+// Mock a module
+vi.mock('../email-service', () => ({
+  sendEmail: vi.fn().mockResolvedValue({ success: true }),
+}));
+
+import { sendEmail } from '../email-service';
+import { createInvitation } from '../invitations.service';
+
+describe('createInvitation', () => {
+  it('should send email after creating invitation', async () => {
+    await createInvitation({ email: 'test@example.com' });
+
+    expect(sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'test@example.com',
+      })
+    );
+  });
+});
+```
+
+### Mock Server-Only Imports
+
+The shared Vitest config mocks `server-only` imports automatically:
+
+```typescript title="tooling/vitest/vitest.config.ts"
+export default defineConfig({
+  resolve: {
+    alias: {
+      'server-only': new URL('./src/server-only-mock.ts', import.meta.url)
+        .pathname,
+    },
+  },
+});
+```
+
+This allows testing server-side code without Next.js runtime errors.
+
+## Vitest Configuration
+
+Each package uses a shared base config:
+
+```typescript title="packages/rbac/vitest.config.ts"
+import vitestConfig from '@kit/vitest';
+
+export default vitestConfig;
+```
+
+The shared config in `tooling/vitest/vitest.config.ts`:
+
+```typescript
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: {
+    globals: true,
+    environment: 'node',
+    passWithNoTests: true,
+    pool: 'forks',
+    hookTimeout: 20_000,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
+    },
+  },
+});
+```
+
+## Packages with Tests
+
+The kit includes unit tests for core business logic:
+
+| Package | Tests |
+|---------|-------|
+| `@kit/rbac` | Role-based access control, permissions, hierarchy |
+| `@kit/organization-core` | Memberships, invitations, seat enforcement, custom roles |
+| `@kit/organization-hooks` | Authorization hooks, invitation policies |
+| `@kit/billing-ui` | Billing actions, subscription logic, page loaders |
+| `@kit/better-auth` | Auth context, error handling, billing utilities |
+| `@kit/policies` | Policy evaluation |
+| `@kit/admin` | User admin service |
+| `@kit/shared` | Utility functions, mode detection |
+| `@kit/ui` | Route utilities |
+| `@kit/database` | Rate limiting service |
+| `@kit/account-hooks` | Account deletion service |
+| `@kit/account-ui` | MFA utilities |
+| `@kit/cms/pagefind` | Markdoc utilities |
+
+## Recommended Workflow
+
+1. **While developing**: Run tests for the package you're modifying in watch mode
+    ```bash
+    pnpm --filter @kit/rbac test:unit:watch
+    ```
+2. **Before committing**: Run all affected unit tests
+    ```bash
+    pnpm test:unit
+    ```
+3. **For PRs**: CI runs the full suite automatically
+
+## What to Unit Test
+
+**Good candidates:**
+- Pure functions (validators, transformers, formatters)
+- Business logic (RBAC rules, seat enforcement, subscription calculations)
+- Schema validations
+- Error handling paths
+- Edge cases in algorithms
+
+**Skip unit tests for:**
+- React components (use E2E instead)
+- Database queries (use E2E with real DB)
+- External API integrations (use E2E or mocked integration tests)
+
+## Test Commands Reference
+
+```bash
+# All unit tests (monorepo)
+pnpm test:unit
+
+# Single package
+pnpm --filter @kit/rbac test:unit
+
+# Watch mode
+pnpm --filter @kit/rbac test:unit:watch
+
+# Coverage
+pnpm --filter @kit/rbac test:unit:coverage
+
+# Run specific test file
+pnpm --filter @kit/rbac exec vitest run src/core/__tests__/factory.test.ts
+```
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "How do I run tests in watch mode?", "answer": "Use pnpm --filter @kit/package-name test:unit:watch. Vitest will automatically re-run tests when you save changes to source files or test files."},
+     {"question": "How do I mock a module in Vitest?", "answer": "Use vi.mock() at the top of your test file. For example: vi.mock('@kit/database', () => ({ prisma: { user: { findMany: vi.fn() } } })). Then use vi.mocked() to access the mock."},
+     {"question": "Why do I get 'server-only' import errors in tests?", "answer": "The shared Vitest config automatically mocks server-only imports. Make sure your package's vitest.config.ts extends from @kit/vitest."},
+     {"question": "Should I write unit tests for React components?", "answer": "Generally no. React components are better tested with E2E tests that verify actual user behavior. Reserve unit tests for pure business logic, validators, and utility functions."},
+     {"question": "How do I generate a coverage report?", "answer": "Run pnpm --filter @kit/package-name test:unit:coverage. This generates text output in the terminal plus HTML and JSON reports you can view in a browser."},
+     {"question": "Where should I put my test files?", "answer": "Place tests in a __tests__ directory next to the code they test. Name files with .test.ts suffix. For example: src/services/__tests__/user.service.test.ts"}
+   ]
+/%}
+
+## Next Steps
+
+- [E2E Testing with Playwright](./e2e) for testing complete user flows
+- [Writing Your Own Tests](./writing-tests) for patterns and best practices

@@ -1,104 +1,188 @@
 ---
 status: "published"
-title: "InBucket for local development in the Next.js Supabase Starter Kit"
+title: "Local Email Development with Mailpit"
 label: "Local Development"
-description: "Learn how to use InBucket/Mailpit for local development in the Next.js Supabase Starter Kit."
+description: "Test email functionality locally using Mailpit. Capture authentication emails, team invitations, and transactional emails without sending real messages."
 order: 4
 ---
 
-{% sequence title="Steps to use InBucket/Mailpit" description="Learn how to use InBucket/Mailpit for local development in the Next.js Supabase Starter Kit." %}
-
-[What is Mailpit?](#what-is-mailpit)
-
-[Accessing Mailpit](#accessing-mailpit)
-
-[Common Use Cases](#common-use-cases)
-
-[Production Emails](#mailpit-vs-production-emails)
-
-{% /sequence %}
-
-When developing locally, Supabase uses [InBucket](https://www.inbucket.org/) and [Mailpit](https://mailpit.axllent.org) (depending on which version you're running) to capture emails sent during development. This allows you to test email functionality without actually sending emails to real addresses.
-
-Makerkit also uses InBucket/Mailpit for sending non-authentication emails, such as team invitations and account deletion confirmations.
-
-## What is Mailpit?
-
-Mailpit is a disposable email service that captures all emails sent during local development. It's particularly useful for testing:
-
-- Email verification flows
-- Password reset emails
-- Team invitations
-- Notification emails
-- Any other transactional emails
+When developing locally, Supabase automatically runs [Mailpit](https://mailpit.axllent.org) (or InBucket in older versions) to capture all emails. This lets you test email flows without configuring an email provider or sending real emails.
 
 ## Accessing Mailpit
 
-When running Supabase locally, Mailpit is automatically available at:
+With Supabase running locally, open Mailpit at:
 
-```bash
+```
 http://localhost:54324
 ```
 
-You can view any captured emails by:
+All emails sent during development appear here, including:
 
-1. Going to [http://localhost:54324](http://localhost:54324)
-2. Finding your test email in the list of received messages
+- Supabase Auth emails (verification, password reset, magic links)
+- MakerKit transactional emails (team invitations, account notifications)
+- Any custom emails you send via the mailer
 
-## Common Use Cases
+## How It Works
 
-### 1. Email Verification
+The local Supabase setup configures both Supabase Auth and MakerKit to use the local SMTP server:
 
-When testing user signup:
-1. Create a new account using any email address
-2. Go to InBucket/Mailpit at [http://localhost:54324](http://localhost:54324)
-3. Find the verification email
-4. Click the verification link or copy the verification code
-
-### 2. Password Reset
-
-To test password reset flows:
-1. Request a password reset using any email
-2. Check InBucket/Mailpit for the reset email
-3. Use the reset link or code to complete the process
-
-### 3. Team Invitations
-
-When testing team invites:
-1. Send an invitation to any email address
-2. Check Mailpit for the invitation email
-3. Use the invitation link to accept
-
-## Mailpit vs Production Emails
-
-Remember that Mailpit is for development only. In production:
-
-1. Configure a proper email service provider (Resend, SendGrid, etc.)
-2. Set up proper email authentication (SPF, DKIM)
-3. Use production-grade SMTP settings
-4. Monitor email deliverability
-
-## Using a different email provider during local development
-
-If you want to use a different email provider, switch the environment variables at `apps/web/.env.development`:
-
-```bash
-EMAIL_SENDER=test@makerkit.dev
-EMAIL_PORT=
-EMAIL_HOST=
-EMAIL_TLS=
-EMAIL_USER=
-EMAIL_PASSWORD=
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  Your App       │────▶│  Local SMTP     │────▶│  Mailpit UI     │
+│  (Auth + Mailer)│     │  (port 54325)   │     │  (port 54324)   │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
 ```
 
-NB: Supabase authentication emails will still be sent using InBucket/Mailpit.
+The default development environment variables in `apps/web/.env.development` point to this local SMTP:
 
-## Conclusion
+```bash
+EMAIL_HOST=127.0.0.1
+EMAIL_PORT=54325
+EMAIL_USER=
+EMAIL_PASSWORD=
+EMAIL_TLS=false
+EMAIL_SENDER=test@makerkit.dev
+```
 
-InBucket/Mailpit are valuable tools for local development, allowing you to:
-- Test email flows without sending real emails
-- Iterate quickly on email templates
-- Debug email-related issues
-- Develop with confidence
+## Testing Common Flows
 
-Remember to switch to a proper email provider when deploying to production!
+### Email Verification
+
+1. Start your dev server: `pnpm dev`
+2. Sign up with any email address (e.g., `test@example.com`)
+3. Open [http://localhost:54324](http://localhost:54324)
+4. Find the verification email
+5. Click the verification link
+
+### Password Reset
+
+1. Go to the sign-in page
+2. Click "Forgot password"
+3. Enter any email address
+4. Check Mailpit for the reset email
+5. Click the reset link to set a new password
+
+### Magic Link Login
+
+1. Go to the sign-in page
+2. Enter an email and request a magic link
+3. Check Mailpit for the magic link email
+4. Click the link to sign in
+
+### Team Invitations
+
+1. Sign in and navigate to team settings
+2. Invite a new member by email
+3. Check Mailpit for the invitation email
+4. Use the invitation link to accept
+
+## Using a Real Email Provider Locally
+
+If you need to test with a real email provider during development (e.g., to test email rendering in actual clients), override the development environment variables:
+
+```bash {% title="apps/web/.env.development.local" %}
+# Override to use Resend locally
+MAILER_PROVIDER=resend
+RESEND_API_KEY=re_your-test-key
+EMAIL_SENDER=YourApp <test@yourdomain.com>
+```
+
+Or for SMTP:
+
+```bash {% title="apps/web/.env.development.local" %}
+# Override to use real SMTP locally
+EMAIL_HOST=smtp.your-provider.com
+EMAIL_PORT=587
+EMAIL_USER=your-username
+EMAIL_PASSWORD=your-password
+EMAIL_TLS=true
+EMAIL_SENDER=YourApp <test@yourdomain.com>
+```
+
+{% alert type="default" title="Supabase Auth Emails" %}
+Even with a custom email provider, Supabase Auth emails (verification, password reset) still go through Mailpit. To test Supabase Auth emails with a real provider, you need to configure SMTP in the Supabase dashboard.
+{% /alert %}
+
+## Debugging Email Issues
+
+### Emails Not Appearing in Mailpit
+
+If emails don't show up:
+
+1. **Verify Supabase is running**: Check `supabase status`
+2. **Check the port**: Mailpit runs on port 54324, SMTP on 54325
+3. **Check environment variables**: Ensure `EMAIL_HOST=127.0.0.1` and `EMAIL_PORT=54325`
+4. **Check server logs**: Look for SMTP connection errors in your terminal
+
+### Wrong Email Content
+
+If emails appear but content is wrong:
+
+1. **Check template rendering**: Templates are rendered at send time
+2. **Verify template data**: Log the data passed to `renderXxxEmail()` functions
+3. **Check i18n**: Ensure translation files exist for your locale
+
+### Links Not Working
+
+If email links don't work when clicked:
+
+1. **Check `NEXT_PUBLIC_SITE_URL`**: Should be `http://localhost:3000` for local dev
+2. **Verify route exists**: The link destination route must be implemented
+3. **Check token handling**: For auth emails, ensure `/auth/confirm` route works
+
+## Mailpit Features
+
+Mailpit provides useful features for testing:
+
+### Search and Filter
+
+Filter emails by:
+- Sender address
+- Recipient address
+- Subject line
+- Date range
+
+### View HTML and Plain Text
+
+Toggle between:
+- HTML rendered view
+- Plain text view
+- Raw source
+
+### Check Headers
+
+Inspect email headers for:
+- Content-Type
+- MIME structure
+- Custom headers
+
+### API Access
+
+Mailpit has an API for programmatic access:
+
+```bash
+# List all messages
+curl http://localhost:54324/api/v1/messages
+
+# Get specific message
+curl http://localhost:54324/api/v1/message/{id}
+
+# Delete all messages
+curl -X DELETE http://localhost:54324/api/v1/messages
+```
+
+## Production Checklist
+
+Before deploying, ensure you've:
+
+1. **Configured a production email provider**: Set `MAILER_PROVIDER`, API keys, and SMTP credentials
+2. **Verified sender domain**: Set up SPF, DKIM, and DMARC records
+3. **Updated Supabase Auth templates**: Replace default templates with token-hash versions
+4. **Tested real email delivery**: Send test emails to verify deliverability
+5. **Set up monitoring**: Configure alerts for email delivery failures
+
+## Next Steps
+
+- [Configure your production email provider](/docs/next-supabase-turbo/email-configuration)
+- [Set up Supabase Auth email templates](/docs/next-supabase-turbo/authentication-emails)
+- [Create custom email templates](/docs/next-supabase-turbo/email-templates) with React Email

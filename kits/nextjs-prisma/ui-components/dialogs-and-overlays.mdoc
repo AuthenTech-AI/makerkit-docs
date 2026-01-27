@@ -1,0 +1,249 @@
+---
+status: "published"
+title: "Dialogs & Overlays"
+label: "Dialogs & Overlays"
+order: 5
+description: "Modal dialogs, drawers, popovers, and overlay components."
+---
+
+Use `Dialog` for focused modal interactions, `AlertDialog` for destructive action confirmations, `Drawer` or `Sheet` for slide-out panels, `Popover` for anchored floating content, and `DropdownMenu`/`ContextMenu` for action menus. All overlay components handle focus trapping, keyboard navigation, and backdrop clicks.
+
+This guide is part of the [UI Components](./overview) documentation.
+
+Overlay components are UI elements that appear above the main content layer, capturing user attention for focused interactions while maintaining context through backdrop dimming and focus management.
+
+- **Use Dialog when:** displaying forms, settings, or content that needs focus. - **Use AlertDialog when:** confirming destructive actions (delete, cancel subscription). 
+- **Use Drawer/Sheet when:** showing secondary content that doesn't block the main view. 
+- **Use Popover when:** providing contextual info anchored to an element. 
+- **If unsure:** Dialog for forms, AlertDialog for deletions.
+
+## Dialog
+
+Modal dialog for focused interactions.
+
+```typescript
+import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose } from '@kit/ui/dialog';
+```
+
+```tsx
+<Dialog>
+  <DialogTrigger asChild>
+    <Button>Open Dialog</Button>
+  </DialogTrigger>
+  <DialogContent>
+    <DialogHeader>
+      <DialogTitle>Dialog Title</DialogTitle>
+      <DialogDescription>
+        This is a description of the dialog content.
+      </DialogDescription>
+    </DialogHeader>
+    <div className="py-4">
+      Dialog body content
+    </div>
+    <DialogFooter>
+      <DialogClose asChild>
+        <Button variant="outline">Cancel</Button>
+      </DialogClose>
+      <Button>Confirm</Button>
+    </DialogFooter>
+  </DialogContent>
+</Dialog>
+```
+
+### Controlled Dialog
+
+```tsx
+const [open, setOpen] = useState(false);
+
+<Dialog open={open} onOpenChange={setOpen}>
+  <DialogContent>
+    {/* content */}
+  </DialogContent>
+</Dialog>
+```
+
+## Alert Dialog
+
+Confirmation dialog for destructive actions.
+
+```typescript
+import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from '@kit/ui/alert-dialog';
+```
+
+```tsx
+<AlertDialog>
+  <AlertDialogTrigger asChild>
+    <Button variant="destructive">Delete</Button>
+  </AlertDialogTrigger>
+  <AlertDialogContent>
+    <AlertDialogHeader>
+      <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+      <AlertDialogDescription>
+        This action cannot be undone.
+      </AlertDialogDescription>
+    </AlertDialogHeader>
+    <AlertDialogFooter>
+      <AlertDialogCancel>Cancel</AlertDialogCancel>
+      <AlertDialogAction>Delete</AlertDialogAction>
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>
+```
+
+## Drawer
+
+Slide-out panel from screen edge.
+
+```typescript
+import { Drawer, DrawerTrigger, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerFooter, DrawerClose } from '@kit/ui/drawer';
+```
+
+```tsx
+<Drawer>
+  <DrawerTrigger asChild>
+    <Button>Open Drawer</Button>
+  </DrawerTrigger>
+  <DrawerContent>
+    <DrawerHeader>
+      <DrawerTitle>Drawer Title</DrawerTitle>
+      <DrawerDescription>Drawer description</DrawerDescription>
+    </DrawerHeader>
+    <div className="p-4">
+      Drawer content
+    </div>
+    <DrawerFooter>
+      <Button>Submit</Button>
+      <DrawerClose asChild>
+        <Button variant="outline">Cancel</Button>
+      </DrawerClose>
+    </DrawerFooter>
+  </DrawerContent>
+</Drawer>
+```
+
+## Sheet
+
+Side panel overlay (similar to drawer).
+
+```typescript
+import { Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@kit/ui/sheet';
+```
+
+```tsx
+<Sheet>
+  <SheetTrigger asChild>
+    <Button>Open Sheet</Button>
+  </SheetTrigger>
+  <SheetContent side="right">
+    <SheetHeader>
+      <SheetTitle>Sheet Title</SheetTitle>
+      <SheetDescription>Sheet description</SheetDescription>
+    </SheetHeader>
+    <div className="py-4">
+      Sheet content
+    </div>
+  </SheetContent>
+</Sheet>
+```
+
+Supports `side` prop: `"top"`, `"right"`, `"bottom"`, `"left"`.
+
+## Popover
+
+Floating content anchored to trigger.
+
+```typescript
+import { Popover, PopoverTrigger, PopoverContent } from '@kit/ui/popover';
+```
+
+```tsx
+<Popover>
+  <PopoverTrigger asChild>
+    <Button variant="outline">Open Popover</Button>
+  </PopoverTrigger>
+  <PopoverContent>
+    <div className="space-y-2">
+      <h4 className="font-medium">Popover Title</h4>
+      <p className="text-sm text-muted-foreground">
+        Popover content goes here.
+      </p>
+    </div>
+  </PopoverContent>
+</Popover>
+```
+
+## Dropdown Menu
+
+Menu triggered by button click.
+
+```typescript
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuLabel } from '@kit/ui/dropdown-menu';
+```
+
+```tsx
+<DropdownMenu>
+  <DropdownMenuTrigger asChild>
+    <Button variant="outline">
+      Options
+      <ChevronDown className="ml-2 h-4 w-4" />
+    </Button>
+  </DropdownMenuTrigger>
+  <DropdownMenuContent>
+    <DropdownMenuLabel>Actions</DropdownMenuLabel>
+    <DropdownMenuSeparator />
+    <DropdownMenuItem>Edit</DropdownMenuItem>
+    <DropdownMenuItem>Duplicate</DropdownMenuItem>
+    <DropdownMenuSeparator />
+    <DropdownMenuItem className="text-destructive">
+      Delete
+    </DropdownMenuItem>
+  </DropdownMenuContent>
+</DropdownMenu>
+```
+
+## Context Menu
+
+Right-click menu.
+
+```typescript
+import { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem } from '@kit/ui/context-menu';
+```
+
+```tsx
+<ContextMenu>
+  <ContextMenuTrigger className="flex h-32 w-full items-center justify-center rounded border border-dashed">
+    Right click here
+  </ContextMenuTrigger>
+  <ContextMenuContent>
+    <ContextMenuItem>Copy</ContextMenuItem>
+    <ContextMenuItem>Paste</ContextMenuItem>
+    <ContextMenuItem>Delete</ContextMenuItem>
+  </ContextMenuContent>
+</ContextMenu>
+```
+
+In MakerKit, we use Dialog for all settings forms and AlertDialog exclusively for delete confirmations. This consistency helps users build muscle memory - they know AlertDialog always means "this is destructive."
+
+## Common Pitfalls
+
+- **Dialog not closing after action**: Controlled dialogs need `onOpenChange` to handle close state. Call `setOpen(false)` in your action handler or use `DialogClose` wrapper.
+- **Missing asChild on triggers**: Triggers need `asChild` prop when wrapping custom buttons: `<DialogTrigger asChild><Button>Open</Button></DialogTrigger>`.
+- **Form submission closing dialog**: Form onSubmit prevents dialog close by default. Use controlled state and close after successful submission.
+- **Popover z-index issues**: Popovers inside other overlays may render behind. Use `style={{ zIndex: 100 }}` on PopoverContent if needed.
+- **AlertDialog vs Dialog confusion**: Use AlertDialog only for destructive confirmations. For forms or complex content, use Dialog.
+- **Dropdown menu item not clickable**: DropdownMenuItem needs an onClick handler or be wrapped with `asChild` around a Link/Button.
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "When should I use Dialog vs AlertDialog?", "answer": "Use Dialog for forms, settings, and general modals. Use AlertDialog specifically for destructive action confirmations (delete, cancel) that need explicit user acknowledgment."},
+     {"question": "How do I close a dialog programmatically?", "answer": "Use controlled mode with useState: const [open, setOpen] = useState(false). Call setOpen(false) after your action completes."},
+     {"question": "What's the difference between Drawer and Sheet?", "answer": "They're similar slide-out panels. Drawer is typically mobile-friendly with swipe gestures. Sheet supports positioning on any side via the side prop."},
+     {"question": "Why isn't my Popover appearing?", "answer": "Ensure PopoverTrigger wraps an interactive element and uses asChild if wrapping a Button. Check that the trigger element is visible and not disabled."},
+     {"question": "How do I prevent dialog close on backdrop click?", "answer": "Dialog doesn't have this built-in. Use onOpenChange to conditionally prevent close, or use AlertDialog which requires explicit button clicks."}
+   ]
+/%}
+
+---
+
+**Next:** [Data Display →](./data-display)

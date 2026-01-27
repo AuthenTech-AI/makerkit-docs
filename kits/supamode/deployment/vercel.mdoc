@@ -66,4 +66,43 @@ At `apps/app/vercel.json`, you need to replace the `<api-project-url>` (provided
 }
 ```
 
-NB: You need to replace `<api-project-url>` with the URL of the Hono API project that you deployed in Vercel.
+Replace `<api-project-url>` with the URL of your deployed Hono API project (e.g., `https://supamode-api.vercel.app`).
+
+## Deployment Checklist
+
+Before going live, verify:
+
+- [ ] Both projects deploy without errors
+- [ ] API health check returns 200: `https://your-api.vercel.app/api/v1/health`
+- [ ] Frontend loads and shows login page
+- [ ] You can sign in with a test account
+- [ ] API calls from frontend work (check browser console for errors)
+- [ ] OAuth providers redirect correctly (if configured)
+
+## Common Issues
+
+### "Invalid API key" Error
+
+- Verify `SUPABASE_ANON_KEY` matches your Supabase project
+- Ensure the key is set in the correct Vercel project (API, not frontend)
+
+### API Calls Returning 404
+
+- Confirm the `vercel.json` rewrite points to the correct API URL
+- Check the API project is deployed and accessible
+- Verify the API project's root directory is set to `apps/api`
+
+### CORS Errors
+
+- Set `APP_URL` in the API project to your frontend's Vercel URL
+- Include the full URL with protocol: `https://supamode.vercel.app`
+
+{% faq
+   title="Frequently Asked Questions"
+   items=[
+     {"question": "Why do I need two separate Vercel projects?", "answer": "The frontend is a static Vite build, while the API requires a Node.js runtime. Vercel handles these differently. Two projects allow independent scaling and deployment."},
+     {"question": "Can I use a custom domain?", "answer": "Yes. Add custom domains in Vercel's project settings. Update APP_URL in the API project and VITE_SITE_URL in the frontend to match your domain."},
+     {"question": "How do I handle environment variable changes?", "answer": "Update variables in Vercel's project settings. The API picks up changes on the next request. The frontend requires a rebuild, which Vercel triggers automatically."},
+     {"question": "Why is Framework Preset 'Other' required for the API?", "answer": "Vercel's Hono preset assumes a different project structure. Using 'Other' with our vercel.json configuration ensures the API builds and routes correctly."}
+   ]
+/%}
